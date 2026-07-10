@@ -181,6 +181,14 @@ assembler_step <- function(obj) {
   assembler_append_history(obj)
 }
 
+##' Set the initial traits (and optional birth rates) on an empty assembler.
+##'
+##' @title Set traits on an assembler
+##' @param obj An \code{assembler} object with an empty community.
+##' @param traits A trait matrix (see \code{\link{trait_matrix}}).
+##' @param birth_rate Optional birth rate(s); if \code{NULL} a default is used.
+##' @return The updated \code{assembler} object.
+##' @export
 assembler_set_traits <- function(obj, traits, birth_rate=NULL) {
   if (length(obj$community) > 0L) {
     stop("This is for an empty community only")
