@@ -131,6 +131,7 @@ community_fitness_landscape_bayesopt <- function(community, bounds = community$b
 }
 
 fitness_surrogate_start <- function(archive = NULL) {
+  requireNamespace("mlr3learners", quietly = TRUE) # registers the "regr.km" learner
   mlr3mbo::srlrn(mlr3::lrn("regr.km", covtype = "matern3_2", control = list(trace = FALSE)), archive = archive)
 }
 
