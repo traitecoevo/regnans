@@ -67,6 +67,16 @@ community_start <- function(bounds,
   ret
 }
 
+##' Add one or more strategies (residents) to a \code{community}.
+##'
+##' @title Add strategies to a community
+##' @param obj A \code{community} object (see \code{\link{community_start}}).
+##' @param traits A trait matrix (see \code{\link{trait_matrix}}) giving the
+##'   traits of the strategies to add.
+##' @param birth_rate Optional birth rate(s) for the added strategies; if
+##'   \code{NULL} a default is used.
+##' @return The updated \code{community} object.
+##' @export
 community_add <- function(obj, traits, birth_rate=NULL) {
 
   if (is.null(birth_rate)) {

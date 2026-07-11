@@ -1,5 +1,11 @@
-
-
+##' Default \code{plant} FF16 parameters tuned for community-assembly runs.
+##'
+##' @title Default plant parameters for assembly
+##' @param hmat Height at maturation.
+##' @param max_patch_lifetime Maximum patch lifetime.
+##' @param fixed_RA If \code{TRUE}, use a fixed reproductive allocation.
+##' @return A \code{plant} \code{Parameters} object.
+##' @export
 plant_default_assembly_pars <- function(hmat = 10, max_patch_lifetime = 60, fixed_RA = FALSE) {
   p <- scm_base_parameters("FF16")
   p$strategy_default$a_l1 <- 2.17
