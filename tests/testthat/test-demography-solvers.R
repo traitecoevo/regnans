@@ -66,3 +66,104 @@ test_that("a three-resident community also solves to the analytic equilibrium", 
   expect_equal(as.numeric(comm$birth_rate), target, tolerance = 1e-5)
   expect_equal(comm$resident_fitness, rep(0, 3), tolerance = 1e-6)
 })
+
+# ---- genuine fixed-point solving -------------------------------------------
+#
+# The DD99 tests above check dispatch and write-back, but the explicit harness
+# hands its equilibrium straight back, so no solver ever has to iterate. These
+# tests use helper-harness-map.R, whose demography runner is a real map with a
+# known fixed point, to check that the root finders actually solve -- including
+# the case they exist for, where the fixed-point iteration is still far from
+# convergence when its step budget runs out.
+
+map_community <- function(map, solver, n0, nsteps = 30) {
+  community_start(bounds(x = c(-2, 2)), harness = harness_map(map),
+                  trait_scale = "linear",
+                  demography_control = demographic_step_control(list(
+                    equilibrium_solver_name = solver,
+                    equilibrium_nsteps = nsteps,
+                    equilibrium_eps = 1e-5))) |>
+    community_add(trait_matrix(rep(0, length(n0)), "x"), birth_rate = n0) |>
+    community_demography()
+}
+
+test_that("the root finders solve a fixed point the iteration has not reached", {
+  # Ricker with r = 1.9 approaches n* = K with multiplier (1 - r) = -0.9, so
+  # after 30 steps it is still ~0.9^30 = 4% of the way out.
+  map <- ricker_map(r = 1.9, K = 10)
+
+  iter <- map_community(map, "equilibrium_iteration", n0 = 4)
+  expect_false(attr(iter, "converged"))
+  expect_gt(abs(as.numeric(iter$birth_rate) - 10), 1e-3)
+
+  for (solver in c("equilibrium_solve_nleqslv", "equilibrium_solve_dfsane")) {
+    sol <- map_community(map, solver, n0 = 4)
+    expect_true(attr(sol, "converged"), info = solver)
+    expect_equal(as.numeric(sol$birth_rate), 10, tolerance = 1e-5, info = solver)
+  }
+})
+
+test_that("the hybrid solver reaches the fixed point the iteration missed", {
+  sol <- map_community(ricker_map(r = 1.9, K = 10), "equilibrium_hybrid", n0 = 4)
+  expect_true(attr(sol, "converged"))
+  expect_equal(as.numeric(sol$birth_rate), 10, tolerance = 1e-5)
+})
+
+test_that("the root finders solve a two-species fixed point", {
+  map <- function(n) c(n[1] * exp(1.5 * (1 - n[1] / 10)),
+                       n[2] * exp(1.5 * (1 - n[2] / 4)))
+  for (solver in c("equilibrium_solve_nleqslv", "equilibrium_solve_dfsane")) {
+    sol <- map_community(map, solver, n0 = c(3, 8))
+    expect_true(attr(sol, "converged"), info = solver)
+    expect_equal(as.numeric(sol$birth_rate), c(10, 4), tolerance = 1e-5,
+                 info = solver)
+  }
+})
+
+# ---- equilibrium_hybrid's extinct-species re-check --------------------------
+#
+# This is the block that was broken: it read `eq_solution$strategies` and called
+# run_scm() on the result, treating a `community` as a plant `Parameters`. It
+# now works off community$birth_rate and the harness connectors, so it runs on
+# any model -- and, crucially, actually runs at all.
+
+## Species 1 is a Ricker (fixed point 10); species 2 declines by the factor
+## `growth_when_rare` when rare and 0.4x when common, so a root finder sends it
+## to zero. If it grows when re-introduced, the solver killed a viable species.
+two_species_map <- function(growth_when_rare) {
+  function(n) {
+    c(n[1] * exp(1.5 * (1 - n[1] / 10)),
+      if (n[2] <= 1e-2) growth_when_rare * n[2] else 0.4 * n[2])
+  }
+}
+
+hybrid_community <- function(growth_when_rare, n0 = c(3, 5), nattempts = 2) {
+  community_start(bounds(x = c(-2, 2)),
+                  harness = harness_map(two_species_map(growth_when_rare)),
+                  trait_scale = "linear",
+                  demography_control = demographic_step_control(list(
+                    equilibrium_solver_name = "equilibrium_hybrid",
+                    equilibrium_nsteps = 30,
+                    equilibrium_nattempts = nattempts,
+                    equilibrium_solver_logN = FALSE,
+                    equilibrium_extinct_birth_rate = 1e-3))) |>
+    community_add(trait_matrix(c(0, 1), "x"), birth_rate = n0) |>
+    community_demography()
+}
+
+test_that("equilibrium_hybrid accepts a solution whose extinction is genuine", {
+  # re-introduced at 1e-3 it shrinks to 5e-4, so the extinction is real
+  sol <- hybrid_community(growth_when_rare = 0.5)
+  expect_true(attr(sol, "converged"))
+  expect_equal(as.numeric(sol$birth_rate[1]), 10, tolerance = 1e-5)
+  expect_lt(as.numeric(sol$birth_rate[2]), 1e-3)
+})
+
+test_that("equilibrium_hybrid rejects a solution that killed a viable species", {
+  # re-introduced at 1e-3 it doubles, so the solver was wrong to zero it; the
+  # hybrid rejects every attempt and falls back on the iteration result, which
+  # keeps species 2 alive. (The rejected attempts warn from the solvers -- that
+  # is the speculative-solve path doing its job.)
+  sol <- suppressWarnings(hybrid_community(growth_when_rare = 2))
+  expect_gt(as.numeric(sol$birth_rate[2]), 1e-3)
+})

@@ -220,28 +220,35 @@ demography_solve_equilibrium_solve <- function(community,
 demography_solve_equilibrium_hybrid <- function(community) {
 
   ctrl <- community$demography_control
-  
+
   attempts <- ctrl$equilibrium_nattempts
 
   ## Then expand this out so that we can try alternating solvers
   solver <- rep(c("nleqslv", "dfsane"), length.out=attempts)
 
+  current <- community
+
   for (i in seq_len(attempts)) {
-    eq_solution_iteration <- demography_solve_equilibrium_iteration(community)
-    
+    eq_solution_iteration <- demography_solve_equilibrium_iteration(current)
+
     converged_it <- isTRUE(attr(eq_solution_iteration, "converged"))
     msg <- sprintf("Iteration %d %s",
                    i, if (converged_it) "converged" else "did not converge")
     plant_log_eq(msg, step="equilibrium_iteration", converged = converged_it, iteration=i)
 
+    ## Carry the iteration's progress forward so the next round starts from
+    ## where this one left off rather than from the original birth rates.
+    current <- eq_solution_iteration
+
     eq_solution <- try(
       demography_solve_equilibrium_solve(
         eq_solution_iteration,
         solver = solver[[i]]
-        )
+        ),
+      silent = TRUE
       )
 
-    converged_sol <- isTRUE(attr(eq_solution, "converged"))
+    converged_sol <- !failed(eq_solution) && isTRUE(attr(eq_solution, "converged"))
 
     msg <- sprintf("Solve %d %s",
                     i, if (converged_sol) "converged" else "did not converge")
@@ -249,21 +256,38 @@ demography_solve_equilibrium_hybrid <- function(community) {
 
     if (converged_sol) {
 
-      # check species with zero eq. birth rate are truly unviable.
-      extinct = purrr::map_lgl(eq_solution$strategies, function(s) s$birth_rate_y == 0.0)
+      ## Check that species the solver sent to zero really are unviable.
+      ##
+      ## NOTE: `eq_solution` is a `community`, not a plant `Parameters` object:
+      ## the equilibrium state lives in `community$birth_rate`, and the model is
+      ## reached through the harness connectors, never through run_scm()
+      ## directly. (Previously this block read `eq_solution$strategies` and
+      ## called run_scm(), which made the whole solver plant-only and broken
+      ## even there.)
+      ## NOTE: equilibrium_extinct_birth_rate is an *absolute* birth rate, so
+      ## what counts as extinct depends on the model's units -- tune it in
+      ## demographic_step_control() when moving between models. It is used the
+      ## same way here as in community_check_for_inviable_strategies(): both the
+      ## threshold below which a species is treated as gone, and the level at
+      ## which it is re-introduced to test that.
+      eps <- ctrl$equilibrium_extinct_birth_rate
+      extinct <- eq_solution$birth_rate < eps
 
       if (any(extinct)) {
-        plant_log_eq("Checking species driven to extinction")
-        
-        ## Add extinct species back at extremely low density and make sure
-        ## that this looks like a legit extinction.
-        p_check <- eq_solution
-        p_check$strategies[extinct]$birth_rate_y <- ctrl$equilibrium_extinct_birth_rate
+        plant_log_eq(sprintf("Checking species %s driven to extinction",
+                             paste(which(extinct), collapse = ", ")),
+                     step = "check extinct", species = which(extinct))
 
-        res <- run_scm(p_check)
+        ## Re-introduce the extinct species at a very low birth rate and take a
+        ## single demographic step: if any of them more than replaces itself,
+        ## the solver has driven a viable species extinct.
+        check <- eq_solution
+        check$birth_rate[extinct] <- eps
+        runner <- community_make_demography_runner(check)
+        offspring_production <- runner(check$birth_rate)
 
         # `next` breaks the loop iterating over solutions and does not return `eq_solution`
-        if (any(res$offspring_production[extinct] > ctrl$equilibrium_extinct_birth_rate)) {
+        if (any(offspring_production[extinct] > eps)) {
           plant_log_eq("Solver drove viable species extinct: rejecting")
           next
         }

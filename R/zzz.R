@@ -6,6 +6,7 @@
 ##' @importFrom purrr map_dbl
 ##' @importFrom dplyr select mutate relocate any_of
 ##' @importFrom ggplot2 ggplot aes aes_string geom_point geom_line geom_abline geom_text scale_x_log10 scale_y_log10 xlab ylab theme_classic theme element_text
+##' @importFrom ggplot2 .data
 ##' @useDynLib regnans, .registration = TRUE
 NULL
 

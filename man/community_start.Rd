@@ -23,8 +23,9 @@ community_start(
 solver. See \code{\link{demographic_step_control}}.}
 
 \item{fitness_control}{List of parameters controlling
-how approximate fitness landscapes are generated. See function
-\code{fitness_control} for an example.}
+how invasion-fitness landscapes are generated. See
+\code{\link{fitness_landscape_control}}. Values given here override the
+defaults; \code{NULL} uses them all.}
 
 \item{model_support}{Model support data passed to the harness (e.g. the
 \code{plant} parameters and control objects).}

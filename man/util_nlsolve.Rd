@@ -4,7 +4,14 @@
 \alias{util_nlsolve}
 \title{Thin wrapper around nleqslv and dfsane}
 \usage{
-util_nlsolve(x, fn, tol = 1e-06, maxit = 100, solver = "nleqslv")
+util_nlsolve(
+  x,
+  fn,
+  tol = 1e-06,
+  maxit = 100,
+  solver = "nleqslv",
+  require_converged = TRUE
+)
 }
 \arguments{
 \item{x}{Starting point}
@@ -18,6 +25,10 @@ absolute and relative)}
 evaluations will likely exceed this.}
 
 \item{solver}{The solver to use.  Either "nleqslv" or "dfsane" for now.}
+
+\item{require_converged}{If \code{TRUE} (the default) a solver that fails to
+converge is an error. Set \code{FALSE} to get the best point found back with
+\code{attr(., "converged") == FALSE} and decide what to do with it.}
 }
 \description{
 Thin wrapper around \code{nleqslv} and \code{dfsane}

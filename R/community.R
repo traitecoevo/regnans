@@ -10,8 +10,9 @@
 ##' @param demography_control List controlling the demography/equilibrium
 ##' solver. See \code{\link{demographic_step_control}}.
 ##' @param fitness_control List of parameters controlling
-##' how approximate fitness landscapes are generated. See function
-##' \code{fitness_control} for an example.
+##' how invasion-fitness landscapes are generated. See
+##' \code{\link{fitness_landscape_control}}. Values given here override the
+##' defaults; \code{NULL} uses them all.
 ##' @param model_support Model support data passed to the harness (e.g. the
 ##' \code{plant} parameters and control objects).
 ##' @param harness A model harness wiring the community to a demographic
@@ -49,6 +50,12 @@ community_start <- function(bounds,
   ## traits that span zero or are naturally additive (e.g. DD99/GK98, whose
   ## optima sit at 0). See community_trait_transform().
   trait_scale <- match.arg(trait_scale)
+
+  ## Fitness-landscape options. Previously left NULL, which made
+  ## community_fitness_landscape() fail on `fitness_control$method` unless the
+  ## caller knew to supply one; now always a complete control list, with any
+  ## user-supplied values overriding the defaults (method = "grid").
+  fitness_control <- fitness_landscape_control(fitness_control)
 
   ret <- list(
     bounds = check_bounds(bounds),

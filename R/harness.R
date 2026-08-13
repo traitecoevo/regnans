@@ -178,6 +178,13 @@ explicit_community_make_demography_runner <- function(community) {
 explicit_community_demography_runner_cleanup <- function(community, runner,
                                                          converged = TRUE) {
   e <- environment(runner)
+  ## demography_solve_equilibrium_solve() wraps the runner when it excludes
+  ## extinct species; the model state lives in the wrapped runner (mirrors
+  ## plant_community_demography_runner_cleanup()).
+  if (is.function(e$runner_full)) {
+    runner <- e$runner_full
+    e <- environment(runner)
+  }
   community$birth_rate <- e$last_offspring_production
   community$fitness_points <- NULL
   attr(community, "converged") <- converged

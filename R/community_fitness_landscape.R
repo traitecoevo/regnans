@@ -1,14 +1,67 @@
+##' Controls how invasion-fitness landscapes are sampled.
+##'
+##' Returns a list of options read by \code{\link{community_fitness_landscape}}
+##' and its methods. Passing a list via \code{control} overrides the defaults;
+##' unknown names are an error. This is the \code{fitness_control} slot of a
+##' \code{community} (see \code{\link{community_start}}), and is the fitness
+##' analogue of \code{\link{demographic_step_control}}.
+##'
+##' Options:
+##' \itemize{
+##'   \item \code{method} --- \code{"grid"} (the default: evenly spaced points on
+##'     the community's trait scale, augmented with the residents) or
+##'     \code{"bayesopt"} (Gaussian-process surrogate via \pkg{mlr3mbo}).
+##'   \item \code{n_evals} --- number of fitness evaluations.
+##'   \item \code{n_init} --- size of the initial design for \code{"bayesopt"}.
+##' }
+##'
+##' @title Options controlling fitness-landscape construction
+##' @param control A list of values to modify from the defaults.
+##' @return A list with elements \code{method}, \code{n_evals}, \code{n_init}.
+##' @author Daniel Falster
+##' @export
+fitness_landscape_control <- function(control = NULL) {
+  defaults <- list(
+    method  = "grid",
+    n_evals = 51,
+    n_init  = 20
+  )
+
+  control <- as.list(control)
+  extra <- setdiff(names(control), names(defaults))
+  if (length(extra) > 0L) {
+    stop("Unknown fitness control parameters ", paste(extra, collapse = ", "))
+  }
+  modifyList(defaults, control)
+}
+
+## Fitness-landscape options for a community, tolerating communities built
+## before fitness_control had a default (or by hand, without going through
+## community_start()).
+community_fitness_control <- function(community) {
+  fitness_landscape_control(community$fitness_control)
+}
+
 ##' Construct a fitness landscape.
 ##'
 ##' @title Fitness Landscape
 ##' @param community A community object
-##' @param method used to construct landscape
+##' @param method used to construct landscape; defaults to
+##' \code{community$fitness_control$method} and falls back to \code{"grid"}
+##' (see \code{\link{fitness_landscape_control}}).
 ##' @param ... additional arguments passed to the chosen landscape method
 ##' (e.g. \code{bounds}, \code{n_evals}).
 ##' @author Daniel Falster
 ##' @rdname community_fitness_landscape
 ##' @export
-community_fitness_landscape <- function(community, method = community$fitness_control$method, ...) {
+community_fitness_landscape <- function(community, method = NULL, ...) {
+
+  ## fitness_control may be NULL on a hand-built community; normalise so
+  ## method/n_evals/n_init always resolve.
+  community$fitness_control <- community_fitness_control(community)
+  if (is.null(method)) {
+    method <- community$fitness_control$method
+  }
 
   if (is.null(community$fitness_function)) {
     community <- community %>% community_demography()

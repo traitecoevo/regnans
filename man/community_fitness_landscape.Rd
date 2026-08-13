@@ -4,16 +4,14 @@
 \alias{community_fitness_landscape}
 \title{Fitness Landscape}
 \usage{
-community_fitness_landscape(
-  community,
-  method = community$fitness_control$method,
-  ...
-)
+community_fitness_landscape(community, method = NULL, ...)
 }
 \arguments{
 \item{community}{A community object}
 
-\item{method}{used to construct landscape}
+\item{method}{used to construct landscape; defaults to
+\code{community$fitness_control$method} and falls back to \code{"grid"}
+(see \code{\link{fitness_landscape_control}}).}
 
 \item{...}{additional arguments passed to the chosen landscape method
 (e.g. \code{bounds}, \code{n_evals}).}

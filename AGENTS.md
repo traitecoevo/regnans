@@ -116,8 +116,10 @@ several, and the connectors dispatch through `community$harness`.
 - `equilibrium_iteration` — **default, working**. Fixed-point iteration of
   incoming→outgoing offspring until `equilibrium_eps` is reached.
 - `equilibrium_solve_nleqslv` / `equilibrium_solve_dfsane` — root-finding via
-  `util_nlsolve` (`R/util_nlsolve.R`). **Partially ported / unverified.**
-- `equilibrium_hybrid` — iterate then root-find. **Broken** (see Known issues).
+  `util_nlsolve` (`R/util_nlsolve.R`). Verified against a known fixed point and
+  against the SCM; worth reaching for when the iteration converges slowly.
+- `equilibrium_hybrid` — iterate then root-find, alternating solvers, rejecting
+  any solution that drove a still-viable species extinct.
 
 After solving, `plant_community_update_fitness_function()` builds the mutant
 invasion-fitness closure on the community.
@@ -130,6 +132,12 @@ invasion-fitness closure on the community.
 - `R/solve_attractors.R` — `community_selection_gradient()`,
   `community_solve_singularity_1D()`. Finite-difference gradients use the
   internal `gradient_points()`/`gradient_extrapolate()` in `R/util_gradient.R`.
+- `R/singularity.R` — `community_solve_singularity()` (N-D root-find on the
+  selection gradient) and `community_classify_singularity()` (CSS / branching
+  point / repeller / Garden of Eden, with eigen-decompositions). Their
+  second-order finite differences (`util_hessian()`, `util_jacobian()`) live
+  beside the gradient helpers in `R/util_gradient.R`. See **Singular
+  strategies** below.
 - `R/assembler.R` — `assembler_start`/`assembler_run`/`assembler_control` drive
   full assembly (births → demography → deaths) over many steps.
 - `R/births*.R`, `R/deaths.R` — add/remove strategies (maximum-fitness or
@@ -168,10 +176,13 @@ here follow current plant terminology.
 
 ## Test baseline
 
-`devtools::test()` is **green: 197 pass, 0 fail, 0 skip, 0 warn** (133 plant +
-64 toy-model/harness). Tests run in parallel (`Config/testthat/parallel: true`);
-`test-solve-attractors.R` dominates the wall-clock as it runs the full SCM per
-`uniroot` step. The `test-harness-*.R` files run no SCM and are fast.
+`devtools::test()` is **green: 401 pass, 0 fail, 0 skip, 0 warn**. Tests run in
+parallel (`Config/testthat/parallel: true`); the `test-plant-smoke*.R` files
+dominate the wall-clock as they are the only ones that run the real SCM. The
+`test-harness-*.R` and `test-singularity.R` files run no SCM and are fast.
+
+(The count has grown as the toy-harness tier has: 197 → 256 → 401. What matters
+is that a change moves it up and moves nothing to FAIL.)
 
 Note: the testthat parallel workers may fail to find `plant` on startup in some
 shells; run `TESTTHAT_PARALLEL=FALSE Rscript -e 'devtools::test()'` if so.
@@ -196,6 +207,25 @@ shells; run `TESTTHAT_PARALLEL=FALSE Rscript -e 'devtools::test()'` if so.
   `tidy_assembly` output shape.
 - `helper-assembly.R` (new) — shared `assembly_model_support(max_patch_lifetime
   = 30)` used by the integration tests (previously inlined in test-community.R).
+- `test-singularity.R` — `community_solve_singularity` (1-D, 2-trait, both
+  solvers, trait scales, edge/validation branches) and
+  `community_classify_singularity`, both against the analytic oracles tabulated
+  under **Singular strategies** below.
+- `test-demography-solvers.R` — all five equilibrium solvers on DD99, plus the
+  genuine fixed-point tests and the `equilibrium_hybrid` extinct-species
+  accept/reject branches built on `helper-harness-map.R`.
+- `helper-harness-map.R` — a test-only harness whose demography runner is an
+  arbitrary map `n -> map(n)`. The shipped toy harnesses return their
+  equilibrium analytically, so no solver ever iterates on them; this one has a
+  real, tunably-slow fixed point, which is what actually tests the root finders.
+- `test-community-plots.R` — `community_plot_fitness_landscape`, forcing
+  `ggplot_build()` so the aesthetics are actually evaluated.
+- `test-plant-smoke-singularity.R` — the SCM anchor for the above: the
+  alternative equilibrium solvers agreeing with the iteration, and the N-D
+  solver plus classifier running on the real model. Deliberately
+  **reference-free** (internal consistency, not pinned trait values) so it
+  survives changes to the plant parameterisation; the pinned references stay in
+  `test-plant-smoke.R`.
 
 The five old test files that called plant's removed API were resolved
 (drop-or-implement, not skipped): `positive_1d` was reimplemented so its test was
@@ -210,19 +240,90 @@ duplicate `test-fitness-support.R` were deleted.
   is now self-contained (uses `sys$fitness_function`) but relies on
   `fitness_slopes`/`maximize_logspace` and is commented as "not very well tested".
   Only 1D fitmax births are exercised.
-- **`equilibrium_hybrid` solver is broken**: it treats the iteration result as a
-  plant `Parameters` (`eq_solution$strategies`) but it is now a `community`, and
-  it passes a `ctrl=` arg that `demography_solve_equilibrium_solve(community,
-  solver)` no longer accepts. Needs reworking for the community object.
-- **`equilibrium_solve_*` (nleqslv/dfsane) are unverified** end-to-end on the
-  community object — only `equilibrium_iteration` has been exercised.
-- **`community_plot_fitness_landscape`** is not working.
-- `fitness_control` has no default (it is `NULL` out of `community_start()`); the
-  fitness-landscape functions that read it should supply sensible defaults.
 - `plant_community_check_for_inviable_strategies` still has a TODO to drop its
   direct plant dependency and reuse the community fitness functions.
-- Two malformed `@param` roxygen tags in `R/community_plots.R` (lines 64, 103)
-  warn on `document()`.
+- `equilibrium_extinct_birth_rate` (`demographic_step_control()`, default `1e-3`)
+  is an **absolute** birth rate, and it now decides who counts as extinct in
+  `equilibrium_hybrid` as well as in the inviable-strategy check. Its meaning
+  depends entirely on the model's units, so it needs re-tuning when the plant
+  parameterisation changes the scale of equilibrium birth rates.
+- The bayesopt/surrogate fitness-landscape method is still uncovered by tests.
+
+### Resolved (see "Singular strategies" below)
+
+- ~~`equilibrium_hybrid` solver is broken~~ — reworked for the `community`
+  object. It read `eq_solution$strategies` and called `run_scm()` on the result,
+  so the extinct-species re-check could not run at all (and would have errored
+  if it had). It now works off `community$birth_rate` and the harness
+  connectors, so it is model-agnostic, and each attempt continues from the
+  previous iteration rather than restarting.
+- ~~`equilibrium_solve_*` (nleqslv/dfsane) are unverified~~ — both verified,
+  no code changes needed. The DD99 tests only checked dispatch (the explicit
+  harness returns its equilibrium directly, so no solver ever iterates);
+  `helper-harness-map.R` adds a harness whose demography runner is a genuine
+  map with a known fixed point, and `test-demography-solvers.R` now shows both
+  solvers reaching it in the case they exist for — where `equilibrium_iteration`
+  runs out of steps first. `test-plant-smoke-singularity.R` anchors all three
+  alternative solvers against the real SCM.
+- ~~`community_plot_fitness_landscape` is not working~~ — fixed. It required a
+  `fitness_surrogate_function` (which only the bayesopt method creates) and read
+  a column literally named `x` from `fitness_points`, whose first column is
+  named after the trait. It now plots grid landscapes, computes one if absent,
+  follows the community's trait scale, and uses the surrogate only when present.
+- ~~`fitness_control` has no default~~ — `fitness_landscape_control()` supplies
+  `method = "grid"`, `n_evals`, `n_init`, and `community_start()` normalises
+  whatever it is given through it. `community_fitness_landscape()` also fills in
+  defaults for communities built by hand.
+- ~~Two malformed `@param` roxygen tags in `R/community_plots.R`~~ —
+  `devtools::document()` now runs clean.
+
+## Singular strategies: solving and classifying (`R/singularity.R`)
+
+`community_solve_singularity_1D()` brackets the scalar selection gradient with
+`uniroot` and is strictly one-trait. Two dimension-agnostic functions sit
+alongside it; both go through the harness connectors only, so they run on the
+toy harnesses exactly as on the plant SCM.
+
+- **`community_solve_singularity(community, x0, bounds, solver, ...)`** —
+  multivariate root-find on `community_selection_gradient()` via `util_nlsolve`
+  (`nleqslv` or `dfsane`). Searches on the community's trait scale (for `"log"`
+  traits the residual is the gradient w.r.t. `log(x)`, far better conditioned).
+  Discards any residents on the way in — a singular point is monomorphic — and
+  returns the community *at* the root, with `attr(., "singularity")`. Candidates
+  are clamped to `bounds`; landing on a bound warns (or errors with
+  `edge_ok = FALSE`), mirroring the 1-D solver.
+- **`community_classify_singularity(community, ...)`** — the second-order
+  conditions, covering 1-D and N-D with one code path (a 1-D result is just
+  1x1 matrices). Returns a `singularity_classification` object:
+  - `hessian` — curvature of invasion fitness in the *mutant* direction, with
+    the resident held fixed. Negative definite = ESS. Computed by
+    `util_hessian()` in one vectorised call to `fitness_function`
+    (`1 + 4k^2` mutant evaluations, cheap).
+  - `jacobian` — derivative of the selection gradient w.r.t. the *resident*.
+    Eigenvalues with negative real parts = convergence stability; a negative
+    definite symmetric part = *strong* convergence stability (any mutational
+    covariance). Computed by `util_jacobian()`, `2k` full equilibrium solves —
+    this dominates the cost.
+  - the four-way `classification`: CSS / branching point / repeller / Garden of
+    Eden, plus `degenerate` when an eigenvalue is within `tol` of zero.
+  - the full eigen-decompositions and, where the point is invadable,
+    `branching_direction` — the leading Hessian eigenvector, i.e. the direction
+    in trait space the population splits along. In a multi-trait problem that
+    direction *is* the result, so it is returned, not just the verdict.
+
+Analytic oracles used in `test-singularity.R` (all reproduced to 1e-4):
+
+| model | Hessian | Jacobian | verdict |
+|---|---|---|---|
+| DD99 | `r(1/σ_C² − 1/σ_K²)` | `−r/σ_K²` | branching iff `σ_C < σ_K` |
+| GK98 (symmetric 3-patch) | `−1/σ² + 2d²/(3σ⁴)` | `−1/σ²` | branching iff `d/σ > √(3/2)` |
+| JJ12 | `< 0` | `< 0` | CSS at `x* = x_opt − aσ²` |
+| `harness_dd99_nd` | `diag(r(1/σ_C,d² − 1/σ_K,d²))` | `diag(−r/σ_K,d²)` | branches along the narrow-kernel axis |
+
+The two-trait DD99 case is the one that matters for multi-trait work: with
+`σ_C = (0.4, 1.5)`, `σ_K = (1, 1)` the Hessian is `diag(5.25, −0.556)` and the
+branching direction is `(1, 0)` — the classifier picks out *which* trait
+disruptive selection acts on.
 
 ## Model harnesses: plant vs fast toy models (#33)
 
