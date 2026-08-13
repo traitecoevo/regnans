@@ -8,9 +8,12 @@
 ##' @export
 plant_default_assembly_pars <- function(hmat = 10, max_patch_lifetime = 60, fixed_RA = FALSE) {
   p <- scm_base_parameters("FF16")
-  p$strategy_default$a_l1 <- 2.17
-  p$strategy_default$a_l2 <- 0.5
-  p$strategy_default$hmat <- hmat
+  ## Biological parameters live under `$pars` (plant #410). Assigning the flat
+  ## name instead attaches an inert list element to the R-side object without
+  ## erroring, so the value never reaches the strategy -- see #45.
+  p$strategy_default$pars$a_l1 <- 2.17
+  p$strategy_default$pars$a_l2 <- 0.5
+  p$strategy_default$pars$hmat <- hmat
   p$max_patch_lifetime <- max_patch_lifetime
   ## Regenerate the default node introduction times to match the (possibly
   ## lowered) patch lifetime. scm_base_parameters() builds these for its own
@@ -22,8 +25,8 @@ plant_default_assembly_pars <- function(hmat = 10, max_patch_lifetime = 60, fixe
     plant::node_schedule_times_default(max_patch_lifetime)
   if(fixed_RA) {
     # Fixed allocation to reproduction
-    p$strategy_default$a_f1 = 0.5
-    p$strategy_default$a_f2 = 0
+    p$strategy_default$pars$a_f1 <- 0.5
+    p$strategy_default$pars$a_f2 <- 0
   }
   p
 }

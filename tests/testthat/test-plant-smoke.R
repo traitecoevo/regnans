@@ -8,6 +8,13 @@
 # physiological model still drives the regnans pipeline, and it pins the
 # reference values for the installed plant (2.0.0.9001).
 #
+# The reference values below were re-blessed when #45 was fixed. Until then
+# plant_default_assembly_pars() set a_l1/a_l2/hmat as flat strategy fields, which
+# since plant #410 are silently ignored, so these tests had been pinning runs
+# with plant's default allometry and hmat rather than the intended assembly
+# parameterisation. The values moved a long way (the 1D attractor from lma ~0.14
+# to ~0.045); that is the bug being corrected, not drift in plant.
+#
 # These are the slow tests in the suite (a few seconds per SCM solve,
 # max_patch_lifetime = 30 via helper-assembly.R). Keep the count small, and
 # prefer cheap gradient checks over full iterative solves where they give the
@@ -23,8 +30,8 @@ test_that("empty community: fundamental niche and fitness peak (SCM)", {
   expect_equal(colnames(vb), c("lower", "upper"))
   expect_lt(vb[, "lower"], vb[, "upper"])
   # reference values for the installed plant (2.0.0.9001)
-  expect_equal(unname(vb[, "lower"]), 0.04045, tolerance = 1e-3)
-  expect_equal(unname(vb[, "upper"]), 0.79930, tolerance = 1e-3)
+  expect_equal(unname(vb[, "lower"]), 0.013091, tolerance = 1e-3)
+  expect_equal(unname(vb[, "upper"]), 1.644165, tolerance = 1e-3)
 
   ff <- plant_community_update_fitness_function(comm)$fitness_function
   expect_gt(ff(exp(mean(log(vb)))), 1)          # clearly positive inside
@@ -51,7 +58,7 @@ test_that("single resident solves to equilibrium, gradient and inviable check (S
   expect_true(attr(comm, "converged"))
   # equilibrium birth rate, reference for plant 2.0.0.9001 (the genuinely
   # iterative equilibrium_iteration fixed point, robust to the starting rate)
-  expect_equal(as.numeric(comm$birth_rate), 0.068455, tolerance = 1e-3)
+  expect_equal(as.numeric(comm$birth_rate), 112.657365, tolerance = 1e-3)
   expect_equal(comm$resident_fitness, 0, tolerance = 1e-4)
 
   # selection gradient is finite at the (non-singular) resident
@@ -69,7 +76,7 @@ test_that("selection gradient brackets the 1D attractor (SCM)", {
   # is exercised fast on the DD99 toy harness. The full iterative solve against
   # the real SCM cost ~45s (it re-solves a resident to equilibrium on every
   # gradient evaluation). Here we only confirm the genuine plant model produces
-  # a *convergent* evolutionary attractor in [0.13, 0.16] (~lma 0.1417 for plant
+  # a *convergent* evolutionary attractor in [0.04, 0.05] (~lma 0.045 for plant
   # 2.0.0.9001): the selection gradient changes sign across the singularity,
   # which brackets it with two equilibrium solves instead of a dozen.
   grad_at <- function(x) {
@@ -81,8 +88,8 @@ test_that("selection gradient brackets the 1D attractor (SCM)", {
     as.numeric(comm$selection_gradient)
   }
 
-  g_lo <- grad_at(0.13)
-  g_hi <- grad_at(0.16)
+  g_lo <- grad_at(0.04)
+  g_hi <- grad_at(0.05)
   expect_true(is.finite(g_lo))
   expect_true(is.finite(g_hi))
   expect_gt(g_lo, 0)   # below the singularity selection pushes lma up,
