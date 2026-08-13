@@ -56,8 +56,6 @@ test_that("community_solve_singularity and the classifier run on the SCM", {
   expect_gt(root, 0.02)                 # strictly inside the bracket, so this
   expect_lt(root, 0.6)                  # is a real root, not a clamped edge
   expect_equal(as.numeric(out$traits), root, tolerance = 1e-8)
-  # the defining property of a singular strategy
-  expect_lt(abs(as.numeric(out$selection_gradient)), 0.5)
 
   cl <- community_classify_singularity(out, d = 1e-2, eps = 1e-2)
   expect_s3_class(cl, "singularity_classification")
@@ -66,6 +64,14 @@ test_that("community_solve_singularity and the classifier run on the SCM", {
   expect_true(is.finite(cl$hessian))
   expect_true(is.finite(cl$jacobian))
   expect_equal(names(cl$traits), "lma")
+
+  # The defining property of a singular strategy, stated scale-free: the Newton
+  # step the remaining gradient implies, |g / J|, is a negligible fraction of
+  # the trait value. (An absolute threshold on the gradient would not survive a
+  # reparameterisation -- the curvature here spans several orders of magnitude
+  # between FF16 parameterisations.)
+  newton_step <- abs(as.numeric(cl$selection_gradient) / as.numeric(cl$jacobian))
+  expect_lt(newton_step, 0.01 * root)
 
   # The plant lma singularity is an evolutionary *attractor*: the selection
   # gradient is positive below it and negative above (test-plant-smoke.R makes

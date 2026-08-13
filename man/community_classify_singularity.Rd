@@ -12,6 +12,7 @@ community_classify_singularity(
   eps = 0.001,
   r_hessian = 2L,
   r_jacobian = 1L,
+  birth_rate = NULL,
   tol = 1e-08
 )
 
@@ -35,6 +36,10 @@ Hessian over. Cheap, so 2 by default.}
 
 \item{r_jacobian}{As \code{r_hessian} for the Jacobian. Each level costs
 \code{2k} demographic solves, so 1 by default.}
+
+\item{birth_rate}{Birth rate to start each resident equilibrium solve from;
+see \code{\link{community_solve_singularity}}. Defaults to the singular
+resident's own equilibrium birth rate, which is normally what you want.}
 
 \item{tol}{Magnitude below which an eigenvalue counts as zero, making the
 classification degenerate rather than forcing a verdict.}

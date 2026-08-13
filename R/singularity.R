@@ -24,34 +24,47 @@ community_clear_residents <- function(community) {
   community_reset(community)
 }
 
+## Every candidate trait is solved to equilibrium from some starting birth rate.
+## Warm-starting matters: `birth_rate_initial` is a fixed 1e-3, but equilibrium
+## birth rates are model- and parameterisation-dependent and can be five orders
+## of magnitude away from it, in which case every solve crawls up from scratch
+## and repeatedly trips the `equilibrium_large_birth_rate_change` schedule reset.
+## Successive candidates sit close together in trait space, so the previous
+## solve's equilibrium is a far better guess than a constant.
+singularity_seed_birth_rate <- function(community, birth_rate = NULL) {
+  if (!is.null(birth_rate)) {
+    return(as.numeric(birth_rate))
+  }
+  br <- community$birth_rate
+  if (nrow(community$traits) == 1L && length(br) == 1L &&
+      is.finite(br) && br > 0) as.numeric(br) else NULL
+}
+
 ## Closure: resident trait vector -> selection gradient at that resident.
 ## Each call introduces the trait as the sole resident, solves the community to
 ## demographic equilibrium, and differentiates invasion fitness in the mutant
 ## direction. The community behind the most recent call is kept so callers can
 ## return it rather than re-solving.
-singularity_gradient_fn <- function(community, dx = 1e-4) {
+singularity_gradient_fn <- function(community, dx = 1e-4, birth_rate = NULL) {
   base <- community_clear_residents(community)
   trait_names <- community$trait_names
   last_community <- NULL
-
-  ## If the incoming community is a solved monomorphic one (as it is when
-  ## classifying), start each equilibrium solve from its birth rate rather than
-  ## from birth_rate_initial: nearby traits have nearby equilibria, so this both
-  ## converges faster and avoids the large-birth-rate-change schedule reset.
-  seed_birth_rate <-
-    if (nrow(community$traits) == 1L && length(community$birth_rate) == 1L &&
-        is.finite(community$birth_rate) && community$birth_rate > 0) {
-      as.numeric(community$birth_rate)
-    } else {
-      NULL
-    }
+  seed_birth_rate <- singularity_seed_birth_rate(community, birth_rate)
 
   fn <- function(x) {
     out <- base |>
-      community_add(trait_matrix(x, trait_names), birth_rate = seed_birth_rate) |>
+      community_add(trait_matrix(x, trait_names),
+                    birth_rate = seed_birth_rate) |>
       community_demography() |>
       community_selection_gradient(dx = dx)
     last_community <<- out
+
+    ## carry this equilibrium forward as the next candidate's starting point
+    br <- as.numeric(out$birth_rate)
+    if (length(br) == 1L && is.finite(br) && br > 0) {
+      seed_birth_rate <<- br
+    }
+
     as.numeric(out$selection_gradient)
   }
   attr(fn, "last") <- function() last_community
@@ -113,6 +126,11 @@ singularity_bounds <- function(bounds, trait_names) {
 ##' @param tol Convergence tolerance passed to the solver.
 ##' @param maxit Maximum solver iterations.
 ##' @param dx Step size for the selection-gradient finite differences.
+##' @param birth_rate Birth rate to start each candidate's equilibrium solve
+##' from. Defaults to the resident's own birth rate if the community has one,
+##' otherwise \code{birth_rate_initial}; thereafter each solve warm-starts from
+##' the previous one. Worth setting when the model's equilibrium birth rates are
+##' far from \code{birth_rate_initial}.
 ##' @param edge_ok Is it (not) an error if the solution lands on the edge of
 ##' \code{bounds}?
 ##' @return The \code{community} at the singular strategy: one resident, solved
@@ -126,7 +144,7 @@ singularity_bounds <- function(bounds, trait_names) {
 community_solve_singularity <- function(community, x0 = NULL, bounds = NULL,
                                         solver = c("nleqslv", "dfsane"),
                                         tol = 1e-6, maxit = 100, dx = 1e-4,
-                                        edge_ok = TRUE) {
+                                        birth_rate = NULL, edge_ok = TRUE) {
   solver <- match.arg(solver)
   trait_names <- community$trait_names
   k <- length(trait_names)
@@ -160,7 +178,8 @@ community_solve_singularity <- function(community, x0 = NULL, bounds = NULL,
     k, paste(trait_names, collapse = ", "),
     paste(signif(x0, 5), collapse = ", "), solver))
 
-  gradient <- singularity_gradient_fn(community, dx = dx)
+  gradient <- singularity_gradient_fn(community, dx = dx,
+                                      birth_rate = birth_rate)
 
   ## Residual in search coordinates z: dS/dz = dS/dx * dx/dz. For a log trait
   ## scale dx/dz = x, so the residual is the gradient with respect to log(x) --
@@ -266,6 +285,9 @@ community_solve_singularity <- function(community, x0 = NULL, bounds = NULL,
 ##' Hessian over. Cheap, so 2 by default.
 ##' @param r_jacobian As \code{r_hessian} for the Jacobian. Each level costs
 ##' \code{2k} demographic solves, so 1 by default.
+##' @param birth_rate Birth rate to start each resident equilibrium solve from;
+##' see \code{\link{community_solve_singularity}}. Defaults to the singular
+##' resident's own equilibrium birth rate, which is normally what you want.
 ##' @param tol Magnitude below which an eigenvalue counts as zero, making the
 ##' classification degenerate rather than forcing a verdict.
 ##' @return An object of class \code{singularity_classification}: a list with
@@ -281,7 +303,7 @@ community_solve_singularity <- function(community, x0 = NULL, bounds = NULL,
 community_classify_singularity <- function(community, dx = 1e-4,
                                            d = 1e-3, eps = 1e-3,
                                            r_hessian = 2L, r_jacobian = 1L,
-                                           tol = 1e-8) {
+                                           birth_rate = NULL, tol = 1e-8) {
 
   trait_names <- community$trait_names
   k <- length(trait_names)
@@ -311,7 +333,8 @@ community_classify_singularity <- function(community, dx = 1e-4,
   H_eigen <- eigen(H_sym, symmetric = TRUE)
 
   ## --- convergence stability: how the gradient responds to the resident -----
-  gradient <- singularity_gradient_fn(community, dx = dx)
+  gradient <- singularity_gradient_fn(community, dx = dx,
+                                      birth_rate = birth_rate)
   g0 <- gradient(x)
   J <- util_jacobian(gradient, x, d = d, eps = eps, r = r_jacobian)
   dimnames(J) <- list(trait_names, trait_names)

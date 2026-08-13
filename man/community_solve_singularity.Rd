@@ -12,6 +12,7 @@ community_solve_singularity(
   tol = 1e-06,
   maxit = 100,
   dx = 1e-04,
+  birth_rate = NULL,
   edge_ok = TRUE
 )
 }
@@ -33,6 +34,12 @@ community's bounds.}
 \item{maxit}{Maximum solver iterations.}
 
 \item{dx}{Step size for the selection-gradient finite differences.}
+
+\item{birth_rate}{Birth rate to start each candidate's equilibrium solve
+from. Defaults to the resident's own birth rate if the community has one,
+otherwise \code{birth_rate_initial}; thereafter each solve warm-starts from
+the previous one. Worth setting when the model's equilibrium birth rates are
+far from \code{birth_rate_initial}.}
 
 \item{edge_ok}{Is it (not) an error if the solution lands on the edge of
 \code{bounds}?}
