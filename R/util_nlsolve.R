@@ -7,8 +7,12 @@
 ##' @param maxit Maximum number of iterations.  The number of function
 ##' evaluations will likely exceed this.
 ##' @param solver The solver to use.  Either "nleqslv" or "dfsane" for now.
+##' @param require_converged If \code{TRUE} (the default) a solver that fails to
+##' converge is an error. Set \code{FALSE} to get the best point found back with
+##' \code{attr(., "converged") == FALSE} and decide what to do with it.
 ##' @export
-util_nlsolve <- function(x, fn, tol=1e-6, maxit=100, solver="nleqslv") {
+util_nlsolve <- function(x, fn, tol=1e-6, maxit=100, solver="nleqslv",
+                         require_converged=TRUE) {
   solver <- match.arg(solver, c("nleqslv", "dfsane"))
 
   res <- switch(solver,
@@ -16,7 +20,7 @@ util_nlsolve <- function(x, fn, tol=1e-6, maxit=100, solver="nleqslv") {
                 dfsane=util_nlsolve_dfsane(x, fn, tol, maxit),
                 stop("Unknown solver ", solver))
 
-  if (!attr(res, "converged")) {
+  if (require_converged && !attr(res, "converged")) {
     stop(sprintf("Solver has likely failed: code=%d, msg: %s",
                  attr(res, "code"), attr(res, "message")),
          immediate.=TRUE)

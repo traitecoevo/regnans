@@ -47,3 +47,48 @@ test_that("community_fitness_landscape rejects an unknown method", {
   expect_error(community_fitness_landscape(comm, method = "nope"),
                "Unknown fitness landscape method")
 })
+
+# ---- fitness_control defaults ----------------------------------------------
+#
+# community_start() used to leave fitness_control NULL, so
+# community_fitness_landscape() failed on `fitness_control$method` unless the
+# caller happened to know to supply one.
+
+test_that("fitness_landscape_control fills in defaults and rejects unknowns", {
+  ctrl <- fitness_landscape_control()
+  expect_equal(ctrl$method, "grid")
+  expect_true(is.numeric(ctrl$n_evals) && ctrl$n_evals > 1)
+  expect_true(is.numeric(ctrl$n_init))
+
+  expect_equal(fitness_landscape_control(list(n_evals = 7))$n_evals, 7)
+  # overriding one option leaves the others at their defaults
+  expect_equal(fitness_landscape_control(list(n_evals = 7))$method, "grid")
+  expect_error(fitness_landscape_control(list(nope = 1)),
+               "Unknown fitness control parameters")
+})
+
+test_that("community_start supplies a working fitness_control by default", {
+  comm <- community_start(bounds(x = c(-2, 2)),
+                          harness = harness_dd99(x0 = 0, sigma_K = 1,
+                                                 sigma_C = 0.4),
+                          trait_scale = "linear")
+  expect_equal(comm$fitness_control$method, "grid")
+
+  # the whole point: this used to fail with a NULL `method`
+  out <- comm |>
+    community_add(trait_matrix(0.5, "x"), birth_rate = 100) |>
+    community_demography() |>
+    community_fitness_landscape()
+  expect_s3_class(out$fitness_points, "tbl_df")
+  expect_gte(nrow(out$fitness_points), fitness_landscape_control()$n_evals)
+})
+
+test_that("a community built without going through community_start still works", {
+  comm <- dd99_resident(n_evals = 8) |>
+    community_add(trait_matrix(0.5, "x"), birth_rate = 100) |>
+    community_demography()
+  comm$fitness_control <- NULL
+  out <- community_fitness_landscape(comm)
+  expect_equal(out$fitness_control$method, "grid")
+  expect_s3_class(out$fitness_points, "tbl_df")
+})

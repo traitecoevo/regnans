@@ -2,27 +2,42 @@
 % Please edit documentation in R/community_plots.R
 \name{community_plot_fitness_landscape}
 \alias{community_plot_fitness_landscape}
-\title{Plot fitness landscape}
+\title{Plot an invasion-fitness landscape}
 \usage{
 community_plot_fitness_landscape(
   community,
   label = NA,
-  xlim = community$bounds,
-  ylim = c(-20, 20)
+  xlim = NULL,
+  ylim = NULL
 )
 }
 \arguments{
-\item{community}{XXXX}
+\item{community}{A \code{community} object.}
 
-\item{label}{XXX}
+\item{label}{Optional label drawn in the top-left corner (e.g. an assembly
+step number).}
 
-\item{xlim}{XXX}
+\item{xlim}{Length-2 trait range for the x axis. Defaults to the community's
+bounds.}
 
-\item{ylim}{XXX}
+\item{ylim}{Optional length-2 fitness range. Applied with
+\code{coord_cartesian()} so points outside it are clipped rather than
+dropped; \code{NULL} (the default) lets the data set the range.}
 }
 \value{
-community_landscape returns one plot, history_landscape returns plots length of timeseries
+A \code{ggplot} object.
 }
 \description{
-Plot fitness landscape
+Plots the sampled fitness landscape held on a community
+(\code{community$fitness_points}, from
+\code{\link{community_fitness_landscape}}), with the residents marked and the
+zero-fitness line that separates trait values that can invade from those that
+cannot. If the landscape has not been computed yet it is computed here.
+}
+\details{
+Where the community carries a Gaussian-process surrogate (the
+\code{"bayesopt"} landscape method) the surrogate's smooth prediction is
+drawn over the sampled points; otherwise the sampled points are joined
+directly. The x axis follows the community's trait scale --- log for the
+strictly positive plant traits, linear for traits spanning zero.
 }

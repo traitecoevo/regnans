@@ -1,14 +1,26 @@
-migrated_on: 2026-06-23
+migrated_on: 2026-08-13
+plant_version: 2.0.0.9002
 plant_ref: develop (post-#459; build_schedule/run_scm_collect/scm_base_control removed)
 applied_breaking_changes:
   - scm-consolidation        # build_schedule -> run_scm(refine_schedule=TRUE); run_scm_collect -> run_scm(collect=TRUE)
   - control-defaults         # scm_base_control() -> control(); fast settings now the Control() default
   - strategy-api-rename      # strategy_list -> generate_strategy(p first, birth_rate=); mutant_parameters -> add_mutant(p first, birth_rate=) [2026-06-28]
   - strategy-default-pars    # strategy_default traits moved under $pars: strategy_default[trait] -> strategy_default$pars[trait] [2026-06-28]
+non_breaking_changes:
+  - ff16-allocation-reaction-norm  # FF16_Pars gains a_f4 (shade delay) and a_f5 (shade cap), both defaulting to 0 [2026-08-13]
 notes: >-
   run_scm() call sites already used named args, so the arg-order change needed
   no edits. The build_schedule() site in R/community_plant.R relied on
   attr(p_new, "offspring_production"); migrated to read scm$parameters and
-  scm$offspring_production off the SCM object. Migrated expressions verified
-  against installed plant; full test suite not run (missing `grader` dependency,
-  pre-existing on this WIP branch).
+  scm$offspring_production off the SCM object.
+
+  2026-08-13: bumped the recorded baseline from 2.0.0.9001 to the installed
+  2.0.0.9002 and started a non_breaking_changes section. FF16 gains a_f4 and
+  a_f5, a reproductive-allocation reaction norm on canopy openness; both default
+  to 0.0 and reproduce the existing FF16 behaviour exactly, so nothing in
+  regnans changes. They need no hyperparameter work to be used as traits here:
+  generate_strategy() writes every trait-matrix column into pars and
+  FF16_hyperpar passes through columns it does not generate. Note that as of
+  this entry the *installed* plant 2.0.0.9002 does not yet carry them (the FF16
+  change is on a plant branch); this records the interface regnans assumes, and
+  the assumption is safe either way because the parameters are additive.
