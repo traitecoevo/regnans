@@ -78,6 +78,56 @@ harness_provides <- function(harness, what = NULL) {
   what %in% provides
 }
 
+##' Make an explicit harness reach its equilibrium numerically.
+##'
+##' The reference models return their resident equilibrium in closed form (or
+##' from their own internal solver), so the package's equilibrium solvers never
+##' iterate on them and nothing about warm starts, seeding or convergence is
+##' exercised. This wrapper replaces the equilibrium with the model's own
+##' generation-to-generation dynamics,
+##' \deqn{n_{t+1} = n_t \exp(s(x; x, n_t)),}
+##' where \eqn{s} is the model's invasion fitness of each resident against the
+##' current community --- for GK98 this is its soft-selection recursion (Eq. 19),
+##' for JJ12 the territory recursion, for GM99 the seeds-per-seed return; for
+##' DD99, whose fitness is a per-capita rate, it is a unit time step. The fixed
+##' point is the same equilibrium, now found by whichever solver
+##' \code{\link{demographic_step_control}} selects, from whatever starting
+##' density it is given. Use it to test and time the solvers on models whose
+##' answers are known.
+##'
+##' @title Numerical equilibrium for an explicit harness
+##' @param harness A harness from \code{\link{harness_explicit}} or one of the
+##' shipped reference models.
+##' @return The harness, iterating its own dynamics for the equilibrium.
+##' @author Daniel Falster
+##' @export
+harness_numerical <- function(harness) {
+  if (!inherits(harness, "harness_explicit")) {
+    stop("harness_numerical() applies to explicit (reference-model) harnesses")
+  }
+  harness$mode <- "numerical"
+  harness$fns$make_demography_runner <- explicit_community_make_dynamics_runner
+  harness
+}
+
+## The dynamics map n -> n exp(s(x; x, n)) as a demography runner, recording
+## the same state the equilibrium runner does so the cleanup is shared.
+explicit_community_make_dynamics_runner <- function(community) {
+  h <- community$harness
+  x_res <- explicit_resident_traits(community)
+  last_offspring_production <- NULL
+  history <- list()
+  function(birth_rates) {
+    n <- as.numeric(birth_rates)
+    s <- as.numeric(h$fitness(x_res, x_res, n))
+    out <- n * exp(s)
+    out[!is.finite(out)] <- 0
+    last_offspring_production <<- out
+    history[[length(history) + 1L]] <<- list(`in` = birth_rates, out = out)
+    out
+  }
+}
+
 ##' Supply finite-difference derivatives for whatever a harness lacks.
 ##'
 ##' The methods in this package are written against exact derivatives of
@@ -508,6 +558,9 @@ print.harness <- function(x, ...) {
   cat(sprintf("<harness: %s>\n", paste(class(x)[-length(class(x))], collapse = ", ")))
   if (inherits(x, "harness_plant")) {
     cat(sprintf("  plant model: %s (plant %s)\n", x$model, x$version))
+  }
+  if (identical(x$mode, "numerical")) {
+    cat("  equilibrium: iterated from the model's own dynamics\n")
   }
   if (!is.null(x$pars)) {
     flat <- vapply(x$pars, function(v) paste(format(v), collapse = ","), character(1))
