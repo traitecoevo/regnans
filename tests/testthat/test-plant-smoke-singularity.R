@@ -31,8 +31,8 @@ test_that("the alternative equilibrium solvers agree with iteration (SCM)", {
   ref <- solve_with("equilibrium_iteration")
   expect_true(attr(ref, "converged"))
 
-  for (solver in c("equilibrium_solve_nleqslv", "equilibrium_solve_dfsane",
-                   "equilibrium_hybrid")) {
+  for (solver in c("equilibrium_solve_newton", "equilibrium_solve_nleqslv",
+                   "equilibrium_solve_dfsane", "equilibrium_hybrid")) {
     got <- solve_with(solver)
     expect_true(attr(got, "converged"), info = solver)
     expect_equal(as.numeric(got$birth_rate), as.numeric(ref$birth_rate),

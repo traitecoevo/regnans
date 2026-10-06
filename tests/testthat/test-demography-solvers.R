@@ -30,7 +30,8 @@ solve_with <- function(solver, x = c(-0.5, 0.5)) {
 test_that("every equilibrium solver recovers the analytic DD99 equilibrium", {
   target <- dd99_equilibrium(c(-0.5, 0.5), dd99_pars)
   solvers <- c("model", "equilibrium_iteration", "equilibrium_hybrid",
-               "equilibrium_solve_nleqslv", "equilibrium_solve_dfsane")
+               "equilibrium_solve_newton", "equilibrium_solve_nleqslv",
+               "equilibrium_solve_dfsane")
   for (s in solvers) {
     comm <- solve_with(s)
     expect_true(attr(comm, "converged"), info = s)
@@ -104,11 +105,35 @@ test_that("the root finders solve a fixed point the iteration has not reached", 
   expect_false(attr(iter, "converged"))
   expect_gt(abs(as.numeric(iter$birth_rate) - 10), 1e-3)
 
-  for (solver in c("equilibrium_solve_nleqslv", "equilibrium_solve_dfsane")) {
+  for (solver in c("equilibrium_solve_newton", "equilibrium_solve_nleqslv", "equilibrium_solve_dfsane")) {
     sol <- map_community(map, solver, n0 = 4)
     expect_true(attr(sol, "converged"), info = solver)
     expect_equal(as.numeric(sol$birth_rate), 10, tolerance = 1e-5, info = solver)
   }
+  # Newton gets there in a handful of map evaluations where the iteration
+  # needed more than its 30-step budget
+  newton <- map_community(map, "equilibrium_solve_newton", n0 = 4)
+  expect_lt(attr(newton, "n_calls"), 15L)
+  expect_equal(dim(newton$demography_state$jacobian), c(1L, 1L))
+})
+
+test_that("a carried-over Jacobian saves the finite-difference pass on the next solve", {
+  map <- function(n) c(n[1] * exp(1.5 * (1 - n[1] / 10)),
+                       n[2] * exp(1.5 * (1 - n[2] / 4)))
+  first <- map_community(map, "equilibrium_solve_newton", n0 = c(3, 8))
+  expect_equal(dim(first$demography_state$jacobian), c(2L, 2L))
+  again <- first
+  again$birth_rate <- c(3, 8)
+  again <- community_demography(again)
+  expect_equal(as.numeric(again$birth_rate), c(10, 4), tolerance = 1e-5)
+  # two finite-difference evaluations saved
+  expect_lte(attr(again, "n_calls"), attr(first, "n_calls") - 2L)
+  # a hint for a different number of residents is discarded, not misused
+  one <- map_community(ricker_map(r = 1.5, K = 10), "equilibrium_solve_newton", n0 = 4)
+  one$demography_state <- first$demography_state
+  one$birth_rate <- 4
+  one <- community_demography(one)
+  expect_equal(as.numeric(one$birth_rate), 10, tolerance = 1e-5)
 })
 
 test_that("the hybrid solver reaches the fixed point the iteration missed", {
@@ -120,7 +145,7 @@ test_that("the hybrid solver reaches the fixed point the iteration missed", {
 test_that("the root finders solve a two-species fixed point", {
   map <- function(n) c(n[1] * exp(1.5 * (1 - n[1] / 10)),
                        n[2] * exp(1.5 * (1 - n[2] / 4)))
-  for (solver in c("equilibrium_solve_nleqslv", "equilibrium_solve_dfsane")) {
+  for (solver in c("equilibrium_solve_newton", "equilibrium_solve_nleqslv", "equilibrium_solve_dfsane")) {
     sol <- map_community(map, solver, n0 = c(3, 8))
     expect_true(attr(sol, "converged"), info = solver)
     expect_equal(as.numeric(sol$birth_rate), c(10, 4), tolerance = 1e-5,

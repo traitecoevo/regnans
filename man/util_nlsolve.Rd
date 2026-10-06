@@ -2,7 +2,7 @@
 % Please edit documentation in R/util_nlsolve.R
 \name{util_nlsolve}
 \alias{util_nlsolve}
-\title{Thin wrapper around nleqslv and dfsane}
+\title{Solve a nonlinear system}
 \usage{
 util_nlsolve(
   x,
@@ -10,26 +10,62 @@ util_nlsolve(
   tol = 1e-06,
   maxit = 100,
   solver = "nleqslv",
-  require_converged = TRUE
+  require_converged = TRUE,
+  jac = NULL,
+  J0 = NULL,
+  refresh = 10L,
+  max_step = Inf
 )
 }
 \arguments{
-\item{x}{Starting point}
+\item{x}{Starting point.}
 
-\item{fn}{Function to solve}
+\item{fn}{Function to solve: returns a residual vector of the same length.}
 
-\item{tol}{Tolerance (for \code{nleqslv} this will be both
-absolute and relative)}
+\item{tol}{Tolerance on both the residual and the step (for
+\code{nleqslv} this is \code{xtol} and \code{ftol}).}
 
-\item{maxit}{Maximum number of iterations.  The number of function
+\item{maxit}{Maximum number of iterations. The number of function
 evaluations will likely exceed this.}
 
-\item{solver}{The solver to use.  Either "nleqslv" or "dfsane" for now.}
+\item{solver}{\code{"nleqslv"}, \code{"dfsane"} or \code{"newton"}.}
 
 \item{require_converged}{If \code{TRUE} (the default) a solver that fails to
 converge is an error. Set \code{FALSE} to get the best point found back with
 \code{attr(., "converged") == FALSE} and decide what to do with it.}
+
+\item{jac}{Optional exact Jacobian function of \code{fn}, used by
+\code{newton} and \code{nleqslv}.}
+
+\item{J0}{Optional starting Jacobian approximation for \code{newton}, e.g.
+the one a previous nearby solve returned.}
+
+\item{refresh}{For \code{newton}: recompute the Jacobian by finite
+differences every this many steps (Broyden updates in between).}
+
+\item{max_step}{For \code{newton}: the largest change in any coordinate a
+single step may make, before the line search. Far from the root a Newton
+step can be huge (in log density, a factor of \eqn{e^{1000}}); capping it
+keeps the iterates where the residual is well behaved.}
+}
+\value{
+The solution with attributes \code{y} (residual), \code{iter},
+\code{feval}, \code{code}, \code{message}, \code{converged},
+\code{solver}, and for \code{newton} also \code{jacobian}.
 }
 \description{
-Thin wrapper around \code{nleqslv} and \code{dfsane}
+Solve a nonlinear system.
+}
+\details{
+One wrapper over three root finders, so the equilibrium code chooses by
+name: \code{nleqslv} (Broyden or Newton with its own line search),
+\code{dfsane} (derivative-free spectral method) and \code{newton}, the
+package's own Newton--Broyden iteration. \code{newton} evaluates a
+finite-difference Jacobian once (or takes an exact one from \code{jac}, or
+a starting approximation from \code{J0}), then updates it by Broyden's
+rank-one formula after every step and refreshes it by finite differences
+only when a line search fails or every \code{refresh} steps. Each Newton
+step is damped by backtracking on the residual norm. Its final Jacobian is
+returned in \code{attr(., "jacobian")}, which lets the next solve of a
+nearby problem start from it and skip the finite-difference pass.
 }

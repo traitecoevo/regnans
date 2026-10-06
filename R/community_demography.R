@@ -43,8 +43,8 @@ demographic_step_control <- function(control=NULL) {
     # which solver community_demography() dispatches to:
     #   "model" (the equilibrium the harness supplies itself, where it can),
     #   "single_step", "equilibrium_iteration",
-    #   "equilibrium_solve_nleqslv", "equilibrium_solve_dfsane",
-    #   "equilibrium_hybrid".
+    #   "equilibrium_solve_newton", "equilibrium_solve_nleqslv",
+    #   "equilibrium_solve_dfsane", "equilibrium_hybrid".
     # NULL means the harness's default, resolved by community_start(): "model"
     # for the reference models, "equilibrium_iteration" for plant.
     equilibrium_solver_name = NULL,
@@ -76,8 +76,8 @@ demographic_step_control <- function(control=NULL) {
 }
 
 equilibrium_solver_names <- c("model", "single_step", "equilibrium_iteration",
-                              "equilibrium_solve_nleqslv", "equilibrium_solve_dfsane",
-                              "equilibrium_hybrid")
+                              "equilibrium_solve_newton", "equilibrium_solve_nleqslv",
+                              "equilibrium_solve_dfsane", "equilibrium_hybrid")
 
 ## The solver a community uses: what its control names, or the harness's
 ## default where the control leaves it open.
@@ -96,8 +96,13 @@ community_equilibrium_solver <- function(community) {
 ##' (see \code{\link{demographic_step_control}}). Every solver except
 ##' \code{"model"} works from the harness's demography runner, the map from
 ##' resident birth rates to next-generation offspring production: a single
-##' application, fixed-point iteration, root-finding on \eqn{n - f(n)} with
-##' \code{nleqslv} or \code{dfsane}, or the hybrid. \code{"model"} asks the
+##' application, fixed-point iteration, root-finding on \eqn{n - f(n)} with the
+##' package's Newton--Broyden iteration (\code{"equilibrium_solve_newton"}),
+##' \code{nleqslv} or \code{dfsane}, or the hybrid. Fixed-point iteration
+##' slows as the map's multiplier approaches one, which is where strongly
+##' interacting communities live; Newton converges quadratically there, and
+##' carries its Jacobian on the community so the next solve of a nearby
+##' community starts from it (\code{community$demography_state}). \code{"model"} asks the
 ##' harness for its equilibrium directly --- analytic or from the model's own
 ##' internal solver --- which only the reference models can answer; it is their
 ##' default, and plant's is iteration. Afterwards the invasion-fitness closure is rebuilt.
@@ -123,6 +128,7 @@ community_demography <- function(community){
          single_step = demography_single_step(community),
          equilibrium_iteration = demography_solve_equilibrium_iteration(community),
          equilibrium_hybrid = demography_solve_equilibrium_hybrid(community),
+         equilibrium_solve_newton = demography_solve_equilibrium_solve(community, solver = "newton"),
          equilibrium_solve_nleqslv = demography_solve_equilibrium_solve(community, solver = "nleqslv"),
          equilibrium_solve_dfsane = demography_solve_equilibrium_solve(community, solver = "dfsane"),
          stop("Unknown solver ", solver))
@@ -250,10 +256,25 @@ demography_solve_equilibrium_solve <- function(community,
   tol <- ctrl$equilibrium_eps
   ## NOTE: Hard coded minimum of 100 steps here.
   maxit <- max(100, ctrl$equilibrium_nsteps)
-  sol <- util_nlsolve(x0, target, tol = tol, maxit = maxit, solver = solver)
-  
+  ## Newton starts from the Jacobian a previous solve of this community left
+  ## behind, when it is for the same number of residents (nearby residents
+  ## have nearby Jacobians, and Broyden corrects the rest), which saves the
+  ## finite-difference pass.
+  J0 <- community$demography_state$jacobian
+  if (!is.null(J0) && !identical(dim(J0), c(length(x0), length(x0)))) J0 <- NULL
+  ## in log density a Newton step is capped at a factor e^2 per iteration: from
+  ## a cold start the uncapped step overflows, and the line search then crawls
+  sol <- util_nlsolve(x0, target, tol = tol, maxit = maxit, solver = solver,
+                      require_converged = solver != "newton", J0 = J0,
+                      max_step = if (logN) 2 else Inf)
+  if (solver == "newton" && !isTRUE(attr(sol, "converged"))) {
+    warning(sprintf("equilibrium_solve_newton did not converge (%s)", attr(sol, "message")))
+  }
+
   res <- community_demography_runner_cleanup(community, runner, attr(sol, "converged"))
-  
+  if (!is.null(attr(sol, "jacobian"))) {
+    res$demography_state <- list(jacobian = attr(sol, "jacobian"))
+  }
   attr(res, "sol") <- sol
   res
 }

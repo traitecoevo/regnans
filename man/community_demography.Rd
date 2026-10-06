@@ -22,8 +22,13 @@ Dispatches on \code{community$demography_control$equilibrium_solver_name}
 (see \code{\link{demographic_step_control}}). Every solver except
 \code{"model"} works from the harness's demography runner, the map from
 resident birth rates to next-generation offspring production: a single
-application, fixed-point iteration, root-finding on \eqn{n - f(n)} with
-\code{nleqslv} or \code{dfsane}, or the hybrid. \code{"model"} asks the
+application, fixed-point iteration, root-finding on \eqn{n - f(n)} with the
+package's Newton--Broyden iteration (\code{"equilibrium_solve_newton"}),
+\code{nleqslv} or \code{dfsane}, or the hybrid. Fixed-point iteration
+slows as the map's multiplier approaches one, which is where strongly
+interacting communities live; Newton converges quadratically there, and
+carries its Jacobian on the community so the next solve of a nearby
+community starts from it (\code{community$demography_state}). \code{"model"} asks the
 harness for its equilibrium directly --- analytic or from the model's own
 internal solver --- which only the reference models can answer; it is their
 default, and plant's is iteration. Afterwards the invasion-fitness closure is rebuilt.
