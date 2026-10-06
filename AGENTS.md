@@ -160,6 +160,10 @@ invasion-fitness closure on the community.
   `community_tep()`, and their `plot()` methods. `R/parallel.R` holds the one
   `future`-backed map (`regnans_map()`, contiguous `regnans_chunks()`) that
   independent model evaluations go through.
+- `R/canonical.R` — `community_canonical_equation()`: the canonical equation of
+  adaptive dynamics with branching, extinction and Newton polishing of the
+  stationary coalition; `canonical_control()` picks the stepper (`rk23` or the
+  linearly implicit `rosenbrock`), rate, mutational covariance and limits.
 - `R/assembler.R` — `assembler_start`/`assembler_run`/`assembler_control` drive
   full assembly (births → demography → deaths) over many steps.
 - `R/births*.R`, `R/deaths.R` — add/remove strategies (maximum-fitness or
@@ -199,12 +203,12 @@ here follow current plant terminology.
 
 ## Test baseline
 
-`devtools::test()` is **green: 850 pass, 0 fail, 0 skip, 0 warn**. Tests run in
+`devtools::test()` is **green: 902 pass, 0 fail, 0 skip, 0 warn**. Tests run in
 parallel (`Config/testthat/parallel: true`); the `test-plant-smoke*.R` files
 dominate the wall-clock as they are the only ones that run the real SCM. The
 `test-harness-*.R` and `test-singularity.R` files run no SCM and are fast.
 
-(The count has grown as the toy-harness tier has: 197 → 256 → 401 → 537 → 850.
+(The count has grown as the toy-harness tier has: 197 → 256 → 401 → 537 → 902.
 What matters is that a change moves it up and moves nothing to FAIL.)
 
 Note: the testthat parallel workers may fail to find `plant` on startup in some
@@ -257,6 +261,10 @@ shells; run `TESTTHAT_PARALLEL=FALSE Rscript -e 'devtools::test()'` if so.
   finite-difference sources, `harness_fd`, `harness_provides`.
 - `test-derivatives-contract.R` — `harness_check_derivatives` over every shipped
   harness that advertises a derivative, plus a deliberately wrong provider.
+- `test-canonical.R` — the canonical equation on JJ12 (CSS, rate scaling, both
+  steppers agree), DD99 (stable when σ_C > σ_K; branching at x0 into
+  mirror-image daughters when σ_C < σ_K, polished rather than integrated to the
+  coalition), GK98 (the dimorphic coalition the trait-evolution plot shows).
 - `test-plant-smoke-singularity.R` — the SCM anchor for the above: the
   alternative equilibrium solvers agreeing with the iteration, and the N-D
   solver plus classifier running on the real model. Deliberately
