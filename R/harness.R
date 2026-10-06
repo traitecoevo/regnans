@@ -13,8 +13,8 @@
 #   community_viable_bounds()                 viable trait region (empty community)
 #   community_check_for_inviable_strategies() flag residents to drop
 #   community_update_fitness_function()       build the invasion-fitness closure
-#   community_model_equilibrium()             the model's closed-form equilibrium,
-#                                             where it has one (optional)
+#   community_model_equilibrium()             the model's own resident equilibrium,
+#                                             where it can supply one (optional)
 #
 # A harness is a list carrying a `$fns` table of these functions plus any
 # model state; its class is used for printing/dispatch. The demography runner
@@ -66,7 +66,7 @@ community_update_fitness_function <- function(community) {
 community_model_equilibrium <- function(community) {
   f <- community$harness$fns$equilibrium
   if (!is.function(f)) {
-    stop("This harness has no closed-form equilibrium; choose another solver ",
+    stop("This harness supplies no equilibrium of its own; choose another solver ",
          "in demographic_step_control()")
   }
   f(community)
@@ -77,7 +77,8 @@ community_model_equilibrium <- function(community) {
 ##' @title Query a harness's derivatives
 ##' @param harness A \code{harness}.
 ##' @param what \code{"fitness_gradient"}, \code{"fitness_hessian"} or
-##' \code{"equilibrium"} (a closed-form resident equilibrium). With
+##' \code{"equilibrium"} (the model's own resident equilibrium, analytic or
+##' from its own internal solver). With
 ##' \code{NULL}, the names of all it provides.
 ##' @return A logical, or with \code{what = NULL} a character vector.
 ##' @author Daniel Falster
@@ -173,8 +174,9 @@ harness_plant <- function(model = c("FF16", "TF24"),
 ##' A harness for fast toy models with explicitly-supplied fitness/equilibrium.
 ##'
 ##' Implements the connectors generically in terms of two model primitives:
-##' a vectorised invasion-fitness function and a closed-form resident
-##' equilibrium (both typically backed by C++), plus optional derivatives of
+##' a vectorised invasion-fitness function and the model's own resident
+##' equilibrium --- analytic where the model has one, otherwise from the
+##' model's own internal solver (both typically backed by C++) --- plus optional derivatives of
 ##' fitness in the mutant direction. Concrete instances --- \code{harness_dd99},
 ##' \code{harness_gk98}, \code{harness_gm99}, \code{harness_jj12} --- supply
 ##' all of them.
@@ -184,8 +186,8 @@ harness_plant <- function(model = c("FF16", "TF24"),
 ##' recursion (Eq. 19), for JJ12 the territory recursion, for GM99 the
 ##' seeds-per-seed return, for DD99 (a per-capita rate) a unit time step --- so
 ##' every equilibrium solver in \code{\link{demographic_step_control}} can be
-##' run and timed on these models against the closed form. The closed form
-##' itself is the \code{"model"} solver and the default these harnesses
+##' run and timed on these models against the model's own answer. That answer
+##' is the \code{"model"} solver and the default these harnesses
 ##' recommend; \code{community_start()} adopts it unless the control names
 ##' another. "Explicit" refers to the mechanism (the fitness/equilibrium are
 ##' computed directly, not by running the plant SCM), NOT a claim that every
@@ -197,7 +199,7 @@ harness_plant <- function(model = c("FF16", "TF24"),
 ##'     state the equilibrium solver returns), not a plant offspring rate.
 ##'   \item \code{fitness} returns invasion fitness with the resident value ~0
 ##'     (a log ratio for jj12/gk98/gm99; a per-capita rate for dd99).
-##'   \item the \code{"model"} solver returns the closed-form equilibrium in
+##'   \item the \code{"model"} solver returns the model's own equilibrium in
 ##'     one evaluation; every other solver iterates the one-generation map.
 ##' }
 ##'
@@ -280,7 +282,7 @@ explicit_community_make_demography_runner <- function(community) {
   }
 }
 
-## The closed-form resident equilibrium, for the "model" solver.
+## The model's own resident equilibrium, for the "model" solver.
 explicit_community_equilibrium <- function(community) {
   community$harness$equilibrium(explicit_resident_traits(community))
 }
@@ -554,7 +556,7 @@ print.harness <- function(x, ...) {
       if (length(provides) > 0L) paste(provides, collapse = ", ") else "none",
       if (isTRUE(x$fd)) "(finite differences for the rest)" else "", "\n")
   cat("  equilibrium:",
-      if (harness_provides(x, "equilibrium")) "closed form (the 'model' solver)" else "by iterating the demography runner",
+      if (harness_provides(x, "equilibrium")) "supplied by the model (the 'model' solver)" else "by iterating the demography runner",
       "\n")
   invisible(x)
 }

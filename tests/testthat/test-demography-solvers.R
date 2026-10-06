@@ -12,7 +12,7 @@
 #
 # The toy harness's demography runner is its one-generation map, so every
 # solver here genuinely iterates (or root-finds) to the fixed point, as on the
-# plant SCM; the "model" solver returns the closed form directly and is the
+# plant SCM; the "model" solver returns the model's own equilibrium and is the
 # reference. A single step is just that: one generation.
 
 dd99_pars <- list(r = 1, K0 = 500, x0 = 0, sigma_K = 1, sigma_C = 0.4)

@@ -1,5 +1,5 @@
 # The "model" equilibrium solver and the iterated demography of the reference
-# models. The reference harnesses carry a closed-form equilibrium (the "model"
+# models. The reference harnesses supply their own equilibrium (the "model"
 # solver, their default) and a one-generation demography runner that every
 # other solver iterates, so the solvers can be tested against known answers.
 
@@ -32,12 +32,12 @@ test_that("a control that leaves the solver open takes the harness default", {
   expect_error(demographic_step_control(list(equilibrium_solver_name = "newton")), "should be one of")
   expect_error(community_start(bounds(lma = c(0.05, 2)), harness = harness_plant(),
                                demography_control = demographic_step_control(list(equilibrium_solver_name = "model"))),
-               "needs a harness with a closed-form equilibrium")
+               "needs a harness that supplies its own equilibrium")
   expect_true(harness_provides(harness_gk98(), "equilibrium"))
   expect_false(harness_provides(harness_plant(), "equilibrium"))
 })
 
-test_that("the model solver returns the closed form in one evaluation", {
+test_that("the model solver returns the model's own equilibrium in one evaluation", {
   for (cs in cases) {
     comm <- solve_with(cs)
     expect_true(attr(comm, "converged"), info = cs[[1]]$label)
@@ -60,7 +60,7 @@ test_that("iterating the demography reaches the same equilibrium for every model
   }
 })
 
-test_that("every equilibrium solver reaches the closed form through the iterated demography", {
+test_that("every equilibrium solver reaches the model's own equilibrium through the iterated demography", {
   cs <- cases[[4]]
   closed <- solve_with(cs)
   for (solver in c("equilibrium_iteration", "equilibrium_solve_nleqslv",
@@ -98,7 +98,7 @@ test_that("a dimorphic community reaches the same equilibrium either way", {
 
 test_that("print.harness says how the equilibrium is found", {
   out <- paste(utils::capture.output(print(harness_gk98())), collapse = "\n")
-  expect_match(out, "closed form")
+  expect_match(out, "supplied by the model")
   out <- paste(utils::capture.output(print(harness_plant())), collapse = "\n")
   expect_match(out, "iterating the demography runner")
 })

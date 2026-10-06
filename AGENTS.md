@@ -115,8 +115,9 @@ several, and the connectors dispatch through `community$harness`.
 `community_demography(community)` dispatches on
 `demography_control$equilibrium_solver_name`:
 
-- `model` — the harness's closed-form equilibrium, where it has one (the
-  reference models; their default). plant has none.
+- `model` — the equilibrium the harness supplies itself, analytic or from the
+  model's own internal solver (the reference models; their default). plant has
+  none.
 - `single_step` — one demography step, no iteration.
 - `equilibrium_iteration` — **plant's default, working**. Fixed-point iteration of
   incoming→outgoing offspring until `equilibrium_eps` is reached.
@@ -232,7 +233,7 @@ shells; run `TESTTHAT_PARALLEL=FALSE Rscript -e 'devtools::test()'` if so.
 - `helper-harness-map.R` — a test-only harness whose demography runner is an
   arbitrary map `n -> map(n)` with a real, tunably-slow fixed point, which is
   what tests the root finders. (The shipped toy harnesses default to the
-  `"model"` solver — their closed-form equilibrium — but their demography runner
+  `"model"` solver — their own equilibrium — but their demography runner
   is the model's one-generation map, so any other solver genuinely iterates on
   them — `test-demography-model-solver.R`.)
 - `test-pip.R` — `community_pip()` against the closed-form DD99 zero contours

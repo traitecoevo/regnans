@@ -10,7 +10,8 @@ harness_provides(harness, what = NULL)
 \item{harness}{A \code{harness}.}
 
 \item{what}{\code{"fitness_gradient"}, \code{"fitness_hessian"} or
-\code{"equilibrium"} (a closed-form resident equilibrium). With
+\code{"equilibrium"} (the model's own resident equilibrium, analytic or
+from its own internal solver). With
 \code{NULL}, the names of all it provides.}
 }
 \value{

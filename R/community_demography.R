@@ -41,7 +41,7 @@ demographic_step_control <- function(control=NULL) {
   ## follow the current plant terminology.
   defaults <- list(
     # which solver community_demography() dispatches to:
-    #   "model" (the harness's own closed-form equilibrium, where it has one),
+    #   "model" (the equilibrium the harness supplies itself, where it can),
     #   "single_step", "equilibrium_iteration",
     #   "equilibrium_solve_nleqslv", "equilibrium_solve_dfsane",
     #   "equilibrium_hybrid".
@@ -98,9 +98,9 @@ community_equilibrium_solver <- function(community) {
 ##' resident birth rates to next-generation offspring production: a single
 ##' application, fixed-point iteration, root-finding on \eqn{n - f(n)} with
 ##' \code{nleqslv} or \code{dfsane}, or the hybrid. \code{"model"} asks the
-##' harness for its equilibrium directly, which only models with a closed form
-##' (the reference models) can answer; it is their default, and plant's is
-##' iteration. Afterwards the invasion-fitness closure is rebuilt.
+##' harness for its equilibrium directly --- analytic or from the model's own
+##' internal solver --- which only the reference models can answer; it is their
+##' default, and plant's is iteration. Afterwards the invasion-fitness closure is rebuilt.
 ##'
 ##' @title Update demography of community
 ##' @param community A \code{community} object.
@@ -134,7 +134,7 @@ community_demography <- function(community){
   community_update_fitness_function(community)
 }
 
-## The model's own equilibrium, where it has one in closed form. Recorded as a
+## The model's own equilibrium, where it can supply one. Recorded as a
 ## one-evaluation solve so cost accounting stays comparable.
 demography_model_equilibrium <- function(community) {
   n <- as.numeric(community_model_equilibrium(community))

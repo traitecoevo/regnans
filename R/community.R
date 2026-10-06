@@ -60,8 +60,8 @@ community_start <- function(bounds,
   }
   if (identical(demography_control$equilibrium_solver_name, "model") &&
       !is.function(harness$fns$equilibrium)) {
-    stop("The 'model' equilibrium solver needs a harness with a closed-form ",
-         "equilibrium; this one has none")
+    stop("The 'model' equilibrium solver needs a harness that supplies its own ",
+         "equilibrium; this one does not")
   }
 
   ## How trait space is spaced/searched during assembly. "log" suits strictly

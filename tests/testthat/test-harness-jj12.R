@@ -49,7 +49,7 @@ test_that("jj12 fitness is vectorised over mutants", {
 
 # ---- harness object --------------------------------------------------------
 
-test_that("harness_jj12 builds an explicit harness with the connectors and a closed-form equilibrium", {
+test_that("harness_jj12 builds an explicit harness with the connectors and its own equilibrium", {
   h <- harness_jj12(a = 0.1, x_opt = 0, sigma = 10)
   expect_s3_class(h, "harness_jj12")
   expect_s3_class(h, "harness_explicit")

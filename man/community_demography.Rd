@@ -24,9 +24,9 @@ Dispatches on \code{community$demography_control$equilibrium_solver_name}
 resident birth rates to next-generation offspring production: a single
 application, fixed-point iteration, root-finding on \eqn{n - f(n)} with
 \code{nleqslv} or \code{dfsane}, or the hybrid. \code{"model"} asks the
-harness for its equilibrium directly, which only models with a closed form
-(the reference models) can answer; it is their default, and plant's is
-iteration. Afterwards the invasion-fitness closure is rebuilt.
+harness for its equilibrium directly --- analytic or from the model's own
+internal solver --- which only the reference models can answer; it is their
+default, and plant's is iteration. Afterwards the invasion-fitness closure is rebuilt.
 }
 \author{
 Rich FitzJohn, Daniel Falster
