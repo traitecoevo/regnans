@@ -38,7 +38,9 @@ Suggests:
     testthat (>= 3.0.0),
     parallel,
     future,
-    future.apply
+    future.apply,
+    DiceKriging,
+    nloptr
 Encoding: UTF-8
 Config/testthat/edition: 3
 Config/testthat/parallel: true

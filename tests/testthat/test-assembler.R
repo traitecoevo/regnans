@@ -138,3 +138,9 @@ test_that("tidy_assembly tidies an assembly run into one row per resident-step",
   expect_s3_class(ta$traits[[1]], "tbl_df")
   expect_s3_class(ta$fitness_landscape[[1]], "tbl_df")
 })
+
+test_that("maximum-fitness births refuse a community without bounds instead of stopping in the debugger", {
+  control <- assembler_control(list(birth_type = "maximum"))
+  expect_error(regnans:::community_new_types_maximum_fitness(list(bounds = NULL, trait_names = "x"), control),
+               "need trait bounds")
+})
