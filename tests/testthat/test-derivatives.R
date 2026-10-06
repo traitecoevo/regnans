@@ -153,12 +153,120 @@ test_that("community_selection_gradient returns one row per resident", {
                tolerance = 1e-6)
 })
 
-test_that("derivative settings on the community change the stencil", {
-  coarse <- dd99_resident(0.5, derivative_control = list(d_gradient = 0.2,
-                                                         eps_gradient = 0.2))
-  fine <- dd99_resident(0.5)
-  g_coarse <- as.numeric(community_fitness_gradient(coarse))
+test_that("derivative settings on the community change the finite-difference stencil", {
+  # GK98 supplies no derivatives, so its gradient is a finite difference
+  gk98_at <- function(...) {
+    community_start(bounds(x = c(-4, 4)), trait_scale = "linear",
+                    harness = harness_gk98(d = 1.5), ...) |>
+      community_add(trait_matrix(0.7, "x"), birth_rate = 1) |>
+      community_demography()
+  }
+  fine <- gk98_at()
+  coarse <- gk98_at(derivative_control = list(d_gradient = 0.3, eps_gradient = 0.3))
+  reference <- as.numeric(regnans:::fd_fitness_gradient(
+    fine$fitness_function, matrix(0.7), derivative_control(list(r_gradient = 4))))
   g_fine <- as.numeric(community_fitness_gradient(fine))
-  expect_gt(abs(g_coarse + 0.5), abs(g_fine + 0.5))
-  expect_equal(g_coarse, -0.5, tolerance = 0.05)
+  g_coarse <- as.numeric(community_fitness_gradient(coarse))
+  expect_gt(abs(g_coarse - reference), abs(g_fine - reference))
+  expect_equal(g_fine, reference, tolerance = 1e-6)
+  expect_equal(g_coarse, reference, tolerance = 0.1)
+})
+
+# ---- model-supplied derivatives and the finite-difference fill --------------
+
+test_that("harnesses advertise what they can differentiate", {
+  expect_equal(harness_provides(harness_dd99()),
+               c("fitness_gradient", "fitness_hessian"))
+  expect_true(harness_provides(harness_dd99_nd(), "fitness_gradient"))
+  expect_equal(harness_provides(harness_gk98()), character(0))
+  expect_false(harness_provides(harness_jj12(), "fitness_hessian"))
+  expect_error(harness_provides(harness_dd99(), "jacobian"), "should be one of")
+})
+
+test_that("community_start records the source of every derivative", {
+  dd <- dd99_resident(0.5)
+  expect_equal(dd$fitness_derivatives$source,
+               c(fitness_gradient = "model", fitness_hessian = "model"))
+
+  gk <- community_start(bounds(x = c(-4, 4)), trait_scale = "linear",
+                        harness = harness_gk98()) |>
+    community_add(trait_matrix(0.2, "x"), birth_rate = 1) |>
+    community_demography()
+  expect_equal(gk$fitness_derivatives$source,
+               c(fitness_gradient = "finite difference",
+                 fitness_hessian = "finite difference"))
+  expect_true(is.function(gk$fitness_derivatives$gradient))
+  expect_true(is.function(gk$fitness_derivatives$hessian))
+})
+
+test_that("harness_fd is idempotent and required", {
+  h <- harness_fd(harness_gk98())
+  expect_true(h$fd)
+  expect_identical(harness_fd(h), h)
+  expect_error(harness_fd(list()), "needs a harness object")
+
+  bare <- list(bounds = bounds(x = c(-4, 4)), trait_names = "x",
+               traits = trait_matrix(0.2, "x"), birth_rate = 1,
+               demography_control = demographic_step_control(),
+               harness = harness_gk98(), trait_scale = "linear")
+  class(bare) <- "community"
+  bare <- community_demography(bare)
+  expect_error(community_fitness_gradient(bare), "harness_fd")
+})
+
+test_that("DD99 model derivatives agree with finite differences and are exact at the resident", {
+  comm <- dd99_resident(0.5)
+  y <- c(-0.7, 0.1, 0.5, 1.2)
+  g_model <- community_fitness_gradient(comm, y)
+  g_fd <- regnans:::fd_fitness_gradient(comm$fitness_function,
+                                        matrix(y, ncol = 1), derivative_control())
+  expect_equal(unname(g_model[, ]), unname(g_fd[, ]), tolerance = 1e-6)
+  expect_equal(as.numeric(g_model), dd99_dsdy(y, 0.5), tolerance = 1e-12)
+
+  sg <- community_selection_gradient(comm)
+  expect_equal(sg$selection_gradient, -0.5, tolerance = 1e-12)
+
+  H <- community_fitness_hessian(dd99_resident(0, sigma_C = 0.4))
+  expect_equal(as.numeric(H), 1 / 0.4^2 - 1, tolerance = 1e-12)
+})
+
+test_that("DD99 nD derivatives match the analytic slope and curvature", {
+  x <- c(0.5, 0.1); x0 <- c(0.3, -0.5)
+  comm <- community_start(bounds(x1 = c(-2, 2), x2 = c(-2, 2)),
+                          trait_scale = "linear",
+                          harness = harness_dd99_nd(x0 = x0)) |>
+    community_add(trait_matrix(x, c("x1", "x2")), birth_rate = 100) |>
+    community_demography()
+  pts <- rbind(c(0.5, 0.1), c(0.3, -0.5), c(-1, 1))
+  expect_equal(unname(community_fitness_gradient(comm, pts)[, ]),
+               dd99_nd_dsdy(pts, x, x0), tolerance = 1e-12)
+
+  at <- community_start(bounds(x1 = c(-2, 2), x2 = c(-2, 2)),
+                        trait_scale = "linear",
+                        harness = harness_dd99_nd(sigma_C = c(0.4, 1.5))) |>
+    community_add(trait_matrix(c(0, 0), c("x1", "x2")), birth_rate = 100) |>
+    community_demography()
+  expect_equal(unname(community_fitness_hessian(at)),
+               diag(c(1 / 0.4^2 - 1, 1 / 1.5^2 - 1)), tolerance = 1e-12)
+})
+
+test_that("a provider returning the wrong shape is refused", {
+  h <- harness_explicit(
+    fitness = dd99_fitness,
+    equilibrium = function(x_res, pars) dd99_equilibrium(x_res, pars),
+    pars = list(r = 1, K0 = 500, x0 = 0, sigma_K = 1, sigma_C = 0.4),
+    trait_names = "x", label = "bad",
+    fitness_gradient = function(x_mut, x_res, n_res, pars) cbind(x_mut, x_mut))
+  comm <- community_start(bounds(x = c(-2, 2)), trait_scale = "linear",
+                          harness = h) |>
+    community_add(trait_matrix(0.5, "x"), birth_rate = 100) |>
+    community_demography()
+  expect_error(community_fitness_gradient(comm), "must return a 1 by 1 matrix")
+})
+
+test_that("print.harness reports derivatives", {
+  out <- paste(utils::capture.output(print(harness_dd99())), collapse = "\n")
+  expect_match(out, "derivatives: fitness_gradient, fitness_hessian")
+  out <- paste(utils::capture.output(print(harness_fd(harness_gk98()))), collapse = "\n")
+  expect_match(out, "derivatives: none \\(finite differences for the rest\\)")
 })

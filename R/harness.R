@@ -15,7 +15,11 @@
 #   community_update_fitness_function()       build the invasion-fitness closure
 #
 # A harness is a list carrying a `$fns` table of these six functions plus any
-# model state; its class is used for printing/dispatch. Two families ship:
+# model state; its class is used for printing/dispatch. A harness that can
+# differentiate its own fitness says so in `$provides` and sets the matching
+# closures in community$fitness_derivatives when it builds the fitness
+# function; harness_fd() supplies finite differences for the rest (see
+# R/derivatives.R). Two families ship:
 #
 #   harness_plant()    - the full `plant` SCM (the default), specialised by the
 #                        physiological model (FF16 / TF24) and plant package
@@ -53,6 +57,61 @@ community_check_for_inviable_strategies <- function(community) {
 }
 community_update_fitness_function <- function(community) {
   community$harness$fns$update_fitness_function(community)
+}
+
+##' Which derivatives a harness supplies itself.
+##'
+##' @title Query a harness's derivatives
+##' @param harness A \code{harness}.
+##' @param what A derivative name: \code{"fitness_gradient"} or
+##' \code{"fitness_hessian"}. With \code{NULL}, the names of all it provides.
+##' @return A logical, or with \code{what = NULL} a character vector.
+##' @author Daniel Falster
+##' @export
+harness_provides <- function(harness, what = NULL) {
+  provides <- harness$provides
+  if (is.null(provides)) provides <- character(0)
+  if (is.null(what)) {
+    return(provides)
+  }
+  what <- match.arg(what, fitness_derivative_names)
+  what %in% provides
+}
+
+##' Supply finite-difference derivatives for whatever a harness lacks.
+##'
+##' The methods in this package are written against exact derivatives of
+##' invasion fitness (\code{\link{community_fitness_gradient}},
+##' \code{\link{community_fitness_hessian}}). A model that cannot differentiate
+##' itself still works, at the cost and accuracy of finite differences, once its
+##' harness has been through this function: it wraps the harness's
+##' fitness-function connector so that any derivative not provided by the model
+##' is computed by the finite-difference stencils in \code{R/util_gradient.R},
+##' with the settings in \code{\link{derivative_control}}. Derivatives the
+##' model does provide are left alone, and the source of each is recorded in
+##' \code{community$fitness_derivatives$source}.
+##'
+##' \code{\link{community_start}} applies this to every harness, so it is only
+##' needed when building a community by hand. Applying it twice is harmless.
+##'
+##' @title Finite-difference derivatives for a harness
+##' @param harness A \code{harness}.
+##' @return The harness, with its fitness-function connector wrapped.
+##' @author Daniel Falster
+##' @export
+harness_fd <- function(harness) {
+  if (!inherits(harness, "harness")) {
+    stop("harness_fd() needs a harness object")
+  }
+  if (isTRUE(harness$fd)) {
+    return(harness)
+  }
+  model_update <- harness$fns$update_fitness_function
+  harness$fns$update_fitness_function <- function(community) {
+    fd_fill_fitness_derivatives(model_update(community))
+  }
+  harness$fd <- TRUE
+  harness
 }
 
 # ---- plant harness ----------------------------------------------------------
@@ -125,18 +184,32 @@ harness_plant <- function(model = c("FF16", "TF24"),
 ##' @param pars named list of model parameters.
 ##' @param trait_names character vector naming the evolving trait(s).
 ##' @param label short model label (used in the harness class).
+##' @param fitness_gradient optional function(x_mut, x_res, n_res, pars) -> the
+##'   gradient of invasion fitness with respect to the mutant trait(s), one row
+##'   per mutant and one column per trait.
+##' @param fitness_hessian optional function(x_mut, x_res, n_res, pars) -> the
+##'   k by k Hessian of invasion fitness with respect to the mutant trait(s)
+##'   for a single mutant.
 ##' @return a `harness` object
 ##' @author Daniel Falster
 ##' @export
 harness_explicit <- function(fitness, equilibrium, pars, trait_names,
-                             label = "explicit") {
+                             label = "explicit",
+                             fitness_gradient = NULL, fitness_hessian = NULL) {
+  # close pars into the model primitives so connectors call them with (x, ...)
+  with_pars <- function(f) {
+    if (is.null(f)) NULL else function(x_mut, x_res, n_res) f(x_mut, x_res, n_res, pars)
+  }
   h <- list(
     pars        = pars,
     trait_names = trait_names,
     label       = label,
-    # close pars into the model primitives so connectors call them with (x, ...)
-    fitness     = function(x_mut, x_res, n_res) fitness(x_mut, x_res, n_res, pars),
+    fitness     = with_pars(fitness),
     equilibrium = function(x_res) equilibrium(x_res, pars),
+    fitness_gradient = with_pars(fitness_gradient),
+    fitness_hessian  = with_pars(fitness_hessian),
+    provides = fitness_derivative_names[c(!is.null(fitness_gradient),
+                                          !is.null(fitness_hessian))],
     fns = list(
       parameters                    = explicit_community_parameters,
       make_demography_runner        = explicit_community_make_demography_runner,
@@ -201,16 +274,30 @@ explicit_community_update_fitness_function <- function(community) {
   community$resident_fitness <-
     if (nrow(community$traits) > 0L) h$fitness(x_res, x_res, n_res) else numeric()
 
-  community$fitness_function <- function(x) {
+  ## Mutants in the shape the model primitives expect: a plain vector for a
+  ## one-trait model, rows of a k-column matrix otherwise (a bare vector is
+  ## one mutant).
+  model_points <- function(x) {
     if (k == 1L) {
       if (is.matrix(x)) x <- x[, 1]
-      h$fitness(as.numeric(x), x_res, n_res)
+      as.numeric(x)
+    } else if (is.matrix(x)) {
+      x
     } else {
-      # mutants as rows of a k-column matrix (a bare vector is one mutant)
-      xm <- if (is.matrix(x)) x else matrix(x, nrow = 1L)
-      h$fitness(xm, x_res, n_res)
+      matrix(x, nrow = 1L)
     }
   }
+
+  community$fitness_function <- function(x) h$fitness(model_points(x), x_res, n_res)
+
+  der <- list()
+  if (is.function(h$fitness_gradient)) {
+    der$gradient <- function(y, control) h$fitness_gradient(model_points(y), x_res, n_res)
+  }
+  if (is.function(h$fitness_hessian)) {
+    der$hessian <- function(y, control) h$fitness_hessian(model_points(y), x_res, n_res)
+  }
+  community$fitness_derivatives <- der
   community
 }
 
@@ -260,7 +347,9 @@ harness_dd99 <- function(r = 1, K0 = 500, x0 = 0, sigma_K = 1, sigma_C = 0.4,
     equilibrium = function(x_res, pars) dd99_equilibrium(x_res, pars),
     pars        = pars,
     trait_names = trait_name,
-    label       = "dd99"
+    label       = "dd99",
+    fitness_gradient = dd99_fitness_gradient,
+    fitness_hessian  = dd99_fitness_hessian
   )
 }
 
@@ -297,7 +386,9 @@ harness_dd99_nd <- function(r = 1, K0 = 500, x0 = c(0, 0),
     equilibrium = function(x_res, pars) dd99_nd_equilibrium(x_res, pars),
     pars        = pars,
     trait_names = trait_names,
-    label       = "dd99_nd"
+    label       = "dd99_nd",
+    fitness_gradient = dd99_nd_fitness_gradient,
+    fitness_hessian  = dd99_nd_fitness_hessian
   )
 }
 
@@ -415,5 +506,9 @@ print.harness <- function(x, ...) {
     flat <- vapply(x$pars, function(v) paste(format(v), collapse = ","), character(1))
     cat("  parameters:", paste(names(flat), flat, sep = "=", collapse = ", "), "\n")
   }
+  provides <- harness_provides(x)
+  cat("  derivatives:",
+      if (length(provides) > 0L) paste(provides, collapse = ", ") else "none",
+      if (isTRUE(x$fd)) "(finite differences for the rest)" else "", "\n")
   invisible(x)
 }

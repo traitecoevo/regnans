@@ -5,8 +5,13 @@
 # stability -- obtains it here and never from a stencil of its own. This is the
 # one place that decides where a derivative comes from, so that a model able to
 # supply exact derivatives (automatic differentiation in plant, closed forms in
-# the reference models) can do so without any consumer changing. Today the only
-# source is the finite-difference machinery in util_gradient.R.
+# the reference models) can do so without any consumer changing.
+#
+# A harness that can differentiate its fitness sets closures in
+# community$fitness_derivatives when it builds community$fitness_function;
+# harness_fd() fills whatever is missing with the finite-difference machinery
+# in util_gradient.R and records the source of each. Consumers call
+# community_fitness_gradient() and friends and never branch on the source.
 #
 # Conventions: derivatives are with respect to raw trait values, and consumers
 # apply any trait-scale chain rule themselves. `y` is a set of mutant traits
@@ -73,6 +78,10 @@ derivative_control <- function(control = NULL) {
   ret
 }
 
+## The derivative quantities a harness can provide in the mutant direction.
+## Each names a closure `function(y, control)` in community$fitness_derivatives.
+fitness_derivative_names <- c("fitness_gradient", "fitness_hessian")
+
 ## Communities built before derivative_control existed, or by hand in tests,
 ## carry no settings; they get the defaults.
 community_derivative_control <- function(community) {
@@ -106,6 +115,44 @@ community_fitness_function <- function(community) {
   f
 }
 
+community_fitness_derivative <- function(community, what) {
+  fn <- community$fitness_derivatives[[sub("^fitness_", "", what)]]
+  if (!is.function(fn)) {
+    community_fitness_function(community)
+    stop("The community has no ", what, "; its harness was not passed through ",
+         "harness_fd() -- see community_start()")
+  }
+  fn
+}
+
+## Fill in finite-difference closures for any derivative the harness did not
+## supply, and record where each one comes from. Called by harness_fd() right
+## after the harness has built the fitness function.
+fd_fill_fitness_derivatives <- function(community) {
+  f <- community$fitness_function
+  if (!is.function(f)) {
+    return(community)
+  }
+  der <- community$fitness_derivatives
+  if (is.null(der)) der <- list()
+  source <- character(0)
+  if (!is.function(der$gradient)) {
+    der$gradient <- function(y, control) fd_fitness_gradient(f, y, control)
+    source["fitness_gradient"] <- "finite difference"
+  } else {
+    source["fitness_gradient"] <- "model"
+  }
+  if (!is.function(der$hessian)) {
+    der$hessian <- function(y, control) fd_fitness_hessian(f, y, control)
+    source["fitness_hessian"] <- "finite difference"
+  } else {
+    source["fitness_hessian"] <- "model"
+  }
+  der$source <- source
+  community$fitness_derivatives <- der
+  community
+}
+
 ##' Gradient of invasion fitness in the mutant direction.
 ##'
 ##' The derivative of invasion fitness \eqn{s(y)} with respect to the mutant
@@ -125,10 +172,25 @@ community_fitness_function <- function(community) {
 ##' @author Daniel Falster
 ##' @export
 community_fitness_gradient <- function(community, y = community$traits) {
-  y <- derivative_points(y, community$trait_names)
+  trait_names <- community$trait_names
+  k <- length(trait_names)
+  y <- derivative_points(y, trait_names)
   ctrl <- community_derivative_control(community)
-  g <- fd_fitness_gradient(community_fitness_function(community), y, ctrl)
-  dimnames(g) <- list(NULL, community$trait_names)
+
+  g <- community_fitness_derivative(community, "fitness_gradient")(y, ctrl)
+  value <- attr(g, "value")
+  if (!is.matrix(g)) {
+    g <- matrix(as.numeric(g), ncol = k)
+  }
+  if (!is.numeric(g) || !identical(dim(g), c(nrow(y), k))) {
+    stop("fitness_gradient must return a ", nrow(y), " by ", k, " matrix")
+  }
+  if (is.null(value)) {
+    value <- as.numeric(community_fitness_function(community)(y))
+  }
+  g <- matrix(as.numeric(g), nrow(y), k)
+  dimnames(g) <- list(NULL, trait_names)
+  attr(g, "value") <- value
   g
 }
 
@@ -180,11 +242,21 @@ community_fitness_hessian <- function(community, y = community$traits) {
   if (nrow(y) != 1L) {
     stop("community_fitness_hessian takes a single trait point; got ", nrow(y))
   }
+  k <- length(community$trait_names)
   ctrl <- community_derivative_control(community)
-  H <- util_hessian(community_fitness_function(community), y[1, ],
-                    d = ctrl$d_second, eps = ctrl$eps_second, r = ctrl$r_hessian)
+
+  H <- community_fitness_derivative(community, "fitness_hessian")(y, ctrl)
+  if (!is.numeric(H) || length(H) != k * k) {
+    stop("fitness_hessian must return a ", k, " by ", k, " matrix")
+  }
+  H <- matrix(as.numeric(H), k, k)
   dimnames(H) <- list(community$trait_names, community$trait_names)
   H
+}
+
+fd_fitness_hessian <- function(f, y, ctrl) {
+  util_hessian(f, y[1, ], d = ctrl$d_second, eps = ctrl$eps_second,
+               r = ctrl$r_hessian)
 }
 
 ##' Jacobian of the selection gradient with respect to the resident trait.
@@ -221,4 +293,121 @@ community_selection_gradient_jacobian <- function(community, birth_rate = NULL) 
   names(g0) <- trait_names
   attr(J, "selection_gradient") <- g0
   J
+}
+
+##' Check a harness's derivatives against finite differences.
+##'
+##' Every derivative a model supplies must agree with a finite difference of
+##' its own fitness function; this is the contract a harness author signs by
+##' advertising a derivative (\code{harness$provides}). The check evaluates each
+##' advertised quantity at \code{n_points} well-spread points inside the
+##' community's bounds (on its trait scale) and compares every entry with a
+##' three-level Richardson finite difference. A harness that advertises nothing
+##' has nothing to check and returns an empty table.
+##'
+##' Call it from a package's own tests with a tolerance suited to the model:
+##' the reference models agree to machine precision; a model whose fitness
+##' comes from an adaptive ODE integration needs something like
+##' \code{tol_rel = 1e-2}.
+##'
+##' @title Verify model-supplied derivatives
+##' @param community A \code{community}; solved to demographic equilibrium if it
+##' has residents (an empty community is solved here).
+##' @param n_points Number of trait points to test at.
+##' @param tol_rel,tol_abs An entry passes when
+##' \code{abs(model - fd) <= tol_abs + tol_rel * abs(fd)}.
+##' @return Invisibly, a data frame with one row per entry checked:
+##' \code{quantity}, \code{point}, \code{entry}, \code{model}, \code{fd},
+##' \code{abs_err}, \code{rel_err}, \code{pass}. Any failure is an error of
+##' class \code{derivative_check_error} carrying the table as \code{$results}.
+##' @author Daniel Falster
+##' @export
+harness_check_derivatives <- function(community, n_points = 5, tol_rel = 1e-4,
+                                      tol_abs = 1e-8) {
+  provides <- community$harness$provides
+  trait_names <- community$trait_names
+  k <- length(trait_names)
+  empty <- data.frame(quantity = character(0), point = integer(0),
+                      entry = character(0), model = numeric(0), fd = numeric(0),
+                      abs_err = numeric(0), rel_err = numeric(0),
+                      pass = logical(0), stringsAsFactors = FALSE)
+  if (length(provides) == 0L) {
+    return(invisible(empty))
+  }
+  if (!is.function(community$fitness_function)) {
+    community <- community_demography(community)
+  }
+  f <- community_fitness_function(community)
+  der <- community$fitness_derivatives
+  if (!identical(unname(der$source[provides]), rep("model", length(provides)))) {
+    stop("The harness advertises ", paste(provides, collapse = ", "),
+         " but the community carries no model-supplied closure for it")
+  }
+  ctrl <- community_derivative_control(community)
+  reference <- modifyList(ctrl, list(r_gradient = 3L, r_hessian = 3L))
+  y <- derivative_check_points(community, n_points)
+
+  rows <- list()
+  add <- function(quantity, point, entry, model, fd) {
+    rows[[length(rows) + 1L]] <<- data.frame(
+      quantity = quantity, point = point, entry = entry,
+      model = model, fd = fd, stringsAsFactors = FALSE)
+  }
+  if ("fitness_gradient" %in% provides) {
+    g_model <- community_fitness_gradient(community, y)
+    g_fd <- fd_fitness_gradient(f, y, reference)
+    for (i in seq_len(nrow(y))) {
+      for (d in seq_len(k)) {
+        add("fitness_gradient", i, trait_names[d], g_model[i, d], g_fd[i, d])
+      }
+    }
+  }
+  if ("fitness_hessian" %in% provides) {
+    for (i in seq_len(nrow(y))) {
+      H_model <- community_fitness_hessian(community, y[i, , drop = FALSE])
+      H_fd <- fd_fitness_hessian(f, y[i, , drop = FALSE], reference)
+      for (d in seq_len(k)) {
+        for (e in seq_len(k)) {
+          add("fitness_hessian", i, paste(trait_names[d], trait_names[e], sep = ":"),
+              H_model[d, e], H_fd[d, e])
+        }
+      }
+    }
+  }
+  results <- do.call(rbind, rows)
+  results$abs_err <- abs(results$model - results$fd)
+  results$rel_err <- results$abs_err / pmax(abs(results$fd), .Machine$double.eps)
+  results$pass <- results$abs_err <= tol_abs + tol_rel * abs(results$fd)
+
+  if (!all(results$pass)) {
+    worst <- results[which.max(results$abs_err / (tol_abs + tol_rel * abs(results$fd))), ]
+    stop(structure(class = c("derivative_check_error", "error", "condition"), list(
+      message = sprintf(
+        "%d of %d derivative entries disagree with finite differences; worst is %s[%s] at point %d: model %g, finite difference %g",
+        sum(!results$pass), nrow(results), worst$quantity, worst$entry,
+        worst$point, worst$model, worst$fd),
+      call = NULL, results = results)))
+  }
+  invisible(results)
+}
+
+## Well-spread, deterministic points inside the bounds on the trait scale (a
+## Kronecker sequence with the generalised golden ratio), kept off the edges.
+derivative_check_points <- function(community, n) {
+  trait_names <- community$trait_names
+  k <- length(trait_names)
+  tf <- community_trait_transform(community)
+  lo <- tf$fwd(community$bounds[, 1])
+  hi <- tf$fwd(community$bounds[, 2])
+  if (any(!is.finite(lo) | !is.finite(hi))) {
+    stop("harness_check_derivatives needs finite bounds on the trait scale")
+  }
+  phi <- 2
+  for (i in seq_len(30)) phi <- (1 + phi)^(1 / (k + 1))
+  frac <- (0.5 + outer(seq_len(n), phi^-seq_len(k))) %% 1
+  z <- sweep(sweep(0.05 + 0.9 * frac, 2, hi - lo, "*"), 2, lo, "+")
+  y <- tf$inv(z)
+  dim(y) <- c(n, k)
+  colnames(y) <- trait_names
+  y
 }

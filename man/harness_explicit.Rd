@@ -4,7 +4,15 @@
 \alias{harness_explicit}
 \title{Explicit (toy-model) harness}
 \usage{
-harness_explicit(fitness, equilibrium, pars, trait_names, label = "explicit")
+harness_explicit(
+  fitness,
+  equilibrium,
+  pars,
+  trait_names,
+  label = "explicit",
+  fitness_gradient = NULL,
+  fitness_hessian = NULL
+)
 }
 \arguments{
 \item{fitness}{function(x_mut, x_res, n_res, pars) -> numeric vector of
@@ -18,6 +26,14 @@ equilibrium densities, one per resident.}
 \item{trait_names}{character vector naming the evolving trait(s).}
 
 \item{label}{short model label (used in the harness class).}
+
+\item{fitness_gradient}{optional function(x_mut, x_res, n_res, pars) -> the
+gradient of invasion fitness with respect to the mutant trait(s), one row
+per mutant and one column per trait.}
+
+\item{fitness_hessian}{optional function(x_mut, x_res, n_res, pars) -> the
+k by k Hessian of invasion fitness with respect to the mutant trait(s)
+for a single mutant.}
 }
 \value{
 a `harness` object

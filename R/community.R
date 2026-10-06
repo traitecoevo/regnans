@@ -47,6 +47,8 @@ community_start <- function(bounds,
   if (is.null(harness)) {
     harness <- harness_plant()
   }
+  ## Any derivative the model does not supply is computed by finite differences.
+  harness <- harness_fd(harness)
 
   ## How trait space is spaced/searched during assembly. "log" suits strictly
   ## positive biological traits (plant: lma, height, seed mass); "linear" suits
@@ -153,7 +155,8 @@ community_reset <- function(community) {
   community$resident_fitness <- NULL
   community$fitness_points <- NULL
   community$fitness_function <- NULL
-  
+  community$fitness_derivatives <- NULL
+
   community$model_support$node_schedule_times <- NULL
 
   community

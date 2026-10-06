@@ -49,6 +49,44 @@ dd99_nd_equilibrium <- function(x_res, pars) {
     .Call(`_regnans_dd99_nd_equilibrium`, x_res, pars)
 }
 
+#' DD99 model: gradient of invasion fitness with respect to the mutant trait
+#'
+#' @inheritParams dd99_fitness
+#' @return numeric matrix, one row per mutant and one column (the trait)
+#' @keywords internal
+dd99_fitness_gradient <- function(x_mut, x_res, n_res, pars) {
+    .Call(`_regnans_dd99_fitness_gradient`, x_mut, x_res, n_res, pars)
+}
+
+#' DD99 model: Hessian of invasion fitness with respect to the mutant trait
+#'
+#' @param x_mut a single mutant trait value
+#' @inheritParams dd99_fitness
+#' @return a 1 x 1 numeric matrix
+#' @keywords internal
+dd99_fitness_hessian <- function(x_mut, x_res, n_res, pars) {
+    .Call(`_regnans_dd99_fitness_hessian`, x_mut, x_res, n_res, pars)
+}
+
+#' DD99 model (nD): gradient of invasion fitness with respect to the mutant traits
+#'
+#' @inheritParams dd99_nd_fitness
+#' @return numeric matrix, one row per mutant and one column per trait
+#' @keywords internal
+dd99_nd_fitness_gradient <- function(x_mut, x_res, n_res, pars) {
+    .Call(`_regnans_dd99_nd_fitness_gradient`, x_mut, x_res, n_res, pars)
+}
+
+#' DD99 model (nD): Hessian of invasion fitness with respect to the mutant traits
+#'
+#' @param x_mut a one-row numeric matrix: the mutant trait values
+#' @inheritParams dd99_nd_fitness
+#' @return a k x k numeric matrix
+#' @keywords internal
+dd99_nd_fitness_hessian <- function(x_mut, x_res, n_res, pars) {
+    .Call(`_regnans_dd99_nd_fitness_hessian`, x_mut, x_res, n_res, pars)
+}
+
 #' GK98 soft-selection model: log invasion fitness of mutants
 #'
 #' @param x_mut numeric vector of mutant trait values

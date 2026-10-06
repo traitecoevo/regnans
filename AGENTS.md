@@ -184,13 +184,13 @@ here follow current plant terminology.
 
 ## Test baseline
 
-`devtools::test()` is **green: 401 pass, 0 fail, 0 skip, 0 warn**. Tests run in
+`devtools::test()` is **green: 490 pass, 0 fail, 0 skip, 0 warn**. Tests run in
 parallel (`Config/testthat/parallel: true`); the `test-plant-smoke*.R` files
 dominate the wall-clock as they are the only ones that run the real SCM. The
 `test-harness-*.R` and `test-singularity.R` files run no SCM and are fast.
 
-(The count has grown as the toy-harness tier has: 197 → 256 → 401. What matters
-is that a change moves it up and moves nothing to FAIL.)
+(The count has grown as the toy-harness tier has: 197 → 256 → 401 → 490. What
+matters is that a change moves it up and moves nothing to FAIL.)
 
 Note: the testthat parallel workers may fail to find `plant` on startup in some
 shells; run `TESTTHAT_PARALLEL=FALSE Rscript -e 'devtools::test()'` if so.
@@ -228,6 +228,11 @@ shells; run `TESTTHAT_PARALLEL=FALSE Rscript -e 'devtools::test()'` if so.
   real, tunably-slow fixed point, which is what actually tests the root finders.
 - `test-community-plots.R` — `community_plot_fitness_landscape`, forcing
   `ggplot_build()` so the aesthetics are actually evaluated.
+- `test-derivatives.R` — `derivative_control`, the dispatch functions in
+  `R/derivatives.R` against the DD99 slope/curvature oracles, model-supplied vs
+  finite-difference sources, `harness_fd`, `harness_provides`.
+- `test-derivatives-contract.R` — `harness_check_derivatives` over every shipped
+  harness that advertises a derivative, plus a deliberately wrong provider.
 - `test-plant-smoke-singularity.R` — the SCM anchor for the above: the
   alternative equilibrium solvers agreeing with the iteration, and the N-D
   solver plus classifier running on the real model. Deliberately
@@ -365,7 +370,13 @@ metadata for now.)
 
 `harness_explicit(fitness, equilibrium, ...)` implements all six connectors
 generically from two primitives — a vectorised **invasion-fitness** function and
-an **equilibrium solve** — each backed by C++ in its own file under `src/`
+an **equilibrium solve** — plus optional `fitness_gradient` / `fitness_hessian`
+primitives that make the harness advertise those derivatives (`h$provides`;
+DD99 and DD99-nD supply them, closed form in C++). `community_start()` passes
+every harness through `harness_fd()`, which fills any missing derivative with
+finite differences, so a model never has to provide them to work;
+`harness_check_derivatives()` is the contract that what it does provide agrees
+with a finite difference of its own fitness. Each backed by C++ in its own file under `src/`
 (`DD99.cpp`, `GK98.cpp`, `GM99.cpp`, `JJ12.cpp`; the package's first C++, Rcpp via
 `LinkingTo`, `@useDynLib` in `R/zzz.R`, `src/Makevars` C++17). "Explicit" is about
 the mechanism (fitness/equilibrium computed directly, not via the SCM), **not** a
