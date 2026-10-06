@@ -24,7 +24,8 @@ A \code{canonical_equation} object: \code{trajectory} (a tibble of
 \code{time}, \code{lineage}, the trait columns, \code{density} and the
 gradient columns \code{gradient_<trait>} on the trait scale, one row per
 resident per accepted step), \code{events} (\code{time}, \code{event} ---
-\code{"branch"}, \code{"unbranchable"}, \code{"immigrant"},
+\code{"branch"}, \code{"immigrant"}, \code{"immigrant_refused"} (it
+could have established but the community is at \code{max_residents}),
 \code{"extinct"}, \code{"polish"}, \code{"stable"}, \code{"t_max"},
 \code{"max_steps"}, \code{"max_residents"} --- and \code{lineage}),
 \code{community} (the final solved community), \code{evaluations} (how
@@ -37,18 +38,22 @@ Integrate the canonical equation of adaptive dynamics.
 }
 \details{
 Every resident's trait moves up its selection gradient,
-\deqn{\frac{dz_i}{dt} = \tfrac{1}{2}\,\mathrm{rate}\; \tilde n_i\; V\, \nabla_z s(z_i),}
-on the community's trait scale \eqn{z}, with the community re-solved to
-demographic equilibrium at every evaluation; \eqn{\tilde n_i} is the
-resident's equilibrium density relative to the initial total and \eqn{V}
-the mutational covariance (see \code{\link{canonical_control}}). When
-every gradient has vanished the residents are classified: one whose
-fitness Hessian in its own direction has a positive eigenvalue sits at a
-fitness minimum and is split into two daughters along that eigenvector,
-after which the polymorphic equation continues; when all are at fitness
-maxima the coalition is evolutionarily stable and the integration stops.
-A resident whose density falls below \code{extinct_fraction} of the total
-is removed.
+\deqn{\frac{dz_i}{dt} = \tfrac{1}{2}\,\mu\; \tilde n_i\; V\, \nabla_z s(z_i)}
+(Dieckmann & Law 1996), on the community's trait scale \eqn{z}, with the
+community re-solved to demographic equilibrium at every evaluation;
+\eqn{\mu} is \code{rate}, \eqn{\tilde n_i} the resident's equilibrium
+density relative to the initial total and \eqn{V} the mutational
+covariance (see \code{\link{canonical_control}}). A resident whose own
+gradient has vanished is tested: a positive eigenvalue of its fitness
+Hessian means it sits at a fitness minimum. By default it then branches
+after the waiting time for a mutation that can invade and coexist, the
+parent staying put and the mutant appearing at the kernel's successful
+distance along that eigenvector; branching and immigration are competing
+clocks, and whichever comes first happens. When every resident is at a
+fitness maximum the coalition is evolutionarily stable and the run stops
+(unless immigration is on, in which case it runs to \code{t_max}). A
+resident whose density falls below \code{extinct_fraction} of the total is
+removed.
 }
 \author{
 Daniel Falster
