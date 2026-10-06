@@ -10,10 +10,23 @@ community_demography(community)
 \item{community}{A \code{community} object.}
 }
 \value{
-A \code{community} object.
+A \code{community} object with \code{birth_rate} at equilibrium
+and \code{attr(., "converged")}, \code{attr(., "progress")} describing
+the solve.
 }
 \description{
-Update demography of community according to specified rules
+Solve a community to demographic equilibrium.
+}
+\details{
+Dispatches on \code{community$demography_control$equilibrium_solver_name}
+(see \code{\link{demographic_step_control}}). Every solver except
+\code{"model"} works from the harness's demography runner, the map from
+resident birth rates to next-generation offspring production: a single
+application, fixed-point iteration, root-finding on \eqn{n - f(n)} with
+\code{nleqslv} or \code{dfsane}, or the hybrid. \code{"model"} asks the
+harness for its equilibrium directly, which only models with a closed form
+(the reference models) can answer; it is their default, and plant's is
+iteration. Afterwards the invasion-fitness closure is rebuilt.
 }
 \author{
 Rich FitzJohn, Daniel Falster

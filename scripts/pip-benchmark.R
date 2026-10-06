@@ -1,9 +1,9 @@
 # How should a pairwise invasibility plot spend its resident solves?
 #
 # Compares the seeding strategies of community_pip() on the Geritz et al. 1999
-# seed-size model with its equilibrium iterated from the model's own dynamics
-# (harness_iterate_demography), so that every resident is a genuine fixed-point solve
-# whose cost depends on where it starts. Reports demography evaluations and
+# seed-size model with its equilibrium found by fixed-point iteration of the
+# model's one-generation demography rather than from the closed form, so that
+# every resident is a genuine solve whose cost depends on where it starts. Reports demography evaluations and
 # wall time, sequentially and under a multicore plan.
 #
 #   Rscript scripts/pip-benchmark.R
@@ -11,9 +11,10 @@
 suppressMessages(devtools::load_all(".", quiet = TRUE))
 
 comm <- community_start(bounds(x = c(0.08, 0.9)), trait_scale = "log",
-                        harness = harness_iterate_demography(harness_gm99(alpha = 7, beta = 15)))
-comm$demography_control$equilibrium_eps <- 1e-8
-comm$demography_control$equilibrium_nsteps <- 1000
+                        harness = harness_gm99(alpha = 7, beta = 15),
+                        demography_control = demographic_step_control(
+                          list(equilibrium_solver_name = "equilibrium_iteration",
+                               equilibrium_eps = 1e-8, equilibrium_nsteps = 1000)))
 
 run <- function(seed, refine, workers) {
   if (workers > 1L) {

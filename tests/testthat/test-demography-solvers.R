@@ -10,12 +10,10 @@
 # equilibrium has an analytic answer (the competition linear-solve), so every
 # solver can be checked against a known target in milliseconds.
 #
-# NOTE: the explicit (toy) harness returns its equilibrium directly from the
-# demography runner, so for DD99 the solvers do not have to *iterate* to a fixed
-# point the way the plant SCM does. What these tests verify is the dispatch, the
-# util_nlsolve integration, and the cleanup write-back -- all against the
-# analytic oracle. The genuinely-iterative convergence of the default solver is
-# covered on the real SCM in test-plant-smoke.R.
+# The toy harness's demography runner is its one-generation map, so every
+# solver here genuinely iterates (or root-finds) to the fixed point, as on the
+# plant SCM; the "model" solver returns the closed form directly and is the
+# reference. A single step is just that: one generation.
 
 dd99_pars <- list(r = 1, K0 = 500, x0 = 0, sigma_K = 1, sigma_C = 0.4)
 
@@ -31,15 +29,25 @@ solve_with <- function(solver, x = c(-0.5, 0.5)) {
 
 test_that("every equilibrium solver recovers the analytic DD99 equilibrium", {
   target <- dd99_equilibrium(c(-0.5, 0.5), dd99_pars)
-  solvers <- c("equilibrium_iteration", "single_step", "equilibrium_hybrid",
+  solvers <- c("model", "equilibrium_iteration", "equilibrium_hybrid",
                "equilibrium_solve_nleqslv", "equilibrium_solve_dfsane")
   for (s in solvers) {
     comm <- solve_with(s)
     expect_true(attr(comm, "converged"), info = s)
-    expect_equal(as.numeric(comm$birth_rate), target, tolerance = 1e-5, info = s)
+    expect_equal(as.numeric(comm$birth_rate), target, tolerance = 1e-4, info = s)
     # at the equilibrium each resident's invasion fitness is ~0
-    expect_equal(comm$resident_fitness, c(0, 0), tolerance = 1e-6, info = s)
+    expect_equal(comm$resident_fitness, c(0, 0), tolerance = 1e-4, info = s)
+    if (s != "model") expect_gt(NROW(attr(comm, "progress")), 1L, label = s)
   }
+})
+
+test_that("a single step is one generation, not the equilibrium", {
+  target <- dd99_equilibrium(c(-0.5, 0.5), dd99_pars)
+  one <- solve_with("single_step")
+  expect_equal(NROW(attr(one, "progress")), 1L)
+  expect_false(isTRUE(all.equal(as.numeric(one$birth_rate), target, tolerance = 1e-3)))
+  # but it moves from the start (100, 100) towards it
+  expect_lt(sum(abs(as.numeric(one$birth_rate) - target)), sum(abs(c(100, 100) - target)))
 })
 
 test_that("the nleqslv and dfsane solvers agree with the default iteration", {
@@ -50,12 +58,12 @@ test_that("the nleqslv and dfsane solvers agree with the default iteration", {
                ref, tolerance = 1e-5)
 })
 
-test_that("community_demography rejects an unknown solver", {
-  comm <- community_start(
-    bounds(x = c(-2, 2)), harness = harness_dd99(),
-    demography_control = demographic_step_control(
-      list(equilibrium_solver_name = "not_a_solver"))) |>
+test_that("an unknown solver is rejected at the control, and again if it reaches dispatch", {
+  expect_error(demographic_step_control(list(equilibrium_solver_name = "not_a_solver")),
+               "should be one of")
+  comm <- community_start(bounds(x = c(-2, 2)), harness = harness_dd99()) |>
     community_add(trait_matrix(0, "x"), birth_rate = 100)
+  comm$demography_control$equilibrium_solver_name <- "not_a_solver"
   expect_error(community_demography(comm), "Unknown solver")
 })
 

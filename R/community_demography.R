@@ -41,10 +41,13 @@ demographic_step_control <- function(control=NULL) {
   ## follow the current plant terminology.
   defaults <- list(
     # which solver community_demography() dispatches to:
+    #   "model" (the harness's own closed-form equilibrium, where it has one),
     #   "single_step", "equilibrium_iteration",
     #   "equilibrium_solve_nleqslv", "equilibrium_solve_dfsane",
-    #   "equilibrium_hybrid"
-    equilibrium_solver_name = "equilibrium_iteration",
+    #   "equilibrium_hybrid".
+    # NULL means the harness's default, resolved by community_start(): "model"
+    # for the reference models, "equilibrium_iteration" for plant.
+    equilibrium_solver_name = NULL,
     equilibrium_eps = 1e-5,
     # iteration solver
     equilibrium_nsteps = 100,
@@ -65,21 +68,50 @@ demographic_step_control <- function(control=NULL) {
   if (length(extra) > 0L) {
     stop("Unknown control parameters ", paste(extra, collapse=", "))
   }
-  ret <- modifyList(defaults, control)
-
+  ret <- modifyList(defaults, control, keep.null = TRUE)
+  if (!is.null(ret$equilibrium_solver_name)) {
+    ret$equilibrium_solver_name <- match.arg(ret$equilibrium_solver_name, equilibrium_solver_names)
+  }
   ret
 }
 
-##' Update demography of community according to specified rules
+equilibrium_solver_names <- c("model", "single_step", "equilibrium_iteration",
+                              "equilibrium_solve_nleqslv", "equilibrium_solve_dfsane",
+                              "equilibrium_hybrid")
+
+## The solver a community uses: what its control names, or the harness's
+## default where the control leaves it open.
+community_equilibrium_solver <- function(community) {
+  name <- community$demography_control$equilibrium_solver_name
+  if (is.null(name)) {
+    name <- community$harness$equilibrium_solver_default
+    if (is.null(name)) name <- "equilibrium_iteration"
+  }
+  name
+}
+
+##' Solve a community to demographic equilibrium.
+##'
+##' Dispatches on \code{community$demography_control$equilibrium_solver_name}
+##' (see \code{\link{demographic_step_control}}). Every solver except
+##' \code{"model"} works from the harness's demography runner, the map from
+##' resident birth rates to next-generation offspring production: a single
+##' application, fixed-point iteration, root-finding on \eqn{n - f(n)} with
+##' \code{nleqslv} or \code{dfsane}, or the hybrid. \code{"model"} asks the
+##' harness for its equilibrium directly, which only models with a closed form
+##' (the reference models) can answer; it is their default, and plant's is
+##' iteration. Afterwards the invasion-fitness closure is rebuilt.
 ##'
 ##' @title Update demography of community
 ##' @param community A \code{community} object.
-##' @return  A \code{community} object.
+##' @return  A \code{community} object with \code{birth_rate} at equilibrium
+##' and \code{attr(., "converged")}, \code{attr(., "progress")} describing
+##' the solve.
 ##' @export
 ##' @author Rich FitzJohn, Daniel Falster
 community_demography <- function(community){
 
-  solver <- community$demography_control$equilibrium_solver_name
+  solver <- community_equilibrium_solver(community)
 
   plant_log_assembler(sprintf("Updating demography using %s", solver))
   plant_log_assembler_state(community)
@@ -87,6 +119,7 @@ community_demography <- function(community){
   if(nrow(community$traits) > 0L) {
     community <- 
       switch(solver,
+         model = demography_model_equilibrium(community),
          single_step = demography_single_step(community),
          equilibrium_iteration = demography_solve_equilibrium_iteration(community),
          equilibrium_hybrid = demography_solve_equilibrium_hybrid(community),
@@ -99,6 +132,21 @@ community_demography <- function(community){
   }
 
   community_update_fitness_function(community)
+}
+
+## The model's own equilibrium, where it has one in closed form. Recorded as a
+## one-evaluation solve so cost accounting stays comparable.
+demography_model_equilibrium <- function(community) {
+  n <- as.numeric(community_model_equilibrium(community))
+  if (length(n) != nrow(community$traits) || any(!is.finite(n))) {
+    stop("The harness's equilibrium must return one finite density per resident")
+  }
+  before <- community$birth_rate
+  community$birth_rate <- n
+  community$fitness_points <- NULL
+  attr(community, "converged") <- TRUE
+  attr(community, "progress") <- list(list(`in` = before, out = n))
+  community
 }
 
 ## This is the simplest update: it simply takes a single step

@@ -22,7 +22,7 @@ test_that("bounds() produces lower/upper rows named by trait", {
 
 test_that("demographic_step_control has expected defaults and rejects unknowns", {
   ctrl <- demographic_step_control()
-  expect_equal(ctrl$equilibrium_solver_name, "equilibrium_iteration")
+  expect_null(ctrl$equilibrium_solver_name)      # resolved per harness by community_start()
   for (nm in c("equilibrium_eps", "equilibrium_nsteps",
                "equilibrium_large_birth_rate_change",
                "equilibrium_extinct_birth_rate",

@@ -62,15 +62,16 @@ test_that("community_pip reproduces the DD99 surface and solves every resident",
 })
 
 test_that("seeding strategies give the same surface, and interpolated seeds cost less on an iterated model", {
-  comm <- community_start(bounds(x = c(0.08, 0.9)), trait_scale = "log",
-                          harness = harness_iterate_demography(harness_gm99(alpha = 7, beta = 15)))
-  ctl <- function(seed) pip_control(list(n_resident = 13, n_mutant = 41, n_coarse = 4,
-                                         refine = 0, seed = seed))
   # the fixed-point map is slowly convergent near the viability edge (its
   # multiplier approaches one), so a tight eps is needed for the three runs to
   # agree to the surface's precision rather than to eps / (1 - multiplier)
-  comm$demography_control$equilibrium_eps <- 1e-9
-  comm$demography_control$equilibrium_nsteps <- 1000
+  comm <- community_start(bounds(x = c(0.08, 0.9)), trait_scale = "log",
+                          harness = harness_gm99(alpha = 7, beta = 15),
+                          demography_control = demographic_step_control(
+                            list(equilibrium_solver_name = "equilibrium_iteration",
+                                 equilibrium_eps = 1e-9, equilibrium_nsteps = 1000)))
+  ctl <- function(seed) pip_control(list(n_resident = 13, n_mutant = 41, n_coarse = 4,
+                                         refine = 0, seed = seed))
   cold <- community_pip(comm, control = ctl("cold"))
   neighbour <- community_pip(comm, control = ctl("neighbour"))
   interpolate <- community_pip(comm, control = ctl("interpolate"))
@@ -346,9 +347,10 @@ test_that("an iterated GK98 gives the same surface and contours as the closed fo
   ctl <- pip_control(list(n_resident = 9, n_mutant = 61, refine = 1))
   closed <- community_pip(community_start(bounds(x = c(-3, 3)), trait_scale = "linear", harness = h),
                           control = ctl)
-  numerical <- community_start(bounds(x = c(-3, 3)), trait_scale = "linear",
-                               harness = harness_iterate_demography(h))
-  numerical$demography_control$equilibrium_eps <- 1e-10
+  numerical <- community_start(bounds(x = c(-3, 3)), trait_scale = "linear", harness = h,
+                               demography_control = demographic_step_control(
+                                 list(equilibrium_solver_name = "equilibrium_iteration",
+                                      equilibrium_eps = 1e-10, equilibrium_nsteps = 1000)))
   iterated <- community_pip(numerical, control = ctl)
   expect_equal(iterated$residents$resident, closed$residents$resident)
   expect_equal(iterated$surface$fitness, closed$surface$fitness, tolerance = 1e-6)

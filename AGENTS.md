@@ -115,8 +115,10 @@ several, and the connectors dispatch through `community$harness`.
 `community_demography(community)` dispatches on
 `demography_control$equilibrium_solver_name`:
 
-- `single_step` — one SCM step, no iteration.
-- `equilibrium_iteration` — **default, working**. Fixed-point iteration of
+- `model` — the harness's closed-form equilibrium, where it has one (the
+  reference models; their default). plant has none.
+- `single_step` — one demography step, no iteration.
+- `equilibrium_iteration` — **plant's default, working**. Fixed-point iteration of
   incoming→outgoing offspring until `equilibrium_eps` is reached.
 - `equilibrium_solve_nleqslv` / `equilibrium_solve_dfsane` — root-finding via
   `util_nlsolve` (`R/util_nlsolve.R`). Verified against a known fixed point and
@@ -189,12 +191,12 @@ here follow current plant terminology.
 
 ## Test baseline
 
-`devtools::test()` is **green: 735 pass, 0 fail, 0 skip, 0 warn**. Tests run in
+`devtools::test()` is **green: 774 pass, 0 fail, 0 skip, 0 warn**. Tests run in
 parallel (`Config/testthat/parallel: true`); the `test-plant-smoke*.R` files
 dominate the wall-clock as they are the only ones that run the real SCM. The
 `test-harness-*.R` and `test-singularity.R` files run no SCM and are fast.
 
-(The count has grown as the toy-harness tier has: 197 → 256 → 401 → 537 → 735.
+(The count has grown as the toy-harness tier has: 197 → 256 → 401 → 537 → 774.
 What matters is that a change moves it up and moves nothing to FAIL.)
 
 Note: the testthat parallel workers may fail to find `plant` on startup in some
@@ -229,9 +231,10 @@ shells; run `TESTTHAT_PARALLEL=FALSE Rscript -e 'devtools::test()'` if so.
   accept/reject branches built on `helper-harness-map.R`.
 - `helper-harness-map.R` — a test-only harness whose demography runner is an
   arbitrary map `n -> map(n)` with a real, tunably-slow fixed point, which is
-  what tests the root finders. (The shipped toy harnesses return their
-  equilibrium in closed form unless wrapped in `harness_iterate_demography()`, which
-  iterates each model's own one-generation demography instead — `test-harness-iterate-demography.R`.)
+  what tests the root finders. (The shipped toy harnesses default to the
+  `"model"` solver — their closed-form equilibrium — but their demography runner
+  is the model's one-generation map, so any other solver genuinely iterates on
+  them — `test-demography-model-solver.R`.)
 - `test-pip.R` — `community_pip()` against the closed-form DD99 zero contours
   (`y2(x) = (x(σ_K² + σ_C²) − 2x0σ_C²)/(σ_K² − σ_C²)`), the near-diagonal
   root at a resident beside the singular strategy, refinement landing only at

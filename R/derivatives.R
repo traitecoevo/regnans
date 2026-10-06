@@ -327,7 +327,7 @@ community_selection_gradient_jacobian <- function(community, birth_rate = NULL) 
 ##' @export
 harness_check_derivatives <- function(community, n_points = 5, tol_rel = 1e-4,
                                       tol_abs = 1e-6) {
-  provides <- community$harness$provides
+  provides <- intersect(community$harness$provides, fitness_derivative_names)
   trait_names <- community$trait_names
   k <- length(trait_names)
   empty <- data.frame(quantity = character(0), point = integer(0),
