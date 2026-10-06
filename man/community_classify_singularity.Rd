@@ -12,8 +12,7 @@ community_classify_singularity(community, birth_rate = NULL, tol = 1e-08)
 \arguments{
 \item{community}{A \code{community} with a single resident at (or very near)
 a singular strategy --- typically the output of
-\code{\link{community_solve_singularity}} or
-\code{\link{community_solve_singularity_1D}}.}
+\code{\link{community_solve_singularity}}.}
 
 \item{birth_rate}{Birth rate to start each resident equilibrium solve from;
 see \code{\link{community_solve_singularity}}. Defaults to the singular

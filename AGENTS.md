@@ -21,10 +21,7 @@ breaking interface changes. As of now:
   `community_selection_gradient()`. At equilibrium resident fitness ≈ 0 and the
   selection gradient is finite — matches overstorey's
   `theory/adaptive-dynamics/solving_attractors.qmd`.
-- **Viable-bounds path works** and is reimplemented on the community machinery:
-  `community_viable_fitness_1D(community)` / `community_viable_bounds()` use an
-  empty community's `fitness_function` as the fundamental-fitness function (no
-  dependency on plant's removed `fundamental_fitness()`/`viable_fitness()`).
+- **Viable-bounds path works** and is reimplemented on the community machinery: `community_viable_fitness(community)` / `community_viable_bounds()` use an empty community's `fitness_function` as the fundamental-fitness function (no dependency on plant's removed `fundamental_fitness()`/`viable_fitness()`), in any number of traits.
 - See **Known issues** below for what is *not* yet working.
 
 ### Important: plant removed the whole fitness/equilibrium subsystem (#388)
@@ -37,7 +34,7 @@ is *exactly* the job of bringing these into this package. The intended approach
 is to **reimplement on the community machinery** (run the SCM via the community's
 `fitness_function` / `community_demography`) rather than copy plant's old code
 verbatim. Done so far: equilibrium (→ `community_demography`), viable bounds
-(→ `community_viable_fitness_1D`), `positive_1d`/`positive_1d_bracket` (pure
+(→ `community_viable_fitness`), `positive_1d`/`positive_1d_bracket` (pure
 numeric helpers, in `R/community_fitness_viable.R`), and the fitness-max
 functions `max_fitness()` / `max_growth_rate()` (`R/community_fitness_solve_max.R`,
 operating on `community$fitness_function`). The package no longer references any
@@ -152,9 +149,9 @@ invasion-fitness closure on the community.
   `util_hessian()`, `util_jacobian()`) in `R/util_gradient.R` is reached only
   from here, so model-supplied derivatives can slot in later (#50).
 - `R/solve_attractors.R` — `community_selection_gradient()` (a thin wrapper over
-  `community_fitness_gradient()`), `community_solve_singularity_1D()`.
-- `R/singularity.R` — `community_solve_singularity()` (N-D root-find on the
-  selection gradient) and `community_classify_singularity()` (CSS / branching
+  `community_fitness_gradient()`).
+- `R/singularity.R` — `community_solve_singularity()` (root-find on the
+  selection gradient in any dimension; Newton, or a `uniroot` bracket for one trait) and `community_classify_singularity()` (CSS / branching
   point / repeller / Garden of Eden, with eigen-decompositions). Their
   second-order derivatives come from `R/derivatives.R`. See **Singular
   strategies** below.
@@ -210,12 +207,12 @@ here follow current plant terminology.
 
 ## Test baseline
 
-`devtools::test()` is **green: 1052 pass, 0 fail, 0 skip, 0 warn**. Tests run in
+`devtools::test()` is **green: 1072 pass, 0 fail, 0 skip, 0 warn**. Tests run in
 parallel (`Config/testthat/parallel: true`); the `test-plant-smoke*.R` files
 dominate the wall-clock as they are the only ones that run the real SCM. The
 `test-harness-*.R` and `test-singularity.R` files run no SCM and are fast.
 
-(The count has grown as the toy-harness tier has: 197 → 256 → 401 → 537 → 979 → 1002 → 1052.
+(The count has grown as the toy-harness tier has: 197 → 256 → 401 → 537 → 979 → 1002 → 1052 → 1072.
 What matters is that a change moves it up and moves nothing to FAIL.)
 
 Note: the testthat parallel workers may fail to find `plant` on startup in some
@@ -226,10 +223,7 @@ shells; run `TESTTHAT_PARALLEL=FALSE Rscript -e 'devtools::test()'` if so.
   `length.community`, the `max_patch_lifetime` schedule regression, and
   integration tests for `community_demography` (empty + single resident,
   reference birth rate ≈ 0.06846) and `community_selection_gradient`.
-- `test-support-fitness.R` — `positive_1d`, `bounds`/`check_bounds`/`check_point`, and `max_fitness` in one and two traits against the DD99 ESS (the SCM-backed `community_viable_fitness_1D` tests moved to `test-plant-smoke.R`).
-- `test-solve-attractors.R` (new, #27) — `community_solve_singularity_1D`: 1D
-  attractor (≈0.1417 for lma) plus the non-bracketing `edge_ok` warning/error
-  branches.
+- `test-support-fitness.R` — `positive_1d`, `bounds`/`check_bounds`/`check_point`, and `max_fitness` in one and two traits against the DD99 ESS and `community_viable_fitness` against a quadratic-bowl oracle (1-D on both scales, a tilted 2-D ellipse whose bounding box differs from its axis slices, clipping, nothing viable); the SCM case is in `test-plant-smoke.R`.
 - `test-fitness-landscape.R` (new, #27) — `community_fitness_landscape`: the grid method (resident flagged, fitness ~0 at the equilibrium resident, auto-solves demography, rejects unknown methods) and the bayesopt method (samples equal the true fitness, the surrogate interpolates them, linear and log trait scales, the `bounds` argument, reproducible from a caller's seed; skipped without `mlr3mbo`/`DiceKriging`/`nloptr`).
 - `test-assembler.R` (new, #27) — `assembler_control` defaults/validation,
   `mutational_vcv_proportion` (diagonal log-scale vcv), the maximum-fitness and
@@ -287,7 +281,6 @@ What is *planned* — every method, its status, what regnans needs from plant, a
 the order of work — lives in **[`ROADMAP.md`](ROADMAP.md)**; keep that the single
 source of truth and list only live defects here.
 
-- **2D maximum-fitness births (`find_max_fitness_2d`) are lightly verified** — the path is self-contained (a multistart `maximize_scaled` hill-climb over `sys$fitness_function`) and is commented as "not very well tested"; the only exercise is the warning-free 2D DD99 assembly in `test-assembly.R`.
 - `plant_community_check_for_inviable_strategies` still has a TODO to drop its
   direct plant dependency and reuse the community fitness functions.
 - `equilibrium_extinct_birth_rate` (`demographic_step_control()`, default `1e-3`)
@@ -326,19 +319,9 @@ source of truth and list only live defects here.
 
 ## Singular strategies: solving and classifying (`R/singularity.R`)
 
-`community_solve_singularity_1D()` brackets the scalar selection gradient with
-`uniroot` and is strictly one-trait. Two dimension-agnostic functions sit
-alongside it; both go through the harness connectors only, so they run on the
-toy harnesses exactly as on the plant SCM.
+Two dimension-agnostic functions; both go through the harness connectors only, so they run on the toy harnesses exactly as on the plant SCM.
 
-- **`community_solve_singularity(community, x0, bounds, solver, ...)`** —
-  multivariate root-find on `community_selection_gradient()` via `util_nlsolve`
-  (`nleqslv` or `dfsane`). Searches on the community's trait scale (for `"log"`
-  traits the residual is the gradient w.r.t. `log(x)`, far better conditioned).
-  Discards any residents on the way in — a singular point is monomorphic — and
-  returns the community *at* the root, with `attr(., "singularity")`. Candidates
-  are clamped to `bounds`; landing on a bound warns (or errors with
-  `edge_ok = FALSE`), mirroring the 1-D solver.
+- **`community_solve_singularity(community, x0, bounds, solver, ...)`** — root-find on `community_selection_gradient()`: `nleqslv` (default) or `dfsane` via `util_nlsolve` in any dimension, or `"bracket"` (`uniroot` between the bounds, one trait only; needs a sign change but cannot then miss the root). Searches on the community's trait scale (for `"log"` traits the residual is the gradient w.r.t. `log(x)`, far better conditioned). Discards any residents on the way in — a singular point is monomorphic — and returns the community *at* the root, with `attr(., "singularity")`. Candidates are clamped to `bounds`; landing on a bound (or, for the bracket, no sign change) warns, or errors with `edge_ok = FALSE`.
 - **`community_classify_singularity(community, ...)`** — the second-order
   conditions, covering 1-D and N-D with one code path (a 1-D result is just
   1x1 matrices). Returns a `singularity_classification` object:
@@ -435,7 +418,7 @@ ship (named by author/year), each with test oracles:
 (fitness returns a log ratio for jj12/gk98/gm99; a per-capita rate for dd99 —
 both ~0 at the resident.) Tests live in
 `tests/testthat/test-harness-{dd99,gk98,gm99,jj12}.R`; they assert each singular
-strategy is recovered by `community_solve_singularity_1D` and that the
+strategy is recovered by `community_solve_singularity` and that the
 invasion-fitness curvature flips sign at the ESS/branching boundary.
 
 ### Mixtures, trait scale, and multi-trait models
@@ -450,17 +433,13 @@ multi-dim Poisson sum).
   controls how trait space is spaced/searched during assembly. `"log"` (default)
   suits strictly-positive traits (plant, GM99 seed size); `"linear"` suits traits
   centred at 0 (DD99, GK98). Used by the fitness-landscape grid, the
-  nearest-resident distance in births/`should_move`, and `find_max_fitness_2d`.
+  nearest-resident distance in births/`should_move`, and every maximisation (`maximize_scaled()`).
 - **`harness_dd99_nd()`** is the multi-trait DD99 (cf. Ito & Dieckmann 2007;
   product-Gaussian kernels). The explicit harness is dimension-aware
   (`explicit_resident_traits()`: vector for 1-trait models, the trait matrix for
   nD). `assembler_run()` works in nD warning-free and assembles ~27 species
   across a 2D trait plane. The nD path was hardened (part of #9):
-  `assembler_append_history()` skips the 1D fitness-landscape grid for nD;
-  `find_max_fitness_2d()` is a real multistart hill-climb (from each resident +
-  the centre; it no longer depends on the never-populated `fitness_slopes`); and
-  `maximize_scaled()` insets boundary start points so residents sitting on a
-  bound don't break `nmkb`.
+  `assembler_append_history()` skips the 1D fitness-landscape grid for nD, where `find_max_fitness()` searches from each resident and the centre instead (a coarse Nelder–Mead that steps off a resident sitting at a singular point, polished by L-BFGS-B).
 
 See also `x_misc/Revolve/doc/models.md` and the per-model write-ups +
 `assembly.qmd` in `overstorey_staging/`.

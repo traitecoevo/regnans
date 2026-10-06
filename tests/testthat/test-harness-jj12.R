@@ -70,7 +70,7 @@ test_that("community_start defaults to the plant harness", {
 
 test_that("community_demography solves the jj12 resident to equilibrium", {
   h <- harness_jj12(a = 0.125, x_opt = 0, sigma = 10, R0 = 1, K = 5, p = 0.5)
-  comm <- community_start(bounds(x = c(-40, 40)), harness = h) |>
+  comm <- community_start(bounds(x = c(-40, 40)), harness = h, trait_scale = "linear") |>
     community_add(trait_matrix(0, "x")) |>
     community_demography()
   expect_true(attr(comm, "converged"))
@@ -78,18 +78,18 @@ test_that("community_demography solves the jj12 resident to equilibrium", {
   expect_equal(comm$resident_fitness, 0, tolerance = 1e-10) # at equilibrium
 })
 
-test_that("community_solve_singularity_1D recovers the jj12 CSS", {
+test_that("community_solve_singularity recovers the jj12 CSS", {
   for (a in c(0, 0.04, 0.125)) {
     h <- harness_jj12(a = a, x_opt = 0, sigma = 10, R0 = 1, K = 5, p = 0.5)
-    out <- community_start(bounds(x = c(-40, 40)), harness = h) |>
-      community_solve_singularity_1D()
+    out <- community_start(bounds(x = c(-40, 40)), harness = h, trait_scale = "linear") |>
+      community_solve_singularity()
     expect_equal(as.numeric(out$traits), -a * 100, tolerance = 1e-3)
   }
 })
 
 test_that("jj12 singular strategy shifts with x_opt and sigma", {
   h <- harness_jj12(a = 0.05, x_opt = 8, sigma = 6, R0 = 1, K = 5, p = 0.5)
-  out <- community_start(bounds(x = c(-40, 40)), harness = h) |>
-    community_solve_singularity_1D()
+  out <- community_start(bounds(x = c(-40, 40)), harness = h, trait_scale = "linear") |>
+    community_solve_singularity()
   expect_equal(as.numeric(out$traits), 8 - 0.05 * 36, tolerance = 1e-3)
 })

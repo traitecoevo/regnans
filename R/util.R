@@ -90,19 +90,34 @@ community_trait_transform <- function(community) {
   }
 }
 
-## Scale-aware maximisation (generalises maximize_logspace): optimise f over
-## `bounds` working in the transformed coordinates given by `tf`.
-maximize_scaled <- function(f, x, bounds, tol, tf) {
+## The package's local maximiser: maximise f over `bounds`, searching in the
+## coordinates of the trait transform `tf`. One trait is a golden-section
+## search over the whole of `bounds` to tolerance `tol` (`x` is not needed);
+## more traits are a coarse bounded Nelder-Mead from `x` (whose initial simplex
+## steps off a stationary start, such as a resident at a singular point, where
+## a gradient method would stay) polished by L-BFGS-B. Values of f that are not
+## finite (inviable traits) count as very low fitness.
+## Returns list(par, value) with par on the raw trait scale.
+maximize_scaled <- function(f, x, bounds, tf, tol = .Machine$double.eps^0.25) {
   lb <- tf$fwd(bounds)
+  g <- function(z) {
+    w <- f(tf$inv(z))
+    if (is.finite(w)) w else -1e6
+  }
+  if (nrow(lb) == 1L) {
+    out <- optimise(g, lb[1, ], maximum = TRUE, tol = tol)
+    return(list(par = tf$inv(out$maximum), value = out$objective))
+  }
   ## nmkb needs a strictly-interior start; a resident sitting on a bound (common
   ## early in assembly) would otherwise produce NaNs. Inset slightly.
   span <- lb[, 2] - lb[, 1]
-  x0 <- pmin(pmax(tf$fwd(x), lb[, 1] + 1e-6 * span), lb[, 2] - 1e-6 * span)
-  fit <- dfoptim::nmkb(x0, function(z) f(tf$inv(z)),
-                       lower = lb[, 1], upper = lb[, 2],
-                       control = list(tol = tol, maximize = TRUE))
-  fit$par <- tf$inv(fit$par)
-  fit
+  z0 <- pmin(pmax(tf$fwd(x), lb[, 1] + 1e-6 * span), lb[, 2] - 1e-6 * span)
+  coarse <- dfoptim::nmkb(z0, g, lower = lb[, 1], upper = lb[, 2],
+                          control = list(tol = 1e-2, maximize = TRUE))
+  fit <- optim(coarse$par, g, method = "L-BFGS-B",
+               lower = lb[, 1], upper = lb[, 2],
+               control = list(fnscale = -1, factr = 1e10))
+  list(par = tf$inv(fit$par), value = fit$value)
 }
 
 has_attr <- function(x, which) {

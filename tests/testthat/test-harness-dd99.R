@@ -26,13 +26,13 @@ test_that("dd99 multi-resident equilibrium solves the competition system", {
 
 test_that("dd99 singular strategy is x0", {
   h <- harness_dd99(x0 = 0, sigma_K = 1, sigma_C = 0.4)
-  out <- community_start(bounds(x = c(-2, 2)), harness = h) |>
-    community_solve_singularity_1D()
+  out <- community_start(bounds(x = c(-2, 2)), harness = h, trait_scale = "linear") |>
+    community_solve_singularity()
   expect_equal(as.numeric(out$traits), 0, tolerance = 1e-4)
 
   h2 <- harness_dd99(x0 = 0.6, sigma_K = 1, sigma_C = 0.4)
-  out2 <- community_start(bounds(x = c(-2, 2)), harness = h2) |>
-    community_solve_singularity_1D()
+  out2 <- community_start(bounds(x = c(-2, 2)), harness = h2, trait_scale = "linear") |>
+    community_solve_singularity()
   expect_equal(as.numeric(out2$traits), 0.6, tolerance = 1e-4)
 })
 

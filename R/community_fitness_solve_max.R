@@ -27,67 +27,38 @@ max_growth_rate <- function(community, values) {
 ##'
 ##' Searches \code{bounds} for the trait value(s) that maximise invasion fitness
 ##' into the community's environment (the fundamental niche peak for an empty
-##' community). Uses \code{stats::optimise} in 1D and \code{stats::optim}
-##' (L-BFGS-B) in higher dimensions, operating on \code{community$fitness_function}.
+##' community), on the community's trait scale (see
+##' \code{community_start(trait_scale = )}). One trait is searched by golden
+##' section over the whole interval; more traits by L-BFGS-B from the centre of
+##' the bounds, which finds the maximum nearest it.
 ##'
 ##' @title Find point of maximum fitness within some range
 ##' @param community A \code{community} object.
 ##' @param bounds Bounds matrix (\code{lower}/\code{upper} per trait). Defaults
 ##'   to \code{community$bounds}.
-##' @param log_scale Is the trait naturally on a log scale? If so the search is
-##'   done in log space, which is usually much better behaved.
-##' @param tol Tolerance passed to the optimiser.
+##' @param tol Tolerance on the trait scale for the one-trait search; with more
+##'   traits L-BFGS-B uses its own convergence test.
 ##' @return The maximising trait value(s), named by trait, with the achieved
 ##'   fitness in attribute \code{"fitness"}.
-##' @importFrom stats optimise optim
 ##' @export
 ##' @author Daniel Falster, Rich FitzJohn
-max_fitness <- function(community, bounds = NULL, log_scale = TRUE, tol = 1e-3) {
+max_fitness <- function(community, bounds = NULL, tol = 1e-3) {
   if (is.null(bounds)) {
     bounds <- community$bounds
   }
   bounds <- check_bounds(bounds)
-  traits <- rownames(bounds)
 
   if (is.null(community$fitness_function)) {
     community <- community_update_fitness_function(community)
   }
-  fitness <- community$fitness_function
 
-  if (log_scale) {
-    bounds[bounds[, 1] == -Inf, 1] <- 0
-    bounds <- log(bounds)
-    f <- function(x) fitness(exp(x))
-  } else {
-    f <- function(x) fitness(x)
+  tf <- community_trait_transform(community)
+  lb <- tf$fwd(bounds)
+  if (!all(is.finite(lb))) {
+    stop("max_fitness needs finite bounds on the trait scale")
   }
-
-  ret <- solve_max_worker(bounds, f, tol = tol)
-  loc <- as.numeric(ret)
-  if (log_scale) {
-    loc <- exp(loc)
-  }
-  structure(loc, names = traits, fitness = attr(ret, "fitness"))
-}
-
-## Numeric maximiser used by max_fitness(): `f` takes trait values on the
-## (already transformed) search scale and returns a scalar fitness; `bounds` are
-## the search bounds on that same scale. Returns the maximising location with
-## the achieved value in attribute "fitness".
-solve_max_worker <- function(bounds, f, tol = 1e-3) {
-  if (nrow(bounds) == 1L) {
-    if (!all(is.finite(bounds))) {
-      stop("Starting value did not have finite fitness; finite bounds required")
-    }
-    ## suppressWarnings: optimise warns "NA/Inf replaced by maximum positive
-    ## value" for inviable trait values, which is the behaviour we want.
-    out <- suppressWarnings(optimise(f, interval = bounds, maximum = TRUE, tol = tol))
-    structure(out$maximum, fitness = out$objective)
-  } else {
-    ## Not very well tested, and the tolerance is not useful:
-    out <- optim(rowMeans(bounds), f, method = "L-BFGS-B",
-                 lower = bounds[, "lower"], upper = bounds[, "upper"],
-                 control = list(fnscale = -1, factr = 1e10))
-    structure(out$par, fitness = out$value)
-  }
+  centre <- tf$inv(rowMeans(lb))
+  fit <- maximize_scaled(community$fitness_function, centre, bounds, tf,
+                         tol = tol)
+  structure(as.numeric(fit$par), names = rownames(bounds), fitness = fit$value)
 }

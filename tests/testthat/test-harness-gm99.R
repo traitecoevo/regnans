@@ -46,7 +46,7 @@ test_that("gm99 non-viable seed sizes have zero equilibrium density", {
 test_that("gm99 is a CSS at low asymmetry (alpha*R = 4.5, beta*R = 15)", {
   h <- harness_gm99(alpha = 4.5, beta = 15)
   out <- community_start(bounds(x = c(0.06, 0.9)), harness = h) |>
-    community_solve_singularity_1D()
+    community_solve_singularity()
   mstar <- as.numeric(out$traits)
   expect_equal(mstar, 0.183, tolerance = 5e-3)   # numerical singular strategy
   expect_lt(curvature(out, mstar), 0)            # fitness maximum -> ESS/CSS
@@ -55,7 +55,7 @@ test_that("gm99 is a CSS at low asymmetry (alpha*R = 4.5, beta*R = 15)", {
 test_that("gm99 branches at high asymmetry (alpha*R = 7, beta*R = 15)", {
   h <- harness_gm99(alpha = 7, beta = 15)
   out <- community_start(bounds(x = c(0.1, 0.95)), harness = h) |>
-    community_solve_singularity_1D()
+    community_solve_singularity()
   mstar <- as.numeric(out$traits)
   expect_equal(mstar, 0.645, tolerance = 5e-3)   # numerical singular strategy
   expect_gt(curvature(out, mstar), 0)            # fitness minimum -> branching
@@ -66,10 +66,10 @@ test_that("gm99 depends only on the products alpha*R and beta*R", {
   h1 <- harness_gm99(alpha = 7, beta = 15, R = 1)
   h2 <- harness_gm99(alpha = 3.5, beta = 7.5, R = 2)
   s1 <- community_start(bounds(x = c(0.1, 0.95)), harness = h1) |>
-    community_solve_singularity_1D()
+    community_solve_singularity()
   # second uses seed sizes in units up to R = 2, so x* scales by R: compare x*/R
   s2 <- community_start(bounds(x = c(0.2, 1.9)), harness = h2) |>
-    community_solve_singularity_1D()
+    community_solve_singularity()
   expect_equal(as.numeric(s1$traits), as.numeric(s2$traits) / 2,
                tolerance = 5e-3)
 })

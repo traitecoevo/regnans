@@ -190,7 +190,7 @@ plant_community_viable_bounds <- function(community) {
   if (length(community) > 0) {
     stop("You don't want to run this on an existing community")
   }
-  community$bounds <- community_viable_fitness_1D(community)
+  community$bounds <- community_viable_fitness(community)
   community
 }
 

@@ -17,16 +17,16 @@ test_that("gk98 resident fitness is zero at the singular strategy", {
 test_that("gk98 singular strategy is the capacity-weighted mean optimum", {
   # symmetric -> x* = 0
   h <- harness_gk98(d = 1.5, sigma = 1)
-  out <- community_start(bounds(x = c(-4, 4)), harness = h) |>
-    community_solve_singularity_1D()
+  out <- community_start(bounds(x = c(-4, 4)), harness = h, trait_scale = "linear") |>
+    community_solve_singularity()
   expect_equal(as.numeric(out$traits), 0, tolerance = 1e-4)
 
   # asymmetric capacities -> x* = sum(c_j mu_j)
   mu <- c(-1, 0, 2); K <- c(1, 2, 1)
   xstar <- sum(K / sum(K) * mu)
   h2 <- harness_gk98(sigma = 1, mu = mu, K = K)
-  out2 <- community_start(bounds(x = c(-4, 4)), harness = h2) |>
-    community_solve_singularity_1D()
+  out2 <- community_start(bounds(x = c(-4, 4)), harness = h2, trait_scale = "linear") |>
+    community_solve_singularity()
   expect_equal(as.numeric(out2$traits), xstar, tolerance = 1e-3)
 })
 

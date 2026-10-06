@@ -3,7 +3,7 @@
 #
 # A *harness* wires a `community` to a specific demographic model. The community
 # pipeline (community_demography, community_selection_gradient,
-# community_solve_singularity_1D, the assembler, ...) is model-agnostic: it only
+# community_solve_singularity, the assembler, ...) is model-agnostic: it only
 # ever calls a small set of connector functions, each of which forwards to the
 # harness's own implementation:
 #

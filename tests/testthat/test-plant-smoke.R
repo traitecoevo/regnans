@@ -25,7 +25,7 @@ test_that("empty community: fundamental niche and fitness peak (SCM)", {
                           model_support = assembly_model_support())
 
   # fundamental niche: the positive-fitness interval, strictly inside the bounds
-  vb <- community_viable_fitness_1D(comm)
+  vb <- community_viable_fitness(comm)
   expect_equal(rownames(vb), "lma")
   expect_equal(colnames(vb), c("lower", "upper"))
   expect_lt(vb[, "lower"], vb[, "upper"])
@@ -72,7 +72,7 @@ test_that("single resident solves to equilibrium, gradient and inviable check (S
 })
 
 test_that("selection gradient brackets the 1D attractor (SCM)", {
-  # The model-agnostic singularity root-finder (community_solve_singularity_1D)
+  # The model-agnostic singularity root-finder (community_solve_singularity)
   # is exercised fast on the DD99 toy harness. The full iterative solve against
   # the real SCM cost ~45s (it re-solves a resident to equilibrium on every
   # gradient evaluation). Here we only confirm the genuine plant model produces

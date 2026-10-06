@@ -34,92 +34,55 @@ community_new_types_maximum_fitness <- function(sys, control) {
   ret
 }
 
-## This is fundamentally a really hard problem because we want to
-## chase a lot of data back to the main object.  In particular:
+## The highest-fitness trait combination that could found a new resident.
 ##
-## * We might not have an up-to-date cohort schedule or ode times: we
-##   want to set them.
-## * We want to get the full approximate fitness landscape
+## Each candidate is a local maximisation of invasion fitness on the trait
+## scale (maximize_scaled). Where the community holds a sampled fitness
+## landscape, one search is confined to the samples either side of its best
+## point; otherwise the searches start from each resident and from the centre
+## of trait space. The highest-fitness candidate that is positive and not within
+## eps_too_close of a resident is returned; failing that the global best, so
+## community_new_types_maximum_fitness() can decide the assembly is done.
 find_max_fitness <- function(sys, control) {
 
   plant_log_assembler("Finding maximum in fitness landscape")
 
   bounds <- check_bounds(sys$bounds)
-  if (nrow(bounds) == 1L) {
-    find_max_fitness_1D(sys, control$eps_too_close)
-  } else {
-    find_max_fitness_2d(sys, control$eps_too_close)
-  }
-}
-
-## Simple function - takes existing maximum and then runs optim. Risks missing maximum
-find_max_fitness_1D <- function(sys, eps_too_close) {
-
-  # option 1 - use existing points
-  i <- which.max(sys$fitness_points$fitness)
-  xx <- sys$fitness_points[, 1, drop = TRUE]
-
-  # todo: option 2 - fit 1D GP and use this to find max
-  # xx <- seq_log_range(sys$bounds, 500)
-  # yy <- fitness_approximate(xx)
-
-  # Polish root by optnmising with actual fitness function
-  ## first find range over which to look 
-  r <- xx[c(max(1, i - 1), min(i + 1, length(xx)))]
-  f <- sys$fitness_function
-  
-  opt <- optimise(f, r, maximum = TRUE)
-
-  ret <- trait_matrix(opt$maximum, sys$trait_names)
-  attr(ret, "fitness") <- opt$objective
-  ret
-}
-
-
-find_max_fitness_2d <- function(sys, eps_too_close, tol=1e-2) {
   tf <- community_trait_transform(sys)
-  do_fit <- function(p) {
-    f <- function(x) {
-      w <- sys$fitness_function(x)
-      if (is.finite(w)) w else -1e6   # keep the optimiser away from blow-ups
-    }
-    fit <- maximize_scaled(f, p, sys$bounds, tol, tf)
+  search <- function(start, region) {
+    fit <- maximize_scaled(sys$fitness_function, start, region, tf)
     ret <- trait_matrix(fit$par, sys$trait_names)
     attr(ret, "fitness") <- if (is.finite(fit$value)) fit$value else -Inf
     ret
   }
-  check <- function(fit, X) {
-    j <- closest(tf$fwd(drop(fit)), tf$fwd(X), tf$fwd(sys$bounds))
-    w <- attr(fit, "fitness")
-    d <- attr(j, "distance")
-    plant_log_max_fitness(sprintf("\t...fitness: %s, distance: %s from %d",
-                                  prettyNum(w), prettyNum(d), j))
-    isTRUE(is.finite(w) && d > eps_too_close && w > 0.0)
+
+  points <- sys$fitness_points
+  if (!is.null(points)) {
+    xx <- points[, 1, drop = TRUE]
+    i <- which.max(points$fitness)
+    region <- bounds
+    region[1, ] <- xx[c(max(1, i - 1), min(i + 1, length(xx)))]
+    fits <- list(search(xx[i], region))
+  } else {
+    centre <- tf$inv(rowMeans(tf$fwd(bounds)))
+    starts <- rbind(sys$traits, centre, deparse.level = 0)
+    fits <- lapply(seq_len(nrow(starts)),
+                   function(j) search(starts[j, ], bounds))
   }
 
-  centre <- tf$inv(rowMeans(tf$fwd(sys$bounds)))
-
+  w <- vnapply(fits, function(fit) attr(fit, "fitness"))
+  ord <- order(w, decreasing = TRUE)
   if (length(sys) == 0L) {
-    ret <- do_fit(centre)
-  } else {
-    ## Multistart hill-climb on invasion fitness: from each resident and from
-    ## the centre of trait space. Prefer the highest-fitness optimum that is
-    ## viable and not too close to an existing resident; otherwise return the
-    ## global best so the caller (community_new_types_maximum_fitness) can decide
-    ## it is "done".
-    X <- sys$traits
-    starts <- rbind(X, matrix(centre, nrow = 1))
-    fits <- lapply(seq_len(nrow(starts)), function(i) do_fit(starts[i, ]))
-    w <- vnapply(fits, function(f) attr(f, "fitness"))
-    ord <- order(w, decreasing = TRUE)
-
-    ret <- fits[[ord[[1]]]]          # global best optimum (default)
-    for (i in ord) {
-      if (check(fits[[i]], X)) {      # viable and distinct from residents
-        ret <- fits[[i]]
-        break
-      }
+    return(fits[[ord[[1]]]])
+  }
+  for (j in ord) {
+    k <- closest(tf$fwd(drop(fits[[j]])), tf$fwd(sys$traits), tf$fwd(bounds))
+    d <- attr(k, "distance")
+    plant_log_max_fitness(sprintf("\t...fitness: %s, distance: %s from %d",
+                                  prettyNum(w[[j]]), prettyNum(d), k))
+    if (is.finite(w[[j]]) && w[[j]] > 0 && d > control$eps_too_close) {
+      return(fits[[j]])
     }
   }
-  ret
+  fits[[ord[[1]]]]
 }

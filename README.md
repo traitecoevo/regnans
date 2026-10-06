@@ -15,10 +15,10 @@ The [{plant}](https://github.com/traitecoevo/plant) package for R is an extensib
 ## What it does
 
 - **Resident demographic equilibrium** — `community_demography()`, with fixed-point iteration, a Newton–Broyden solver that carries its Jacobian between solves, `nleqslv`/`dfsane` root-finding and a hybrid.
-- **Invasion fitness and landscapes** — `community_fitness_landscape()`, `max_fitness()`, viable trait bounds (`community_viable_fitness_1D()`).
+- **Invasion fitness and landscapes** — `community_fitness_landscape()`, `max_fitness()`, viable trait bounds in any number of traits (`community_viable_fitness()`).
 - **Fitness derivatives** — `community_fitness_gradient()`, `community_fitness_hessian()` and the selection-gradient Jacobian, exact where a model provides them and finite differences otherwise, with `harness_check_derivatives()` to verify a provider.
 - **Pairwise and mutual invasibility plots** — `community_pip()` (zero contours found by Newton, regions shaded), `plot(type = "mip")` and the trait-evolution plot `community_tep()`.
-- **Selection gradients and singular strategies** — `community_selection_gradient()`, `community_solve_singularity_1D()`, the multi-trait `community_solve_singularity()`, and `community_classify_singularity()` (CSS / branching point / repeller / Garden of Eden, with the branching direction).
+- **Selection gradients and singular strategies** — `community_selection_gradient()`, `community_solve_singularity()` (any number of traits; Newton or a 1-D bracket), and `community_classify_singularity()` (CSS / branching point / repeller / Garden of Eden, with the branching direction).
 - **The canonical equation of adaptive dynamics** — `community_canonical_equation()`: every resident climbs its selection gradient at a speed set by mutation supply, stepped by [odelia](https://github.com/traitecoevo/odelia)'s RODAS; a resident at a fitness minimum branches after the waiting time for a mutant that can invade and coexist, immigrants arrive from a pool, extinctions are dropped, and the community and its fitness landscape can be rebuilt at any recorded time.
 - **Community assembly** — `assembler_run()` with maximum-fitness or stochastic births, and inviable-strategy deaths.
 - **Model harnesses** — `harness_plant()` for the `plant` SCM, plus fast reference models with analytic answers (`harness_dd99()`, `harness_gk98()`, `harness_gm99()`, `harness_jj12()`) for learning the workflow and testing the algorithms.
