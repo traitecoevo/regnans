@@ -109,101 +109,88 @@ community_plot_fitness_landscape <- function(community, label = NA,
   p
 }
 
-
-
-#' Returns birth rates for residents in community
+#' Plot the residents of an assembled community
 #'
-#' @param tidy_community Community or history object from tidied assembly
-#' @param ... additional arguments passed to \code{plot_community_1d}.
+#' Plots the resident strategies at one step of an assembly, from the output of
+#' \code{\link{tidy_assembly}}. With one trait, each resident's birth rate is
+#' plotted against its trait value; with two, the residents are placed in the
+#' trait plane and coloured by birth rate.
 #'
-#' @return Returns one plot if community of, if history, plots length of history timeseries
+#' Axis limits are taken over every step in \code{tidy}, so plots of successive
+#' steps share their axes and can be set side by side or animated:
+#' \code{lapply(unique(tidy$step), function(s) plot_community(tidy, step = s))}.
+#'
+#' @title Plot the residents of an assembled community
+#' @param tidy Output of \code{\link{tidy_assembly}}.
+#' @param step The assembly step to plot. Defaults to the last.
+#' @param trait_scale \code{"log"} or \code{"linear"} trait axes. Defaults to
+#'   the scale of the assembled community, which \code{tidy_assembly} records.
+#' @param xlim,ylim Optional length-2 axis ranges, replacing those taken from
+#'   the whole assembly. Applied with \code{coord_cartesian()}, so points
+#'   outside them are clipped rather than dropped.
+#'
+#' @return A \code{ggplot} object.
 #' @export
-#'
-plot_community <- function(tidy_community, ...){
-  if(is_tibble(tidy_community)){plot_community_1d(tidy_community, ...) -> p}
-  if(!is_tibble(tidy_community)){purrr::imap(tidy_community, ~plot_community_1d(tidy_community = .x, step = .y), ...)-> p}
-  
-  invisible(p)
-  
-}
+plot_community <- function(tidy, step = NULL,
+                           trait_scale = attr(tidy, "trait_scale"),
+                           xlim = NULL, ylim = NULL) {
 
-plot_community_1d <- function(tidy_community, step = NA, xlim = c(0.01, 1), ylim = c(1e-4, 5)){
-  tidy_community %>%
-    select(-births, -invader) %>%
-    names() -> traits
-  tidy_community %>%
-    ggplot(aes_string(x = traits[1], y = "births")) + 
-    geom_point(aes(colour = invader), size = 2) +
-    xlab(traits[1]) +
-    ylab("Birth rate") +
-    theme_classic() + 
-    theme(text = element_text(size = 16),
-          legend.position = "none") +
-    scale_x_log10(limits = xlim) +
-    scale_y_log10(limits = ylim) -> p 
-  
-  if(!is.na(step)){
-    p +
-      geom_text(aes(x = xlim[1], y = ylim[2], label = paste0("Step = ",step), vjust = "inward", hjust = "inward"), size = 5) -> p
+  if (nrow(tidy) == 0L) {
+    stop("tidy has no residents to plot")
   }
-  
-  return(p)
-}
+  if (is.null(trait_scale)) {
+    stop("tidy does not record its trait scale; pass ",
+         "trait_scale = \"log\" or \"linear\"")
+  }
+  trait_scale <- match.arg(trait_scale, c("log", "linear"))
 
-#' Plot pair-wise trait combinations of resident community 
-#'
-#' @param tidy_community Community or history object from tidied assembly with two traits
-#' @param ... additional arguments passed to \code{plot_community_2d_internal}.
-#'
-#' @return Returns one plot if community of, if history, plots length of history timeseries
-#' @export
-#'
-plot_community_2d <- function(tidy_community, ...){
-  if(is_tibble(tidy_community)){
-    
-    ylim_max <- max(tidy_community$hmat)
-    ylim_min <- min(tidy_community$hmat)
-    ylim <- c(ylim_min, ylim_max)
-    
-    xlim_max <- max(tidy_community$lma)
-    xlim_min <- min(tidy_community$lma)
-    xlim <- c(xlim_min, xlim_max)
-    
-    plot_community_2d_internal(tidy_community, xlim = xlim, ylim = ylim, ...) -> p
+  residents <- tidyr::unnest(tidy[c("step", "births", "traits")], "traits")
+  residents$step <- as.integer(residents$step)
+  trait_names <- setdiff(names(residents), c("step", "births"))
+  if (length(trait_names) > 2L) {
+    stop("plot_community plots one or two traits; this assembly has ",
+         length(trait_names), ": ", paste(trait_names, collapse = ", "))
   }
-  if(!is_tibble(tidy_community)){
-    ylim_max <- max(map_dbl(tidy_community, ~max(.x$hmat)))
-    ylim_min <- min(map_dbl(tidy_community, ~min(.x$hmat)))
-    ylim <- c(ylim_min, ylim_max)
-    
-    xlim_max <- max(map_dbl(tidy_community, ~max(.x$lma)))
-    xlim_min <- min(map_dbl(tidy_community, ~min(.x$lma)))
-    xlim <- c(xlim_min, xlim_max)
-    
-    purrr::imap(tidy_community, ~plot_community_2d_internal(tidy_community = .x, step = .y, xlim = xlim, ylim = ylim), ...)-> p
-  }
-  
-  invisible(p)
-  
-}
 
-plot_community_2d_internal <- function(tidy_community, step = NA, xlim = c(0.01, 1), ylim = c(1e-4, 5)){
-  tidy_community %>%
-    select(-births, -invader) %>%
-    names() -> traits
-  tidy_community %>%
-    ggplot(aes_string(x = traits[1], y = traits[2])) + 
-    geom_point(aes(colour = births), size = 2) +
-    theme_classic() + 
-    theme(text = element_text(size = 16),
-          legend.position = "none") +
-    scale_x_log10(limits = xlim) +
-    scale_y_log10(limits = ylim) -> p 
-  
-  if(!is.na(step)){
-    p +
-      geom_text(aes(x = xlim[1], y = ylim[2], label = paste0("Step = ",step), vjust = "inward", hjust = "inward"), size = 5) -> p
+  if (is.null(step)) {
+    step <- max(residents$step)
   }
-  
-  return(p)
+  if (!(step %in% residents$step)) {
+    stop("step ", step, " is not in tidy, whose steps run ",
+         min(residents$step), " to ", max(residents$step))
+  }
+
+  ## The y axis is birth rate for one trait and the second trait for two.
+  x_name <- trait_names[1]
+  y_name <- if (length(trait_names) == 1L) "births" else trait_names[2]
+  if (is.null(xlim)) xlim <- range(residents[[x_name]])
+  if (is.null(ylim)) ylim <- range(residents[[y_name]])
+
+  log_traits <- trait_scale == "log"
+
+  p <- ggplot2::ggplot(residents[residents$step == step, ],
+                       ggplot2::aes(x = .data[[x_name]], y = .data[[y_name]])) +
+    (if (log_traits) ggplot2::scale_x_log10() else ggplot2::scale_x_continuous())
+
+  if (length(trait_names) == 1L) {
+    p <- p +
+      ggplot2::geom_point(size = 2) +
+      ggplot2::scale_y_log10() +
+      ggplot2::ylab("Birth rate")
+  } else {
+    p <- p +
+      ggplot2::geom_point(ggplot2::aes(colour = .data[["births"]]), size = 2) +
+      (if (log_traits) ggplot2::scale_y_log10() else ggplot2::scale_y_continuous()) +
+      ggplot2::ylab(y_name) +
+      ggplot2::scale_colour_viridis_c(transform = "log10", name = "Birth rate")
+  }
+
+  p +
+    ggplot2::xlab(x_name) +
+    ggplot2::theme_classic() +
+    ggplot2::theme(text = ggplot2::element_text(size = 16)) +
+    ggplot2::coord_cartesian(xlim = xlim, ylim = ylim) +
+    ggplot2::annotate("text", x = xlim[1], y = Inf,
+                      label = paste0("Step = ", step),
+                      vjust = "inward", hjust = "inward", size = 5)
 }

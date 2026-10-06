@@ -16,7 +16,7 @@ Imports:
     lhs,
     mvtnorm,
     dfoptim,
-    ggplot2,
+    ggplot2 (>= 3.5.0),
     BB,
     nleqslv,
     purrr,
@@ -26,7 +26,7 @@ Imports:
     mlr3,
     mlr3learners,
     mlr3mbo,
-    bbotk,
+    bbotk (>= 1.0.0),
     paradox,
     data.table,
     logger,
@@ -42,7 +42,9 @@ Suggests:
     future,
     future.apply,
     DiceKriging,
-    nloptr
+    nloptr,
+    lgr,
+    withr
 Encoding: UTF-8
 Config/testthat/edition: 3
 Config/testthat/parallel: true

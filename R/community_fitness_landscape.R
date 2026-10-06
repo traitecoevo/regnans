@@ -10,7 +10,9 @@
 ##' \itemize{
 ##'   \item \code{method} --- \code{"grid"} (the default: evenly spaced points on
 ##'     the community's trait scale, augmented with the residents) or
-##'     \code{"bayesopt"} (Gaussian-process surrogate via \pkg{mlr3mbo}).
+##'     \code{"bayesopt"} (Gaussian-process surrogate via \pkg{mlr3mbo}, fitted
+##'     on the community's trait scale; it draws random numbers when fitting the
+##'     surrogate, so set a seed beforehand for a reproducible landscape).
 ##'   \item \code{n_evals} --- number of fitness evaluations.
 ##'   \item \code{n_init} --- size of the initial design for \code{"bayesopt"}.
 ##' }
@@ -80,21 +82,7 @@ community_fitness_landscape <- function(community, method = NULL, ...) {
 
 community_fitness_landscape_grid <- function(community, bounds = community$bounds, n_evals = community$fitness_control$n_evals) {
 
-  ## Space the grid on the community's trait scale (log for positive plant
-  ## traits, linear for traits spanning zero). seq_log_range() is the log case.
-  tf <- community_trait_transform(community)
-  lo <- tf$fwd(bounds[1, 1])
-  hi <- tf$fwd(bounds[1, 2])
-  x <- tf$inv(seq(lo, hi, length.out = n_evals))
-
-  # add residents - also points offset from resident to capture local gradient
-  res <- community$traits[, 1]
-  if (length(res) > 0L) {
-    eps <- 0.005 * (hi - lo)
-    x <- c(x, tf$inv(tf$fwd(res) - eps), res, tf$inv(tf$fwd(res) + eps))
-  }
-  x <- sort(unique(x))
-
+  x <- landscape_design(community, bounds, n_evals)
   y <- community$fitness_function(x)
 
   community$fitness_points <-
@@ -111,11 +99,17 @@ community_fitness_landscape_grid <- function(community, bounds = community$bound
 
 community_fitness_landscape_bayesopt <- function(community, bounds = community$bounds, n_evals = community$fitness_control$n_evals, n_init = community$fitness_control$n_init) {
   bayesopt_requires()
-  set.seed(1)
-  
+
+  ## The surrogate is fitted on the community's trait scale, so the search
+  ## domain, the archive and the surrogate's inputs are all on that scale.
+  tf <- community_trait_transform(community)
+  x_init <- landscape_design(community, bounds, min(n_init, n_evals))
+  res <- tf$fwd(community$traits[, 1])
+
   obfun <- bbotk::ObjectiveRFun$new(
-    fun = function(xs) list(community$fitness_function(exp(xs$x))),
-    domain = paradox::ps(x = paradox::p_dbl(lower = log(community$bounds[1]), upper = log(community$bounds[2]))),
+    fun = function(xs) list(community$fitness_function(tf$inv(xs$x))),
+    domain = paradox::ps(x = paradox::p_dbl(lower = tf$fwd(bounds[1, 1]),
+                                            upper = tf$fwd(bounds[1, 2]))),
     codomain = paradox::ps(y = paradox::p_dbl(tags = "maximize"))
   )
 
@@ -129,58 +123,48 @@ community_fitness_landscape_bayesopt <- function(community, bounds = community$b
     )
   )
 
-  instance <- bbotk::OptimInstanceSingleCrit$new(
+  instance <- bbotk::OptimInstanceBatchSingleCrit$new(
     objective = obfun,
     terminator = bbotk::trm("evals", n_evals = n_evals)
   )
 
-  # Initial data -- 
-  # space n_evals and add residents
-  x <- sort(unique(c(seq_log_range(bounds, min(n_init, n_evals)), 
-    0.995 * community$traits[, 1], 
-    community$traits[, 1],
-    1.005*community$traits[,1])))
-
-  initial_design <- data.table::data.table(x = log(x))
-  instance$eval_batch(initial_design)
-
-  # run optimisation
+  instance$eval_batch(data.table::data.table(x = tf$fwd(x_init)))
   optimizer$optimize(instance)
 
-  # Store points
   community$fitness_surrogate_archive <- instance$archive
 
+  ## Residents are flagged on the search scale, where the archive holds exactly
+  ## the values evaluated; a log round trip can move the raw value by an ulp.
+  archive <- instance$archive$data
+  ord <- order(archive$x)
   community$fitness_points <-
-    instance$archive$data %>% 
-    dplyr::as_tibble() %>%
-    dplyr::mutate(x = exp(x)) %>%  #back transform x
-    dplyr::select(x = x, fitness = y, batch_nr) %>%
-    dplyr::arrange(x) %>%
-    dplyr::mutate(resident = ifelse(x %in% community$traits, TRUE, FALSE))
+    dplyr::tibble(x = tf$inv(archive$x[ord]), fitness = archive$y[ord],
+                  batch_nr = archive$batch_nr[ord],
+                  resident = archive$x[ord] %in% res)
   names(community$fitness_points)[1] <- community$trait_names
 
-  # Store surrogate
-  community <- community_fitness_surrogate_create(community)
+  community_fitness_surrogate_create(community)
+}
 
-  #community$fitness_surrogate_function(0.01)
-  #community$fitness_function(0.01)
-  
-  # # make predictions
-  # xdt <- data.table::data.table(x = seq_range(log(community$bounds), length.out = 101))
-  # surrogate_pred <- surrogate$predict(xdt)
-  # pred <- bind_cols(xdt %>% as_tibble(), surrogate_pred %>% as_tibble()) %>%
-  #   rename(y = mean)
+## Trait values a 1-D landscape is first evaluated at: n points evenly spaced
+## on the community's trait scale, plus each resident and a point either side
+## of it so the local gradient is resolved.
+landscape_design <- function(community, bounds, n) {
+  tf <- community_trait_transform(community)
+  lo <- tf$fwd(bounds[1, 1])
+  hi <- tf$fwd(bounds[1, 2])
+  if (!all(is.finite(c(lo, hi)))) {
+    stop("A fitness landscape needs finite bounds on the trait scale; got [",
+         bounds[1, 1], ", ", bounds[1, 2], "] on a ", tf$scale, " scale")
+  }
+  x <- tf$inv(seq(lo, hi, length.out = n))
 
-  # # plot true function in black
-  # # surrogate prediction (mean +- se in grey)
-  # # known optimum in darkred
-  # # found optimum in darkgreen
-  # ggplot(aes(x, y), data = pred) +
-  #   geom_point(data = instance$archive$data %>% as_tibble()) +
-  #   geom_line(col = "red") +
-  #   geom_ribbon(aes(x = x, ymin = y - se, ymax = y + se), fill = "grey", alpha = 0.2) +
-  #   theme_minimal()
-  community
+  res <- community$traits[, 1]
+  if (length(res) > 0L) {
+    eps <- 0.005 * (hi - lo)
+    x <- c(x, tf$inv(tf$fwd(res) - eps), res, tf$inv(tf$fwd(res) + eps))
+  }
+  sort(unique(x))
 }
 
 ## The Gaussian-process landscape reaches two packages only through strings --
@@ -212,8 +196,9 @@ community_fitness_surrogate_create <- function(community,
   if(!is.null(archive))
     community$fitness_surrogate_object$update()
     
+  tf <- community_trait_transform(community)
   community$fitness_surrogate_function <- function(x, se = FALSE) {
-    xdt <- data.table::data.table(x = log(x))
+    xdt <- data.table::data.table(x = tf$fwd(x))
 
     surrogate_pred <-
       community$fitness_surrogate_object$predict(xdt) %>%

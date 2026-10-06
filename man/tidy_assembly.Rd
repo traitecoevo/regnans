@@ -7,10 +7,12 @@
 tidy_assembly(obj)
 }
 \arguments{
-\item{obj}{ouytput of an assembly run}
+\item{obj}{output of an assembly run}
 }
 \value{
-A tibble of the assembly
+A tibble of the assembly, one row per resident per step. The
+  community's trait scale is kept in \code{attr(, "trait_scale")} for
+  \code{\link{plot_community}}.
 }
 \description{
 Tidies output from assembler_run into tidy dataframe.
