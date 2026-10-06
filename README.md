@@ -14,9 +14,12 @@ The [{plant}](https://github.com/traitecoevo/plant) package for R is an extensib
 
 ## What it does
 
-- **Resident demographic equilibrium** — `community_demography()`, with fixed-point iteration, `nleqslv`/`dfsane` root-finding and a hybrid.
+- **Resident demographic equilibrium** — `community_demography()`, with fixed-point iteration, a Newton–Broyden solver that carries its Jacobian between solves, `nleqslv`/`dfsane` root-finding and a hybrid.
 - **Invasion fitness and landscapes** — `community_fitness_landscape()`, `max_fitness()`, viable trait bounds (`community_viable_fitness_1D()`).
+- **Fitness derivatives** — `community_fitness_gradient()`, `community_fitness_hessian()` and the selection-gradient Jacobian, exact where a model provides them and finite differences otherwise, with `harness_check_derivatives()` to verify a provider.
+- **Pairwise and mutual invasibility plots** — `community_pip()` (zero contours found by Newton, regions shaded), `plot(type = "mip")` and the trait-evolution plot `community_tep()`.
 - **Selection gradients and singular strategies** — `community_selection_gradient()`, `community_solve_singularity_1D()`, the multi-trait `community_solve_singularity()`, and `community_classify_singularity()` (CSS / branching point / repeller / Garden of Eden, with the branching direction).
+- **The canonical equation of adaptive dynamics** — `community_canonical_equation()`: every resident climbs its selection gradient at a speed set by mutation supply, stepped by [odelia](https://github.com/traitecoevo/odelia)'s RODAS; a resident at a fitness minimum branches after the waiting time for a mutant that can invade and coexist, immigrants arrive from a pool, extinctions are dropped, and the community and its fitness landscape can be rebuilt at any recorded time.
 - **Community assembly** — `assembler_run()` with maximum-fitness or stochastic births, and inviable-strategy deaths.
 - **Model harnesses** — `harness_plant()` for the `plant` SCM, plus fast reference models with analytic answers (`harness_dd99()`, `harness_gk98()`, `harness_gm99()`, `harness_jj12()`) for learning the workflow and testing the algorithms.
 
@@ -26,9 +29,9 @@ Worked examples are on the docs hub under [Theory → Adaptive dynamics](https:/
 
 The aim is a reasonably comprehensive toolkit of adaptive-dynamics methods for *numerically solved* models, designed around the exact derivatives that `plant` is gaining through automatic differentiation. Next up:
 
-- pairwise and mutual invasibility plots;
-- the canonical equation of adaptive dynamics with branching detection, then its stiff multi-trait form;
-- Newton equilibrium solves and implicit sensitivities once `plant` exposes the Jacobians;
+- polymorphic singular coalitions solved and classified directly, without integrating to them;
+- the canonical equation's Jacobian from equilibrium sensitivities once `plant` exposes the Jacobians, so RODAS stops paying one equilibrium solve per unknown;
+- Newton equilibrium solves on exact `∂f/∂n`, and parameter sensitivity of attractors;
 - continuation of singular strategies and coexistence boundaries through parameter space.
 
 [`ROADMAP.md`](ROADMAP.md) has the full inventory with the status of every method, what the package needs from `plant`, and the order of work.
