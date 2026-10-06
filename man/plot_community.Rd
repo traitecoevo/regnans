@@ -2,18 +2,41 @@
 % Please edit documentation in R/community_plots.R
 \name{plot_community}
 \alias{plot_community}
-\title{Returns birth rates for residents in community}
+\title{Plot the residents of an assembled community}
 \usage{
-plot_community(tidy_community, ...)
+plot_community(
+  tidy,
+  step = NULL,
+  trait_scale = attr(tidy, "trait_scale"),
+  xlim = NULL,
+  ylim = NULL
+)
 }
 \arguments{
-\item{tidy_community}{Community or history object from tidied assembly}
+\item{tidy}{Output of \code{\link{tidy_assembly}}.}
 
-\item{...}{additional arguments passed to \code{plot_community_1d}.}
+\item{step}{The assembly step to plot. Defaults to the last.}
+
+\item{trait_scale}{\code{"log"} or \code{"linear"} trait axes. Defaults to
+the scale of the assembled community, which \code{tidy_assembly} records.}
+
+\item{xlim, ylim}{Optional length-2 axis ranges, replacing those taken from
+the whole assembly. Applied with \code{coord_cartesian()}, so points
+outside them are clipped rather than dropped.}
 }
 \value{
-Returns one plot if community of, if history, plots length of history timeseries
+A \code{ggplot} object.
 }
 \description{
-Returns birth rates for residents in community
+Plot the residents of an assembled community
+}
+\details{
+Plots the resident strategies at one step of an assembly, from the output of
+\code{\link{tidy_assembly}}. With one trait, each resident's birth rate is
+plotted against its trait value; with two, the residents are placed in the
+trait plane and coloured by birth rate.
+
+Axis limits are taken over every step in \code{tidy}, so plots of successive
+steps share their axes and can be set side by side or animated:
+\code{lapply(unique(tidy$step), function(s) plot_community(tidy, step = s))}.
 }

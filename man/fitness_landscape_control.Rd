@@ -26,7 +26,9 @@ Options:
 \itemize{
   \item \code{method} --- \code{"grid"} (the default: evenly spaced points on
     the community's trait scale, augmented with the residents) or
-    \code{"bayesopt"} (Gaussian-process surrogate via \pkg{mlr3mbo}).
+    \code{"bayesopt"} (Gaussian-process surrogate via \pkg{mlr3mbo}, fitted
+    on the community's trait scale; it draws random numbers when fitting the
+    surrogate, so set a seed beforehand for a reproducible landscape).
   \item \code{n_evals} --- number of fitness evaluations.
   \item \code{n_init} --- size of the initial design for \code{"bayesopt"}.
 }

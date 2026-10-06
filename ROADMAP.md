@@ -129,9 +129,9 @@ Tier letters refer to the section above. Tests are in `tests/testthat/`; docs ar
 |---|---|---|---|---|---|
 | Invasion fitness of mutants in the resident environment | `community$fitness_function`, `max_growth_rate()` | done | — | every `test-harness-*.R`, `test-plant-smoke.R`; `adaptive-dynamics.qmd` | — |
 | Fitness landscape, grid | `community_fitness_landscape()`, `community_plot_fitness_landscape()` | done | C | `test-fitness-landscape.R`, `test-community-plots.R`; `assembly_stochastic.qmd` | — |
-| Fitness landscape, Bayesian-optimisation surrogate | `fitness_landscape_control(method = "bayesopt")` | partial: untested; `DiceKriging` and `nloptr` undeclared; ignores `trait_scale` and `bounds`; sets a seed internally | C | — | [#27](https://github.com/traitecoevo/regnans/issues/27) |
+| Fitness landscape, Bayesian-optimisation surrogate | `fitness_landscape_control(method = "bayesopt")` | done in 1-D: searched and fitted on the community's trait scale within the given bounds; reproducible from a seed set by the caller | C | `test-fitness-landscape.R`; `assembly_fitmax.qmd` | — |
 | Gradient-enhanced surrogates | — | planned | B | — | [#50](https://github.com/traitecoevo/regnans/issues/50) (downstream) |
-| Maximum of fitness within bounds | `max_fitness()` | done in 1-D; N-D untested | A | `test-plant-smoke.R` | [#27](https://github.com/traitecoevo/regnans/issues/27) |
+| Maximum of fitness within bounds | `max_fitness()` | done | A | `test-support-fitness.R` (DD99 ESS in one and two traits), `test-plant-smoke.R` | — |
 | Viable trait bounds, 1-D | `community_viable_fitness_1D()`, `community_viable_bounds()` | done | C | `test-support-fitness.R`, `test-plant-smoke.R` | — |
 | Viable trait region, N-D | — | planned (currently errors) | C | — | [#58](https://github.com/traitecoevo/regnans/issues/58) |
 | Pairwise invasibility surface and exact zero contours | `community_pip()`, `pip_control()`, `plot.pip()` | done: residents solved in parallel from interpolated seeds, resident axis refined where contours bend, crossings by Newton on the model gradient, linked into branches (folds joined) and drawn as contour-bounded polygons | C | `test-pip.R` (DD99, GK98, JJ12, GM99 oracles); overstorey pages still hand-roll theirs — to replace | [#51](https://github.com/traitecoevo/regnans/issues/51) |
@@ -154,12 +154,12 @@ A multi-species community should be assemblable by a **family of algorithms behi
 
 | Method | Functions | Status | Tier | Tests / docs | Tracking |
 |---|---|---|---|---|---|
-| Maximum-fitness assembly | `assembler_start()`, `assembler_run()`, `birth_type = "maximum"` | done in 1-D; 2-D multistart partial; live `browser()` at `R/births_maximum.R:15` | A | `test-assembler.R`, `test-assembly.R`; `assembly_fitmax.qmd`, `assembly.qmd` | [#57](https://github.com/traitecoevo/regnans/issues/57) |
+| Maximum-fitness assembly | `assembler_start()`, `assembler_run()`, `birth_type = "maximum"` | done in 1-D; 2-D multistart partial | A | `test-assembler.R`, `test-assembly.R`; `assembly_fitmax.qmd`, `assembly.qmd` | [#58](https://github.com/traitecoevo/regnans/issues/58) |
 | Stochastic assembly (mutation and immigration) | `birth_type = "stochastic"`, `mutational_vcv_proportion()` | done | C | `test-assembler.R`; `assembly_stochastic.qmd` | — |
 | Deaths and inviable-strategy removal | `community_deaths()`, `check_for_inviable_strategies` connector | done; plant-coupled check to retire | — | `test-inviable.R` | — |
 | Canonical equation with branching, waiting times and immigration | `community_canonical_equation()`, `canonical_control()`, `canonical_community()`, `plot(type = "trajectory" / "landscapes")` | done: every resident moves up its gradient at a speed set by mutation supply, the community re-solved at each evaluation; a stationary resident at a fitness minimum branches after the waiting time for a mutation that can invade and coexist (rate from the mutational kernel, the establishment probability and a coexistence test along the branching direction; expected, stochastic or immediate), the mutant appearing at the kernel's successful distance; immigrants arrive from a pool at a given rate and establish if they can invade, so mutation and immigration run together or apart; extinctions dropped; the community and its landscape can be rebuilt at any recorded time; the approach to a stationary coalition is finished by Newton on the residents' gradients (`polish`). Stepping is odelia's `OdeSolver` over the right-hand side as an R closure (`canonical_control(stepper = "rkck" / "dopri" / "rodas")`), stepping once at a time up to the next clock and re-seeded when the community changes; RODAS takes the Jacobian of the right-hand side by finite differences across residents until equilibrium sensitivities exist. Measured (`scripts/canonical-stepper-benchmark.R`): the dynamics near a coalition are stiff (DD99's dimorphic pair, fast mode ≈ −3) — unpolished, the explicit pairs are held at their stability limit and stall for 400 steps (~2500 solves) while RODAS converges in 213; with Newton polishing every stepper finishes the JJ12, DD99 and GK98 cases in 7–19 steps, where stages per step outweigh order and Cash–Karp is cheapest (59–95 solves against 71–113 for Dormand–Prince and 107–172 for RODAS); the previous in-package Bogacki–Shampine 3(2) did DD99's split in 51. RODAS is the default because trait models are stiff as a rule (selection on different traits and species runs on widely separated time scales); the explicit pairs are there for the smooth monomorphic case | A then B | `test-canonical.R` (JJ12 CSS, DD99 branching iff σ_C < σ_K with mirror-image daughters, GK98 coalition matching the TEP) | [#52](https://github.com/traitecoevo/regnans/issues/52) |
 | Canonical equation, stiff / implicit, multi-trait | `canonical_control()` (default stepper `"rodas"`) | partial: RODAS4(3) steps it (odelia [#63](https://github.com/traitecoevo/odelia/pull/63)); the Jacobian is finite differences across residents until equilibrium sensitivities are exact | B | `test-canonical.R` | [#43](https://github.com/traitecoevo/regnans/issues/43), [odelia#35](https://github.com/traitecoevo/odelia/issues/35) |
-| Tidy output and plots | `tidy_assembly()`, `plot_community()`, `plot_community_2d()` | partial | — | `test-assembler.R` | [#37](https://github.com/traitecoevo/regnans/issues/37) |
+| Tidy output and plots | `tidy_assembly()`, `plot_community()` (one or two traits, one step at a time on axes shared across the assembly) | done | — | `test-assembler.R`, `test-community-plots.R` | — |
 
 ### Parameter-space structure
 
@@ -174,7 +174,7 @@ A multi-species community should be assemblable by a **family of algorithms behi
 |---|---|---|---|---|---|
 | Parallel evaluation of grids, scouting and independent branches (`future` / `mirai`) | `regnans_map()`, `regnans_chunks()` in `R/parallel.R`; used by `community_pip()` and `community_tep()` | partial: one `future`-backed map, sequential without a plan; landscapes and scouting still to route through it | C | `test-pip.R` (multicore run equals sequential) | [#59](https://github.com/traitecoevo/regnans/issues/59) |
 | Caching of plant runs via `logpile` | none in regnans | planned, in plant | C | — | [plant#651](https://github.com/traitecoevo/plant/issues/651) (E9) |
-| Emulators | see landscapes above | partial | C | `scripts/gps/` survey | [#27](https://github.com/traitecoevo/regnans/issues/27) |
+| Emulators | see landscapes above | partial | C | `scripts/gps/` survey | — |
 
 Caching is deliberately invisible here. plant gains `enable_logpile(path)`, after which `run_scm()`, the mutant path and the derivative endpoints look results up by the fingerprint of their inputs, so every grid, scouting pass, restart and repeated classification in regnans stops re-running identical SCMs without regnans knowing a cache exists. regnans's only obligation is that every plant call it makes is keyable: deterministic inputs, an explicit control object, a frozen schedule when caching, and no hidden state in the runner closure.
 
@@ -227,13 +227,11 @@ Related: [plant#472](https://github.com/traitecoevo/plant/issues/472) scope B, [
 
 Known defects and dead ends, to clear in Phase 0:
 
-- The Bayesian-optimisation landscape ignores `trait_scale` and the `bounds` argument and calls `set.seed(1)` internally; it has no tests ([#27](https://github.com/traitecoevo/regnans/issues/27)). (`DiceKriging` and `nloptr` are declared since [#63](https://github.com/traitecoevo/regnans/pull/63).)
 - `plant_community_check_for_inviable_strategies()` reaches plant directly and hard-codes `eps_test`; `community_viable_fitness_1D()` takes its default start from `model_support$p`.
 - `equilibrium_extinct_birth_rate` is an absolute threshold whose meaning depends on the model's units.
-- Dead code in `R/util.R` (`maximize_logspace`, `closest_log`, `rescale`, `unrescale`, `norm2`) and commented-out surrogate plotting in `R/community_fitness_landscape.R`.
-- Copy-paste `@title`s on `plot_community()` and `demographic_step_control()`.
+- Dead code in `R/util.R` (`maximize_logspace`, `closest_log`, `rescale`, `unrescale`, `norm2`).
+- Copy-paste `@title` on `demographic_step_control()`.
 - Dimension-specific siblings to fold into one dimension-agnostic entry point each (discipline rule 5, [#58](https://github.com/traitecoevo/regnans/issues/58)): `community_solve_singularity_1D()` into `community_solve_singularity()`, `find_max_fitness_1D()` / `find_max_fitness_2d()` into one maximiser, `community_viable_fitness_1D()` into the N-D viable region.
-- Plot functions ([#37](https://github.com/traitecoevo/regnans/issues/37)) and the untested exports listed in [#27](https://github.com/traitecoevo/regnans/issues/27).
 
 ## Maintaining this file
 

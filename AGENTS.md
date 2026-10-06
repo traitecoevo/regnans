@@ -210,12 +210,12 @@ here follow current plant terminology.
 
 ## Test baseline
 
-`devtools::test()` is **green: 1002 pass, 0 fail, 0 skip, 0 warn**. Tests run in
+`devtools::test()` is **green: 1052 pass, 0 fail, 0 skip, 0 warn**. Tests run in
 parallel (`Config/testthat/parallel: true`); the `test-plant-smoke*.R` files
 dominate the wall-clock as they are the only ones that run the real SCM. The
 `test-harness-*.R` and `test-singularity.R` files run no SCM and are fast.
 
-(The count has grown as the toy-harness tier has: 197 → 256 → 401 → 537 → 979 → 1002.
+(The count has grown as the toy-harness tier has: 197 → 256 → 401 → 537 → 979 → 1002 → 1052.
 What matters is that a change moves it up and moves nothing to FAIL.)
 
 Note: the testthat parallel workers may fail to find `plant` on startup in some
@@ -226,15 +226,11 @@ shells; run `TESTTHAT_PARALLEL=FALSE Rscript -e 'devtools::test()'` if so.
   `length.community`, the `max_patch_lifetime` schedule regression, and
   integration tests for `community_demography` (empty + single resident,
   reference birth rate ≈ 0.06846) and `community_selection_gradient`.
-- `test-support-fitness.R` — `positive_1d`, `bounds`/`check_bounds`/`check_point`,
-  and `community_viable_fitness_1D` (viable interval ≈ [0.0405, 0.7993] for lma).
+- `test-support-fitness.R` — `positive_1d`, `bounds`/`check_bounds`/`check_point`, and `max_fitness` in one and two traits against the DD99 ESS (the SCM-backed `community_viable_fitness_1D` tests moved to `test-plant-smoke.R`).
 - `test-solve-attractors.R` (new, #27) — `community_solve_singularity_1D`: 1D
   attractor (≈0.1417 for lma) plus the non-bracketing `edge_ok` warning/error
   branches.
-- `test-fitness-landscape.R` (new, #27) — `community_fitness_landscape` grid
-  method (resident flagged, fitness ~0 at the equilibrium resident, auto-solves
-  demography, rejects unknown methods). The bayesopt/surrogate method is not
-  covered.
+- `test-fitness-landscape.R` (new, #27) — `community_fitness_landscape`: the grid method (resident flagged, fitness ~0 at the equilibrium resident, auto-solves demography, rejects unknown methods) and the bayesopt method (samples equal the true fitness, the surrogate interpolates them, linear and log trait scales, the `bounds` argument, reproducible from a caller's seed; skipped without `mlr3mbo`/`DiceKriging`/`nloptr`).
 - `test-assembler.R` (new, #27) — `assembler_control` defaults/validation,
   `mutational_vcv_proportion` (diagonal log-scale vcv), the maximum-fitness and
   stochastic assembly loops (`assembler_start`/`assembler_run`), and
@@ -261,8 +257,7 @@ shells; run `TESTTHAT_PARALLEL=FALSE Rscript -e 'devtools::test()'` if so.
   iterated GM99 while costing fewer evaluations, `pip_mutual()`,
   `community_tep()` mirror symmetry, the plots, and a multicore run matching
   the sequential surface.
-- `test-community-plots.R` — `community_plot_fitness_landscape`, forcing
-  `ggplot_build()` so the aesthetics are actually evaluated.
+- `test-community-plots.R` — `community_plot_fitness_landscape` and `plot_community` (one and two traits, log and linear scales, step selection), forcing `ggplot_build()` so the aesthetics are actually evaluated and checking each plotted point against the residents.
 - `test-derivatives.R` — `derivative_control`, the dispatch functions in
   `R/derivatives.R` against the DD99 slope/curvature oracles, model-supplied vs
   finite-difference sources, `harness_fd`, `harness_provides`.
@@ -292,11 +287,7 @@ What is *planned* — every method, its status, what regnans needs from plant, a
 the order of work — lives in **[`ROADMAP.md`](ROADMAP.md)**; keep that the single
 source of truth and list only live defects here.
 
-- **2D maximum-fitness births (`find_max_fitness_2d`) are lightly verified** — the
-  path is self-contained (a multistart `maximize_scaled` hill-climb over
-  `sys$fitness_function`) and is commented as "not very well tested"; the only
-  exercise is the warning-free 2D DD99 assembly in `test-assembly.R`. There is
-  also a live `browser()` at `R/births_maximum.R:15`.
+- **2D maximum-fitness births (`find_max_fitness_2d`) are lightly verified** — the path is self-contained (a multistart `maximize_scaled` hill-climb over `sys$fitness_function`) and is commented as "not very well tested"; the only exercise is the warning-free 2D DD99 assembly in `test-assembly.R`.
 - `plant_community_check_for_inviable_strategies` still has a TODO to drop its
   direct plant dependency and reuse the community fitness functions.
 - `equilibrium_extinct_birth_rate` (`demographic_step_control()`, default `1e-3`)
@@ -304,7 +295,6 @@ source of truth and list only live defects here.
   `equilibrium_hybrid` as well as in the inviable-strategy check. Its meaning
   depends entirely on the model's units, so it needs re-tuning when the plant
   parameterisation changes the scale of equilibrium birth rates.
-- The bayesopt/surrogate fitness-landscape method is still uncovered by tests.
 
 ### Resolved (see "Singular strategies" below)
 

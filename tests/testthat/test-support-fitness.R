@@ -80,3 +80,33 @@ test_that("bounds", {
 # fundamental-niche behaviours specific to the plant path, so they now live in
 # test-plant-smoke.R (the consolidated, minimal set of genuine SCM tests). The
 # model-agnostic pipeline is covered fast on DD99 elsewhere.
+
+# ---- max_fitness -----------------------------------------------------------
+#
+# Oracle: with sigma_C > sigma_K, DD99's singular strategy x0 is an ESS, so a
+# resident at x0 at equilibrium is the fitness maximum, where fitness is 0. The
+# bounds are asymmetric so the search does not start on the answer.
+
+test_that("max_fitness finds the DD99 ESS in one trait", {
+  comm <- community_start(bounds(x = c(-1, 3)), trait_scale = "linear",
+                          harness = harness_dd99(x0 = 0, sigma_K = 1,
+                                                 sigma_C = 1.5)) |>
+    community_add(trait_matrix(0, "x"), birth_rate = 500) |>
+    community_demography()
+  mx <- max_fitness(comm, log_scale = FALSE, tol = 1e-8)
+  expect_named(mx, "x")
+  expect_equal(as.numeric(mx), 0, tolerance = 1e-6)
+  expect_equal(attr(mx, "fitness"), 0, tolerance = 1e-10)
+})
+
+test_that("max_fitness finds the DD99 ESS in two traits", {
+  h <- harness_dd99_nd(x0 = c(0, 0), sigma_K = c(1, 1), sigma_C = c(1.5, 1.5))
+  comm <- community_start(bounds(x1 = c(-1, 3), x2 = c(-1, 3)),
+                          trait_scale = "linear", harness = h) |>
+    community_add(trait_matrix(c(0, 0), c("x1", "x2")), birth_rate = 500) |>
+    community_demography()
+  mx <- max_fitness(comm, log_scale = FALSE)
+  expect_named(mx, c("x1", "x2"))
+  expect_equal(as.numeric(mx), c(0, 0), tolerance = 1e-6)
+  expect_equal(attr(mx, "fitness"), 0, tolerance = 1e-10)
+})
