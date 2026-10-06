@@ -49,7 +49,7 @@ test_that("jj12 fitness is vectorised over mutants", {
 
 # ---- harness object --------------------------------------------------------
 
-test_that("harness_jj12 builds an explicit harness with the six connectors", {
+test_that("harness_jj12 builds an explicit harness with the connectors and a closed-form equilibrium", {
   h <- harness_jj12(a = 0.1, x_opt = 0, sigma = 10)
   expect_s3_class(h, "harness_jj12")
   expect_s3_class(h, "harness_explicit")
@@ -58,7 +58,7 @@ test_that("harness_jj12 builds an explicit harness with the six connectors", {
     names(h$fns),
     c("parameters", "make_demography_runner", "demography_runner_cleanup",
       "viable_bounds", "check_for_inviable_strategies",
-      "update_fitness_function"))
+      "update_fitness_function", "equilibrium"))
 })
 
 test_that("community_start defaults to the plant harness", {
