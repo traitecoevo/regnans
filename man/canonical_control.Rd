@@ -32,10 +32,38 @@ canonical_control(control = NULL)
     stable coalition the dynamics are stiff, and an explicit stepper held at
     its stability limit jitters about the point without reaching
     \code{gradient_tol}.}
-  \item{\code{branch}}{test stationary residents for evolutionary stability
-    and split the invadable ones.}
-  \item{\code{branch_distance}}{how far, as a fraction of the trait range on
-    the trait scale, the two daughters of a split sit from the parent.}
+  \item{\code{branch}}{what happens to a stationary resident at a fitness
+    minimum. \code{"expected"} (default): a mutant that can invade and
+    coexist arises at the rate
+    \eqn{\lambda = \mathrm{rate}\, \tilde n \int M(\delta)\, p_{est}(\delta)\,
+    \mathbf{1}[\mathrm{coexist}(\delta)]\, d\delta} along the branching
+    direction, with \eqn{M} the mutational kernel of width
+    \code{mutation_sd}, \eqn{p_{est} = \min(1, 2s)} the establishment
+    probability of a rare mutant with invasion fitness \eqn{s}, and
+    coexistence meaning the resident can invade the mutant back; time
+    advances by \eqn{1/\lambda} and the mutant appears at the expected
+    distance of a successful mutation. \code{"stochastic"}: the waiting time
+    is exponential with that rate and the mutant's distance is drawn.
+    \code{"immediate"}: split at once, \code{branch_distance} either side.
+    \code{"none"}: stop at the first stationary coalition.}
+  \item{\code{mutation_sd}}{standard deviation of the mutational kernel on
+    the trait scale, one per trait; \code{NULL} takes it from \code{vcv}
+    where given, else 2\% of the trait range.}
+  \item{\code{branch_nodes}}{Gauss--Hermite nodes for the branching-rate
+    integral; each costs one equilibrium solve.}
+  \item{\code{branch_distance}}{for \code{"immediate"}: how far, as a
+    fraction of the trait range on the trait scale, the two daughters sit
+    from the parent.}
+  \item{\code{immigration}}{\code{NULL}, or a list with \code{rate}
+    (arrivals per unit evolutionary time, exponential waiting times),
+    \code{pool} (where phenotypes come from: \code{NULL} for uniform on the
+    trait scale within the bounds, a matrix of phenotypes to sample rows
+    from, or a function of \code{n} returning that many rows) and
+    \code{establish} (\code{"deterministic"}: an arrival with positive
+    invasion fitness establishes; \code{"stochastic"}: with probability
+    \eqn{\min(1, 2s)}).}
+  \item{\code{seed}}{random seed for the stochastic parts; the caller's RNG
+    state is restored afterwards.}
   \item{\code{max_residents}}{stop rather than branch beyond this many.}
   \item{\code{extinct_fraction}}{a resident whose equilibrium density falls
     below this fraction of the total is removed.}

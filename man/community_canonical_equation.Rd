@@ -24,18 +24,20 @@ A \code{canonical_equation} object: \code{trajectory} (a tibble of
 \code{time}, \code{lineage}, the trait columns, \code{density} and the
 gradient columns \code{gradient_<trait>} on the trait scale, one row per
 resident per accepted step), \code{events} (\code{time}, \code{event} ---
-\code{"branch"}, \code{"extinct"}, \code{"polish"}, \code{"stable"},
-\code{"t_max"}, \code{"max_steps"}, \code{"max_residents"} --- and
-\code{lineage}),
+\code{"branch"}, \code{"unbranchable"}, \code{"immigrant"},
+\code{"extinct"}, \code{"polish"}, \code{"stable"}, \code{"t_max"},
+\code{"max_steps"}, \code{"max_residents"} --- and \code{lineage}),
 \code{community} (the final solved community), \code{evaluations} (how
-many equilibrium solves it cost), \code{outcome} and the control.
+many equilibrium solves it cost), \code{immigration_attempts},
+\code{outcome} and the control. \code{\link{canonical_community}} rebuilds
+the community at any recorded time.
 }
 \description{
 Integrate the canonical equation of adaptive dynamics.
 }
 \details{
 Every resident's trait moves up its selection gradient,
-\deqn{\frac{dz_i}{dt} = \mathrm{rate}\; \tilde n_i\; V\, \nabla_z s(z_i),}
+\deqn{\frac{dz_i}{dt} = \tfrac{1}{2}\,\mathrm{rate}\; \tilde n_i\; V\, \nabla_z s(z_i),}
 on the community's trait scale \eqn{z}, with the community re-solved to
 demographic equilibrium at every evaluation; \eqn{\tilde n_i} is the
 resident's equilibrium density relative to the initial total and \eqn{V}
