@@ -9,18 +9,22 @@ canonical_control(control = NULL)
 \arguments{
 \item{control}{A list of values to modify from the defaults:
 \describe{
-  \item{\code{rate}}{scalar on the right-hand side: mutation rate times
-    mutational variance, in units of evolutionary time.}
+  \item{\code{rate}}{the mutation rate \eqn{\mu}: mutations per unit
+    evolutionary time in the initial community (the resident's share scales
+    with its relative density when \code{density} is on). It sets the time
+    scale of the speed and of the waiting times alike.}
   \item{\code{vcv}}{mutational covariance on the trait scale, a k by k
-    matrix; \code{NULL} is the identity.}
+    matrix. \code{NULL} uses \code{diag(mutation_sd^2)}, so the speed and
+    the branching waiting time are driven by the same kernel.}
   \item{\code{density}}{multiply each resident's speed by its equilibrium
     density relative to the initial total (mutation supply scales with
     population size).}
   \item{\code{stepper}}{\code{"rk23"} (explicit, adaptive) or
     \code{"rosenbrock"} (linearly implicit ROS2, adaptive, for stiff
     dynamics).}
-  \item{\code{t_max}, \code{max_steps}}{limits on evolutionary time and
-    accepted steps.}
+  \item{\code{t_max}, \code{max_steps}}{limits on evolutionary time
+    (\code{Inf} by default: a run ends when the coalition is stable or a
+    limit is reached) and accepted steps.}
   \item{\code{rtol}, \code{atol}}{step-size control on the trait scale.}
   \item{\code{dt0}, \code{dt_max}}{initial and largest step; \code{NULL}
     chooses \code{dt0} from the initial speed.}
@@ -32,10 +36,46 @@ canonical_control(control = NULL)
     stable coalition the dynamics are stiff, and an explicit stepper held at
     its stability limit jitters about the point without reaching
     \code{gradient_tol}.}
-  \item{\code{branch}}{test stationary residents for evolutionary stability
-    and split the invadable ones.}
-  \item{\code{branch_distance}}{how far, as a fraction of the trait range on
-    the trait scale, the two daughters of a split sit from the parent.}
+  \item{\code{branch}}{what happens to a stationary resident at a fitness
+    minimum. \code{"expected"} (default): a mutant that can invade and
+    coexist arises at the rate
+    \eqn{\lambda = \mathrm{rate}\, \tilde n \int M(\delta)\, p_{est}(\delta)\,
+    \mathbf{1}[\mathrm{coexist}(\delta)]\, d\delta} along the branching
+    direction, with \eqn{M} the mutational kernel of width
+    \code{mutation_sd}, \eqn{p_{est} = \min(1, 2s)} the establishment
+    probability of a rare mutant with invasion fitness \eqn{s}, and
+    coexistence meaning the resident can invade the mutant back; time
+    advances by \eqn{1/\lambda} and the mutant appears at the expected
+    distance of a successful mutation. \code{"stochastic"}: the waiting time
+    is exponential with that rate and the mutant's distance is drawn.
+    \code{"immediate"}: split at once, \code{branch_distance} either side.
+    \code{"none"}: stop at the first stationary coalition.}
+  \item{\code{mutation_sd}}{standard deviation of the mutational kernel on
+    the trait scale, one per trait; \code{NULL} takes it from \code{vcv}
+    where given, else 2\% of the trait range.}
+  \item{\code{establishment_factor}}{a rare mutant or immigrant with
+    invasion fitness \eqn{s > 0} establishes with probability
+    \eqn{\min(1, c\,s)}. The default \eqn{c = 2} is Haldane's
+    approximation for a discrete-generation Poisson branching process;
+    fitness is a per-capita rate for DD99, a log ratio for the other
+    reference models and a log net-reproduction ratio for plant, so the
+    right constant is model-dependent and the waiting times are exact only up
+    to it.}
+  \item{\code{branch_nodes}}{Gauss--Hermite nodes for the branching-rate
+    integral; each costs one equilibrium solve.}
+  \item{\code{branch_distance}}{for \code{"immediate"}: how far, as a
+    fraction of the trait range on the trait scale, the two daughters sit
+    from the parent.}
+  \item{\code{immigration}}{\code{NULL}, or a list with \code{rate}
+    (arrivals per unit evolutionary time, exponential waiting times),
+    \code{pool} (where phenotypes come from: \code{NULL} for uniform on the
+    trait scale within the bounds, a matrix of phenotypes to sample rows
+    from, or a function of \code{n} returning that many rows) and
+    \code{establish} (\code{"deterministic"}: an arrival with positive
+    invasion fitness establishes; \code{"stochastic"}: with probability
+    \eqn{\min(1, 2s)}).}
+  \item{\code{seed}}{random seed for the stochastic parts; the caller's RNG
+    state is restored afterwards.}
   \item{\code{max_residents}}{stop rather than branch beyond this many.}
   \item{\code{extinct_fraction}}{a resident whose equilibrium density falls
     below this fraction of the total is removed.}

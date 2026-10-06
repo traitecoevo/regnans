@@ -3,14 +3,26 @@
 \name{plot.canonical_equation}
 \alias{plot.canonical_equation}
 \alias{autoplot.canonical_equation}
-\title{Plot a canonical-equation trajectory}
+\title{Plot a canonical-equation run}
 \usage{
-\method{plot}{canonical_equation}(x, ...)
+\method{plot}{canonical_equation}(
+  x,
+  type = c("trajectory", "landscapes"),
+  times = NULL,
+  n_evals = 101L,
+  ...
+)
 
 \method{autoplot}{canonical_equation}(object, ...)
 }
 \arguments{
 \item{x}{A \code{canonical_equation}.}
+
+\item{type}{\code{"trajectory"} or \code{"landscapes"}.}
+
+\item{times}{For \code{"landscapes"}: evolutionary times to show.}
+
+\item{n_evals}{For \code{"landscapes"}: mutant values per landscape.}
 
 \item{...}{Ignored.}
 
@@ -23,9 +35,14 @@ A \code{ggplot} object.
 Plot trait trajectories from the canonical equation.
 }
 \details{
-Each lineage is a line of trait value against evolutionary time; a
-branching event is where one line becomes two. With several traits, one
-panel per trait.
+\code{type = "trajectory"}: each lineage is a line of trait value against
+evolutionary time; a branching event is where one line becomes two, an
+immigrant a line that starts in mid-air. With several traits, one panel per
+trait. \code{type = "landscapes"}: the invasion-fitness landscape of the
+community at chosen \code{times} (by default the record just before, at
+and after each branching), residents marked, one panel per time --- the
+fitness minimum forming and the daughters moving apart. Single-trait
+communities only.
 }
 \author{
 Daniel Falster
