@@ -133,7 +133,7 @@ Tier letters refer to the section above. Tests are in `tests/testthat/`; docs ar
 | Maximum of fitness within bounds | `max_fitness()` | done in 1-D; N-D untested | A | `test-plant-smoke.R` | [#27](https://github.com/traitecoevo/regnans/issues/27) |
 | Viable trait bounds, 1-D | `community_viable_fitness_1D()`, `community_viable_bounds()` | done | C | `test-support-fitness.R`, `test-plant-smoke.R` | — |
 | Viable trait region, N-D | — | planned (currently errors) | C | — | [#58](https://github.com/traitecoevo/regnans/issues/58) |
-| Pairwise invasibility surface and exact zero contours | `community_pip()`, `pip_control()`, `plot.pip()` | done: residents solved in parallel from interpolated seeds, resident axis refined where contours bend, crossings by Newton on the model gradient | C | `test-pip.R`; overstorey pages still hand-roll theirs — to replace | [#51](https://github.com/traitecoevo/regnans/issues/51) |
+| Pairwise invasibility surface and exact zero contours | `community_pip()`, `pip_control()`, `plot.pip()` | done: residents solved in parallel from interpolated seeds, resident axis refined where contours bend, crossings by Newton on the model gradient, linked into branches (folds joined) and drawn as contour-bounded polygons | C | `test-pip.R` (DD99, GK98, JJ12, GM99 oracles); overstorey pages still hand-roll theirs — to replace | [#51](https://github.com/traitecoevo/regnans/issues/51) |
 | Mutual invasibility and trait-evolution plots (two residents) | `pip_mutual()`, `plot(pip, type = "mip")`, `community_tep()`, `plot.tep()` | done | C | `test-pip.R` | [#51](https://github.com/traitecoevo/regnans/issues/51) |
 
 ### Selection gradients and singular strategies
@@ -148,6 +148,8 @@ Tier letters refer to the section above. Tests are in `tests/testthat/`; docs ar
 | Parameter sensitivity `dx*/dp` and continuation of `x*` along one parameter | — | planned | B | — | [#54](https://github.com/traitecoevo/regnans/issues/54) |
 
 ### Evolutionary dynamics and community assembly
+
+A multi-species community should be assemblable by a **family of algorithms behind one access point** (`assembler_run()` with its `assembler_control()`), not by one method. The family is motivated two ways. Biologically, the algorithms represent different processes — mutation of residents at some rate, immigration from a regional pool, the relative speed of demography and evolution — and so different models of how a community comes to be. Computationally, they are different routes to the same evolutionarily stable community, with very different costs: in earlier work with Rich FitzJohn the **FitMax** algorithm, which places each new resident at the maximum of the current fitness landscape, reached an ESS community far faster than the stochastic assembly of Falster, Brännström, Westoby & Dieckmann (2017, PNAS) or than following monomorphic adaptive dynamics. Each algorithm's answer should agree where they are meant to agree (the ESS community is a property of the model, not of the route), and their costs should be measured against each other on the reference models, as the seeding strategies were for the invasibility surface (`scripts/pip-benchmark.R`). The canonical equation with branching ([#52](https://github.com/traitecoevo/regnans/issues/52)) and coalition solving ([#53](https://github.com/traitecoevo/regnans/issues/53)) extend the family; the comparison itself is part of [#52](https://github.com/traitecoevo/regnans/issues/52).
 
 | Method | Functions | Status | Tier | Tests / docs | Tracking |
 |---|---|---|---|---|---|
