@@ -537,15 +537,28 @@ pip_branches <- function(pip) {
       pred <- vapply(alive, function(b) b[2] + b[3] * (zx - b[1]), numeric(1))
       gap <- vapply(alive, function(b) zx - b[1], numeric(1))
       has_slope <- vapply(alive, function(b) b[4] >= 2, logical(1))
-      want <- vapply(pred, function(p) which.min(abs(zy - p)), integer(1))
-      miss <- abs(zy[want] - pred)
-      ok <- miss <= pmax(span / 8, 2 * gap)
-      for (j in unique(want[ok])) {
-        contenders <- which(ok & want == j)
-        best <- contenders[which.min(miss[contenders])]
-        ok[contenders] <- contenders == best |
-          (has_slope[contenders] & miss[contenders] <= coincide)
+      window <- pmax(span / 8, 2 * gap)
+      want <- rep(NA_integer_, length(alive))
+      ## first pass: each crossing goes to the branch predicting it best
+      nearest <- vapply(pred, function(p) which.min(abs(zy - p)), integer(1))
+      for (j in unique(nearest)) {
+        contenders <- which(nearest == j & abs(zy[j] - pred) <= window)
+        if (length(contenders) > 0L) want[contenders[which.min(abs(zy[j] - pred[contenders]))]] <- j
       }
+      ## second pass: a branch that lost its nearest crossing takes the nearest
+      ## crossing nobody has, if one is within its window; failing that it may
+      ## share the crossing it wanted only where its own prediction lands on it
+      ## and it has a slope -- a genuine intersection -- otherwise it ends
+      for (k in which(is.na(want))) {
+        free <- setdiff(seq_along(zy), want[!is.na(want)])
+        if (length(free) > 0L) {
+          j <- free[which.min(abs(zy[free] - pred[k]))]
+          if (abs(zy[j] - pred[k]) <= window[k]) { want[k] <- j; next }
+        }
+        j <- nearest[k]
+        if (has_slope[k] && abs(zy[j] - pred[k]) <= coincide) want[k] <- j
+      }
+      ok <- !is.na(want)
       for (k in which(ok)) {
         id <- names(alive)[k]
         b <- alive[[id]]
@@ -606,19 +619,32 @@ pip_join_folds <- function(br, z_residents, tf, extremes) {
         a <- arms[j]; b <- arms[j + 1L]
         sa <- slope_of(a); sb <- slope_of(b)
         ya <- tip_y[j]; yb <- tip_y[j + 1L]
-        ## approaching the vertex, the lower arm rises and the upper arm falls
-        ## (as x moves towards the fold)
-        if (!is.finite(sa) || !is.finite(sb) || direction * sa <= 0 || direction * sb >= 0) next
-        r <- sb / sa
-        yf <- (ya - r * yb) / (1 - r)
-        ## each arm gives an estimate of the vertex distance; the curve is not
-        ## exactly a parabola, so take their mean (which also keeps a fold and
-        ## its mirror image symmetric)
-        cc_a <- -direction / (2 * sa * (ya - yf))
-        cc_b <- -direction / (2 * sb * (yb - yf))
-        if (!is.finite(cc_a) || !is.finite(cc_b) || cc_a <= 0 || cc_b <= 0) next
-        zf <- zx + direction * (cc_a * (ya - yf)^2 + cc_b * (yb - yf)^2) / 2
         z_out <- z_residents[i_next]
+        ## approaching the vertex, the lower arm rises and the upper arm falls
+        ## (as x moves towards the fold); an arm of a single point has no slope
+        ## and is taken on trust
+        ok_a <- is.finite(sa) && direction * sa > 0
+        ok_b <- is.finite(sb) && direction * sb < 0
+        if ((is.finite(sa) && !ok_a) || (is.finite(sb) && !ok_b)) next
+        if (ok_a && ok_b) {
+          r <- sb / sa
+          yf <- (ya - r * yb) / (1 - r)
+          ## each arm gives an estimate of the vertex distance; the curve is not
+          ## exactly a parabola, so take their mean (which also keeps a fold and
+          ## its mirror image symmetric)
+          cc_a <- -direction / (2 * sa * (ya - yf))
+          cc_b <- -direction / (2 * sb * (yb - yf))
+          if (!is.finite(cc_a) || !is.finite(cc_b) || cc_a <= 0 || cc_b <= 0) next
+          zf <- zx + direction * (cc_a * (ya - yf)^2 + cc_b * (yb - yf)^2) / 2
+        } else {
+          ## with one slope (or none) the vertex sits at the arms' mid-height; the
+          ## sloped arm fixes how far out, otherwise halfway to the next resident
+          yf <- (ya + yb) / 2
+          slope <- if (ok_a) sa else if (ok_b) sb else NA_real_
+          y_sloped <- if (ok_a) ya else yb
+          cc <- if (is.finite(slope)) -direction / (2 * slope * (y_sloped - yf)) else NA_real_
+          zf <- if (is.finite(cc) && cc > 0) zx + direction * cc * (y_sloped - yf)^2 else zx + 0.5 * (z_out - zx)
+        }
         if (direction > 0) zf <- min(zf, zx + 0.95 * (z_out - zx)) else zf <- max(zf, zx - 0.95 * (zx - z_out))
         for (id in c(a, b)) {
           extra[[length(extra) + 1L]] <- tibble::tibble(
