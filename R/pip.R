@@ -193,7 +193,10 @@ pip_crossings <- function(solved, z_mutant, fitness, tf, tol) {
       if (is.finite(r) && !any(abs(roots - r) <= tol)) roots <- c(roots, r)
     }
   }
-  sort(roots)
+  ## a contour through the diagonal (the singular strategy itself) is found
+  ## again by the deflated search as a root within tol of zx
+  roots <- sort(roots)
+  roots[c(TRUE, diff(roots) > tol)]
 }
 
 ## Solve one resident and collect everything the surface needs from it. Runs

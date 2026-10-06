@@ -237,3 +237,108 @@ test_that("residents are solved in contiguous chunks and a parallel plan gives t
   expect_equal(parallel$surface, sequential$surface, tolerance = 1e-10)
   expect_equal(parallel$contours, sequential$contours, tolerance = 1e-8)
 })
+
+# ---- other models ------------------------------------------------------------
+#
+# GK98, symmetric three-patch (mu = (-d, 0, d), equal K), single resident x:
+#   S(y; x) = log( (1/3) sum_j f_j(y) / f_j(x) )
+# With u = y - x and s = y + x, (y - mu)^2 - (x - mu)^2 = u (s - 2 mu), so the
+# zero set besides the diagonal is the single curve
+#   s = G(u) = (2 sigma^2 / u) log( (1 + 2 cosh(u d / sigma^2)) / 3 ),
+# through the singular strategy x* = 0. G is odd and increasing with
+# G'(0) = 2 d^2 / (3 sigma^2) and G -> 2d as u grows, so a resident's column
+# x = const meets the curve once when G'(0) < 1 and up to three times (the
+# curve folds) when G'(0) > 1 -- which is d/sigma > sqrt(3/2), the branching
+# condition.
+#
+#
+# JJ12, single resident x at n*:
+#   w(y; x) = (1 - p) R(y) C(y) / (R(x) C(x)) + p
+# so s(y; x) > 0 iff R(y)C(y) > R(x)C(x): a strict ordering of strategies, with
+# the second contour at y = 2 x* - x and no mutual invasibility anywhere.
+
+gk98_s <- function(y, x, d, sigma = 1) {
+  f <- function(z, mu) exp(-(z - mu)^2 / (2 * sigma^2))
+  log(rowMeans(sapply(c(-d, 0, d), function(mu) f(y, mu) / f(x, mu))))
+}
+gk98_contour_sum <- function(u, d, sigma = 1) {
+  (2 * sigma^2 / u) * log((1 + 2 * cosh(u * d / sigma^2)) / 3)
+}
+
+test_that("GK98 contours lie on the closed-form curve through the singular strategy", {
+  for (d in c(1.0, 1.5)) {
+    comm <- community_start(bounds(x = c(-3, 3)), trait_scale = "linear",
+                            harness = harness_gk98(d = d, sigma = 1))
+    pip <- community_pip(comm, control = pip_control(list(n_resident = 13, n_mutant = 121, refine = 0)))
+    expect_equal(pip$surface$fitness, gk98_s(pip$surface$mutant, pip$surface$resident, d),
+                 tolerance = 1e-10, info = paste("d =", d))
+    co <- pip$contours
+    expect_equal(sort(co$resident[abs(co$resident - co$mutant) < 1e-8]), pip$residents$resident,
+                 info = paste("d =", d))
+    off <- co[abs(co$resident - co$mutant) >= 1e-8, ]
+    expect_gt(nrow(off), 0L)
+    u <- off$mutant - off$resident
+    expect_equal(off$mutant + off$resident, gk98_contour_sum(u, d), tolerance = 1e-7,
+                 info = paste("d =", d))
+    expect_true(all(pip$residents$n_crossings >= 1L), info = paste("d =", d))
+    if (d < sqrt(1.5)) {
+      expect_true(all(pip$residents$n_crossings <= 2L), info = paste("d =", d))
+    } else {
+      expect_true(any(pip$residents$n_crossings == 3L), info = paste("d =", d))
+    }
+  }
+})
+
+test_that("GK98 mutual invasibility and trait evolution are mirror-symmetric, with a dimorphic coalition when branching", {
+  comm <- community_start(bounds(x = c(-3, 3)), trait_scale = "linear",
+                          harness = harness_gk98(d = 1.5, sigma = 1))
+  pip <- community_pip(comm, control = pip_control(list(n_resident = 25, n_mutant = 121, refine = 0)))
+  m <- pip_mutual(pip)
+  key <- function(a, b) paste(signif(a, 10), signif(b, 10))
+  mm <- stats::setNames(m$mutual, key(m$x1, m$x2))
+  expect_equal(unname(mm[key(m$x2, m$x1)]), unname(mm))      # s12 & s21 symmetric
+  expect_equal(unname(mm[key(-m$x2, -m$x1)]), unname(mm))    # mirror symmetric
+  expect_true(any(m$mutual))
+
+  tep <- community_tep(comm, pip)
+  expect_gt(nrow(tep), 0L)
+  sym <- tep[abs(tep$x1 + tep$x2) < 1e-8, ]
+  expect_gt(nrow(sym), 2L)
+  expect_equal(sym$g1, -sym$g2, tolerance = 1e-8)
+  expect_equal(sym$n1, sym$n2, tolerance = 1e-8)
+  # along the symmetric line the gradient on the outer resident changes sign:
+  # the dimorphism is carried to a coalition at (-a*, a*)
+  expect_true(any(sym$g2 > 0) && any(sym$g2 < 0))
+})
+
+test_that("JJ12 is a CSS: the second contour is y = 2 x* - x and nothing is mutually invasible", {
+  a <- 0.1; sigma <- 1.4; x_opt <- 0.5
+  x_star <- x_opt - a * sigma^2
+  comm <- community_start(bounds(x = c(-3, 3)), trait_scale = "linear",
+                          harness = harness_jj12(a = a, x_opt = x_opt, sigma = sigma))
+  pip <- community_pip(comm, control = pip_control(list(n_resident = 13, n_mutant = 121, refine = 1)))
+  off <- pip$contours[abs(pip$contours$resident - pip$contours$mutant) > 1e-8, ]
+  expect_gt(nrow(off), 0L)
+  expect_equal(off$mutant, 2 * x_star - off$resident, tolerance = 1e-7)
+  # refinement found the singular strategy, where the two contours meet
+  expect_lt(min(abs(pip$residents$resident - x_star)), 6 / 12 / 2 + 1e-8)
+  expect_false(any(pip_mutual(pip)$mutual))
+  tep <- community_tep(comm, pip)
+  expect_equal(nrow(tep), 0L)
+  expect_equal(attr(tep, "excluded"), 0L)
+})
+
+test_that("an iterated GK98 gives the same surface and contours as the closed form", {
+  h <- harness_gk98(d = 1.5, sigma = 1)
+  ctl <- pip_control(list(n_resident = 9, n_mutant = 61, refine = 1))
+  closed <- community_pip(community_start(bounds(x = c(-3, 3)), trait_scale = "linear", harness = h),
+                          control = ctl)
+  numerical <- community_start(bounds(x = c(-3, 3)), trait_scale = "linear",
+                               harness = harness_numerical(h))
+  numerical$demography_control$equilibrium_eps <- 1e-10
+  iterated <- community_pip(numerical, control = ctl)
+  expect_equal(iterated$residents$resident, closed$residents$resident)
+  expect_equal(iterated$surface$fitness, closed$surface$fitness, tolerance = 1e-6)
+  expect_equal(iterated$contours$mutant, closed$contours$mutant, tolerance = 1e-6)
+  expect_true(all(iterated$residents$n_evals >= closed$residents$n_evals))
+})
