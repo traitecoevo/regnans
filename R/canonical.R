@@ -13,11 +13,19 @@
 #
 # Each right-hand side evaluation is one equilibrium solve (warm-started from
 # the last) plus the fitness gradient of every resident, so the stepper is
-# chosen for how few evaluations it needs, not for accuracy in the trajectory:
-# an explicit adaptive Bogacki-Shampine 3(2) by default, or a linearly implicit
-# Rosenbrock step for the stiff case of many traits or species (#43), which
-# takes the Jacobian of the right-hand side -- by finite differences over the
-# gradient today, exactly once the model supplies equilibrium sensitivities.
+# chosen for how few evaluations it needs, not for accuracy in the trajectory.
+# The stepping is odelia's: its OdeSolver takes the right-hand side as an R
+# closure, steps once at a time up to a bound (so branching and immigration
+# clocks are landed on exactly), re-seeds the state at a new length when the
+# community changes, and offers explicit embedded pairs or RODAS for the stiff
+# case of many traits or species (#43), whose Jacobian of the right-hand side
+# is by finite differences over the residents today and exact once the model
+# supplies equilibrium sensitivities. RODAS is the default because trait
+# models are stiff as a rule -- selection on different traits and species runs
+# on widely separated time scales, and near a coalition an explicit pair is
+# held at its stability limit -- while on smooth stretches it costs 1.5-2x the
+# explicit pairs in equilibrium solves (scripts/canonical-stepper-benchmark.R),
+# a price an exact Jacobian removes.
 
 ##' Control the canonical equation.
 ##'
@@ -34,13 +42,19 @@
 ##'   \item{\code{density}}{multiply each resident's speed by its equilibrium
 ##'     density relative to the initial total (mutation supply scales with
 ##'     population size).}
-##'   \item{\code{stepper}}{\code{"rk23"} (explicit, adaptive) or
-##'     \code{"rosenbrock"} (linearly implicit ROS2, adaptive, for stiff
-##'     dynamics).}
+##'   \item{\code{stepper}}{an \code{odelia} stepper: \code{"rodas"} (linearly
+##'     implicit RODAS4(3), the default: trait models are stiff as a rule, and
+##'     an L-stable step is not held at a stability limit; its Jacobian is
+##'     formed by finite differences across the residents, one equilibrium
+##'     solve per unknown), \code{"rkck"} (explicit Cash--Karp 4(5), the
+##'     cheapest on smooth stretches) or \code{"dopri"} (explicit
+##'     Dormand--Prince 5(4)). See \code{\link[odelia]{OdeSolver}}.}
 ##'   \item{\code{t_max}, \code{max_steps}}{limits on evolutionary time
 ##'     (\code{Inf} by default: a run ends when the coalition is stable or a
 ##'     limit is reached) and accepted steps.}
-##'   \item{\code{rtol}, \code{atol}}{step-size control on the trait scale.}
+##'   \item{\code{rtol}, \code{atol}}{tolerances of the step-size control, on
+##'     the trait scale: a step is accepted when its error estimate is within
+##'     \code{atol + rtol * abs(z)}.}
 ##'   \item{\code{dt0}, \code{dt_max}}{initial and largest step; \code{NULL}
 ##'     chooses \code{dt0} from the initial speed.}
 ##'   \item{\code{gradient_tol}}{selection has stopped when every resident's
@@ -103,7 +117,7 @@
 canonical_control <- function(control = NULL) {
   defaults <- list(
     rate = 1, vcv = NULL, density = TRUE,
-    stepper = "rk23",
+    stepper = "rodas",
     t_max = Inf, max_steps = 2000L,
     rtol = 1e-3, atol = 1e-5, dt0 = NULL, dt_max = Inf,
     gradient_tol = 1e-4,
@@ -120,7 +134,7 @@ canonical_control <- function(control = NULL) {
     stop("Unknown control parameters ", paste(extra, collapse = ", "))
   }
   ret <- modifyList(defaults, control, keep.null = TRUE)
-  ret$stepper <- match.arg(ret$stepper, c("rk23", "rosenbrock"))
+  ret$stepper <- match.arg(ret$stepper, c("rodas", "rkck", "dopri"))
   for (nm in c("rate", "rtol", "atol", "gradient_tol", "polish_tol", "branch_distance",
                "extinct_fraction", "classify_tol", "establishment_factor")) {
     v <- ret[[nm]]
@@ -159,7 +173,12 @@ canonical_control <- function(control = NULL) {
 
 ## The right-hand side as a closure over the community: residents z (m x k on
 ## the trait scale) -> their speeds, with the solved community kept for warm
-## starts and for the caller.
+## starts and the whole last evaluation (speeds, gradients, densities,
+## community) kept for the caller: odelia guarantees that after an accepted
+## step or a re-seed the last evaluation was at the solver's state. `ode` is
+## the same map in the (t, y) form the solver calls; an evaluation whose
+## equilibrium did not converge or whose speed is not finite is refused with
+## odelia::domain_error(), which rejects the step and retries it smaller.
 canonical_rhs <- function(base, tf, control, k, n_total0, V) {
   birth_rate <- NULL
   state <- NULL
@@ -176,14 +195,20 @@ canonical_rhs <- function(base, tf, control, k, n_total0, V) {
     n <- as.numeric(comm$birth_rate)
     if (all(is.finite(n)) && all(n > 0)) birth_rate <<- n
     state <<- comm$demography_state
-    last <<- comm
     g <- community_fitness_gradient(comm)                       # m x k, raw units
     g_z <- if (identical(tf$scale, "log")) g * x else g           # w.r.t. the trait scale
     weight <- if (control$density) n / n_total0 else rep(1, m)
     speed <- 0.5 * control$rate * weight * (g_z %*% V)
-    list(f = as.numeric(speed), g_z = g_z, n = n, community = comm)
+    last <<- list(f = as.numeric(speed), g_z = g_z, n = n, community = comm)
   }
-  list(f = f, last = function() last, evaluations = function() evaluations,
+  ode <- function(t, y) {
+    out <- f(y)
+    if (!isTRUE(attr(out$community, "converged")) || !all(is.finite(out$f))) {
+      odelia::domain_error("the demographic equilibrium did not converge")
+    }
+    out$f
+  }
+  list(f = f, ode = ode, last = function() last, evaluations = function() evaluations,
        reset = function() { birth_rate <<- NULL; state <<- NULL })
 }
 
@@ -278,43 +303,16 @@ canonical_polish <- function(rhs, z, control) {
   as.numeric(sol)
 }
 
-## Step-size control shared by both steppers: error norm against the tolerance,
-## accept at <= 1, and the next step from the usual power law.
-canonical_step_control <- function(err, y, h, order, control) {
-  scale <- control$atol + control$rtol * abs(y)
-  norm <- max(abs(err) / scale)
-  factor <- if (norm == 0) 5 else min(5, max(0.2, 0.9 * norm^(-1 / (order + 1))))
-  list(accept = norm <= 1, h_next = min(h * factor, control$dt_max))
-}
-
-## Bogacki-Shampine 3(2), first-same-as-last: three right-hand sides per step.
-step_rk23 <- function(rhs, y, h, k1, control) {
-  k2 <- rhs(y + h / 2 * k1$f)
-  k3 <- rhs(y + 3 * h / 4 * k2$f)
-  y_new <- y + h * (2 / 9 * k1$f + 1 / 3 * k2$f + 4 / 9 * k3$f)
-  k4 <- rhs(y_new)
-  err <- h * (-5 / 72 * k1$f + 1 / 12 * k2$f + 1 / 9 * k3$f - 1 / 8 * k4$f)
-  c(canonical_step_control(err, y_new, h, 2, control), list(y = y_new, k_end = k4))
-}
-
-## ROS2 (Verwer, Spee, Blom & Hundsdorfer 1999): two stages, order two,
-## L-stable at gamma = 1 + 1/sqrt(2), with the linearly implicit Euler step as
-## the embedded first-order estimate. One Jacobian and two right-hand sides per
-## step; the Jacobian is of the right-hand side itself, by finite differences
-## over the residents (one evaluation per unknown), until the model supplies
-## equilibrium sensitivities.
-step_rosenbrock <- function(rhs, y, h, k1, control) {
-  n <- length(y)
-  J <- util_fd_jacobian(function(z) rhs(z)$f, y, k1$f, h = 1e-5 * pmax(abs(y), 1))
-  gamma <- 1 + 1 / sqrt(2)
-  W <- diag(1, n) - gamma * h * J
-  s1 <- solve(W, k1$f)
-  f2 <- rhs(y + h * s1)
-  s2 <- solve(W, f2$f - 2 * s1)
-  y_new <- y + h * (1.5 * s1 + 0.5 * s2)
-  err <- h * (0.5 * s1 + 0.5 * s2)
-  k_end <- rhs(y_new)
-  c(canonical_step_control(err, y_new, h, 1, control), list(y = y_new, k_end = k_end))
+## odelia's step-size control in the canonical equation's terms: the error
+## level is atol + rtol * |z| (odelia's a_y = 1, a_dydt = 0 defaults) and the
+## largest step dt_max; the step the solver tries first is set by the caller
+## from the initial speed.
+canonical_ode_control <- function(control) {
+  ctl <- odelia::OdeControl$new()
+  ctl$set_tol_rel(control$rtol)
+  ctl$set_tol_abs(control$atol)
+  ctl$set_step_size_max(control$dt_max)
+  ctl
 }
 
 ##' Integrate the canonical equation of adaptive dynamics.
@@ -352,7 +350,9 @@ step_rosenbrock <- function(rhs, y, h, k1, control) {
 ##' \code{"extinct"}, \code{"polish"}, \code{"stable"}, \code{"t_max"},
 ##' \code{"max_steps"}, \code{"max_residents"} --- and \code{lineage}),
 ##' \code{community} (the final solved community), \code{evaluations} (how
-##' many equilibrium solves it cost), \code{immigration_attempts},
+##' many equilibrium solves it cost), \code{steps} and \code{rejections}
+##' (accepted steps and attempts the step-size control rejected),
+##' \code{immigration_attempts},
 ##' \code{outcome} and the control. \code{\link{canonical_community}} rebuilds
 ##' the community at any recorded time.
 ##' @author Daniel Falster
@@ -389,15 +389,16 @@ canonical_integrate <- function(community, x0, control, tf, range_z, mutation_sd
   n_total0 <- sum(as.numeric(first$birth_rate))
   if (!is.finite(n_total0) || n_total0 <= 0) stop("The starting community has no positive equilibrium density")
   rhs <- canonical_rhs(base, tf, control, k, n_total0, V)
-  step <- switch(control$stepper, rk23 = step_rk23, rosenbrock = step_rosenbrock)
 
   z <- as.numeric(tf$fwd(x0))
   lineage <- seq_len(m)
   next_lineage <- m + 1L
   t <- 0
-  k1 <- rhs$f(z)
+  solver <- odelia::OdeSolver$new(rhs$ode, z, t0 = t, method = control$stepper, autonomous = TRUE,
+                                  control = canonical_ode_control(control))
+  k1 <- rhs$last()
   restart_step <- function(k) if (is.null(control$dt0)) min(control$dt_max, 0.01 * max(range_z) / max(max(abs(k$f)), 1e-12)) else control$dt0
-  h <- restart_step(k1)
+  solver$set_step_size(restart_step(k1))
 
   rows <- list()
   events <- list()
@@ -417,12 +418,18 @@ canonical_integrate <- function(community, x0, control, tf, range_z, mutation_sd
   event <- function(t, what, who = NA_integer_) {
     events[[length(events) + 1L]] <<- data.frame(time = t, event = what, lineage = who)
   }
+  ## the solver is re-seeded at the current z (and t), which evaluates the
+  ## right-hand side there once
+  reseed <- function() {
+    solver$set_state(z, t)
+    k1 <<- rhs$last()
+  }
   ## the community changed: new densities and Jacobian, new first right-hand
   ## side, a fresh step, and any scheduled branching is void
   changed <- function() {
     rhs$reset()
-    k1 <<- rhs$f(z)
-    h <<- restart_step(k1)
+    reseed()
+    solver$set_step_size(restart_step(k1))
     pending <<- NULL
   }
   resident_stationary <- function(k) apply(abs(k$g_z), 1, max) < control$gradient_tol
@@ -468,17 +475,15 @@ canonical_integrate <- function(community, x0, control, tf, range_z, mutation_sd
       next
     }
 
-    ## step to whichever comes first: the error-controlled step, a scheduled
-    ## branching, an arrival, or the end
-    h_clip <- min(h, control$t_max - t, next_arrival - t, if (is.null(pending)) Inf else pending$time - t)
-    if (!is.finite(h_clip) || h_clip <= 0) stop("internal error: non-positive step")   # the clocks above guarantee this
-    attempt <- step(rhs$f, z, h_clip, k1, control)
-    if (!attempt$accept) { h <- attempt$h_next; next }
+    ## one error-controlled step, stopping at whichever comes first: a
+    ## scheduled branching, an arrival, or the end
+    bound <- min(control$t_max, next_arrival, if (is.null(pending)) Inf else pending$time)
+    if (bound <= t) stop("internal error: the step bound is not ahead")   # the clocks above guarantee this
+    solver$step(bound)
     steps <- steps + 1L
-    t <- t + h_clip
-    z <- attempt$y
-    k1 <- attempt$k_end
-    h <- attempt$h_next
+    t <- solver$time()
+    z <- solver$state()
+    k1 <- rhs$last()
 
     ## extinction: a resident the others have driven out stops counting
     mm <- length(lineage)
@@ -503,7 +508,7 @@ canonical_integrate <- function(community, x0, control, tf, range_z, mutation_sd
       polished <- canonical_polish(rhs$f, z, control)
       if (!is.null(polished)) {
         z <- polished
-        k1 <- rhs$f(z)
+        reseed()
         event(t, "polish")
         record(t, z, k1)
       }
@@ -591,6 +596,7 @@ canonical_integrate <- function(community, x0, control, tf, range_z, mutation_sd
     base = base,
     evaluations = rhs$evaluations(),
     steps = steps,
+    rejections = unname(solver$counts()[["n_rejections"]]),
     immigration_attempts = immigration_attempts,
     outcome = outcome,
     trait_names = trait_names,
