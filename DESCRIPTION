@@ -35,7 +35,7 @@ LinkingTo:
     Rcpp
 Remotes:
     traitecoevo/plant@develop,
-    traitecoevo/odelia
+    traitecoevo/odelia@815a54f
 Suggests:
     testthat (>= 3.0.0),
     parallel,
