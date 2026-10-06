@@ -136,6 +136,43 @@ test_that("a carried-over Jacobian saves the finite-difference pass on the next 
   expect_equal(as.numeric(one$birth_rate), 10, tolerance = 1e-5)
 })
 
+test_that("the carried-over Jacobian is keyed on the residual it describes", {
+  map <- function(n) c(n[1] * exp(1.5 * (1 - n[1] / 10)),
+                       n[2] * exp(1.5 * (1 - n[2] / 4)))
+  first <- map_community(map, "equilibrium_solve_newton", n0 = c(3, 8))
+  state <- first$demography_state
+  expect_named(state, c("jacobian", "key"))
+  expect_equal(state$key$i_keep, 1:2)
+  expect_type(state$key$keep, "logical")
+  expect_true(state$key$logN)
+
+  # a kept species' residual is relative and a free one's absolute, so a hint
+  # from solves whose keep flags differ is for another system: discarded, and
+  # the solve costs the same as a cold one
+  flipped <- first
+  flipped$birth_rate <- c(3, 8)
+  flipped$demography_state$key$keep <- !state$key$keep
+  flipped <- community_demography(flipped)
+  expect_equal(as.numeric(flipped$birth_rate), c(10, 4), tolerance = 1e-5)
+  expect_equal(attr(flipped, "n_calls"), attr(first, "n_calls"))
+
+  # changing the residents clears the hint; canonical_rhs() re-attaches it
+  # deliberately after community_add() when it wants the warm start
+  expect_null(community_add(first, trait_matrix(0, "x"), birth_rate = 2)$demography_state)
+  expect_null(community_reset(first)$demography_state)
+})
+
+test_that("a failed Newton solve leaves no Jacobian behind", {
+  # finite only at the starting point, so the finite-difference Jacobian is
+  # NaN and so is every refresh: the solve fails rather than converging
+  map <- function(n) if (all(abs(n - 4) < 1e-12)) 5 else NaN
+  expect_warning(
+    sol <- map_community(map, "equilibrium_solve_newton", n0 = 4),
+    "did not converge")
+  expect_false(attr(sol, "converged"))
+  expect_null(sol$demography_state)
+})
+
 test_that("the hybrid solver reaches the fixed point the iteration missed", {
   sol <- map_community(ricker_map(r = 1.9, K = 10), "equilibrium_hybrid", n0 = 4)
   expect_true(attr(sol, "converged"))

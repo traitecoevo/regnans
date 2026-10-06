@@ -38,7 +38,10 @@ converge is an error. Set \code{FALSE} to get the best point found back with
 \code{newton} and \code{nleqslv}.}
 
 \item{J0}{Optional starting Jacobian approximation for \code{newton}, e.g.
-the one a previous nearby solve returned.}
+the one a previous nearby solve returned. It is only a hint: if the first
+step from it fails its line search, the Jacobian is recomputed by finite
+differences (or \code{jac}) and the solve continues, so a poor \code{J0}
+costs one wasted step rather than the solve.}
 
 \item{refresh}{For \code{newton}: recompute the Jacobian by finite
 differences every this many steps (Broyden updates in between).}

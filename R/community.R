@@ -170,6 +170,10 @@ community_reset <- function(community) {
   community$fitness_points <- NULL
   community$fitness_function <- NULL
   community$fitness_derivatives <- NULL
+  ## the equilibrium solver's warm-start state describes the residents that
+  ## were there; a caller that wants it carried across a change of residents
+  ## (canonical_rhs) sets it again after community_add()
+  community$demography_state <- NULL
 
   community$model_support$node_schedule_times <- NULL
 

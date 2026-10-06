@@ -26,7 +26,10 @@
 ##' @param jac Optional exact Jacobian function of \code{fn}, used by
 ##' \code{newton} and \code{nleqslv}.
 ##' @param J0 Optional starting Jacobian approximation for \code{newton}, e.g.
-##' the one a previous nearby solve returned.
+##' the one a previous nearby solve returned. It is only a hint: if the first
+##' step from it fails its line search, the Jacobian is recomputed by finite
+##' differences (or \code{jac}) and the solve continues, so a poor \code{J0}
+##' costs one wasted step rather than the solve.
 ##' @param refresh For \code{newton}: recompute the Jacobian by finite
 ##' differences every this many steps (Broyden updates in between).
 ##' @param max_step For \code{newton}: the largest change in any coordinate a
@@ -123,6 +126,14 @@ util_nlsolve_newton <- function(x, fn, tol = 1e-6, maxit = 100, jac = NULL,
   f <- function(z) { feval <<- feval + 1L; as.numeric(fn(z)) }
   fx <- f(x)
   if (length(fx) != n) stop("util_nlsolve: fn must return one residual per unknown")
+  if (any(!is.finite(fx))) {
+    ## nothing to iterate from; report it as a solver outcome, not an R error
+    res <- x
+    attributes(res) <- list(y = fx, iter = 0L, feval = feval, code = 5L,
+                            message = "non-finite residual at the starting point",
+                            converged = FALSE, solver = "newton")
+    return(res)
+  }
 
   jacobian <- function(z, fz) {
     if (is.function(jac)) {
@@ -132,7 +143,13 @@ util_nlsolve_newton <- function(x, fn, tol = 1e-6, maxit = 100, jac = NULL,
       util_fd_jacobian(fn, z, fz)
     }
   }
-  J <- if (!is.null(J0) && identical(dim(J0), c(n, n)) && all(is.finite(J0))) J0 else jacobian(x, fx)
+  ## `fresh` says J was computed at the current point (by jac or finite
+  ## differences) and has not been Broyden-updated since. A carried-over J0 is
+  ## never fresh: it describes a nearby problem, and if it is wrong enough that
+  ## the first step fails, the remedy is to compute the real one, not to give up.
+  use_J0 <- !is.null(J0) && identical(dim(J0), c(n, n)) && all(is.finite(J0))
+  J <- if (use_J0) J0 else jacobian(x, fx)
+  fresh <- !use_J0
   since_refresh <- 0L
   code <- 1L
   message <- "converged"
@@ -143,13 +160,14 @@ util_nlsolve_newton <- function(x, fn, tol = 1e-6, maxit = 100, jac = NULL,
     iter <- iter + 1L
     step <- tryCatch(-solve(J, fx), error = function(e) NULL)
     if (is.null(step) || any(!is.finite(step))) {
-      J <- jacobian(x, fx); since_refresh <- 0L
+      J <- jacobian(x, fx); fresh <- TRUE; since_refresh <- 0L
       step <- tryCatch(-solve(J, fx), error = function(e) NULL)
       if (is.null(step) || any(!is.finite(step))) { code <- 4L; message <- "singular Jacobian"; break }
     }
     if (max(abs(step)) > max_step) step <- step * (max_step / max(abs(step)))
-    ## backtracking on the residual norm; a step that cannot reduce it with the
-    ## current (Broyden) Jacobian gets one more try with a fresh one
+    ## backtracking on the residual norm; a step that cannot reduce it with an
+    ## approximate (carried-over or Broyden-updated) Jacobian gets one more try
+    ## with a fresh one
     norm0 <- sum(fx^2)
     lambda <- 1
     accepted <- FALSE
@@ -160,8 +178,8 @@ util_nlsolve_newton <- function(x, fn, tol = 1e-6, maxit = 100, jac = NULL,
       lambda <- lambda / 2
     }
     if (!accepted) {
-      if (since_refresh > 0L) {
-        J <- jacobian(x, fx); since_refresh <- 0L
+      if (!fresh) {
+        J <- jacobian(x, fx); fresh <- TRUE; since_refresh <- 0L
         next
       }
       code <- 3L; message <- "line search failed to reduce the residual"; break
@@ -173,9 +191,10 @@ util_nlsolve_newton <- function(x, fn, tol = 1e-6, maxit = 100, jac = NULL,
     since_refresh <- since_refresh + 1L
     if (max(abs(fx)) <= tol || max(abs(dx)) <= tol) { converged <- TRUE; break }
     if (since_refresh >= refresh) {
-      J <- jacobian(x, fx); since_refresh <- 0L
+      J <- jacobian(x, fx); fresh <- TRUE; since_refresh <- 0L
     } else {
       J <- J + ((df - J %*% dx) %*% t(dx)) / sum(dx^2)
+      fresh <- FALSE
     }
   }
   if (!converged && code == 1L) { code <- 2L; message <- "iteration limit reached" }

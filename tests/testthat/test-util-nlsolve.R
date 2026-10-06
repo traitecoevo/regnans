@@ -61,6 +61,33 @@ test_that("an exact Jacobian or a carried-over one saves the finite-difference p
   expect_equal(as.numeric(util_nlsolve(c(1.5, 1), sys, jac = sys_jac)), root, tolerance = 1e-4)
 })
 
+test_that("a wrong carried-over Jacobian costs a refresh, not the solve", {
+  fd <- util_nlsolve(c(1.5, 1), sys, solver = "newton", tol = 1e-10)
+  # right shape, wrong values: the sign flipped and one row scaled by 1e3, as a
+  # stale hint from a different residual would be. The first step cannot reduce
+  # the residual; the solver must then compute the real Jacobian and carry on.
+  bad <- -attr(fd, "jacobian") * c(1e3, 1)
+  r <- util_nlsolve(c(1.5, 1), sys, solver = "newton", tol = 1e-10, J0 = bad)
+  expect_true(attr(r, "converged"))
+  expect_equal(attr(r, "code"), 1L)
+  expect_equal(as.numeric(r), root, tolerance = 1e-8)
+  # it pays for the step it wasted, a few Broyden steps on the corrected hint,
+  # and the finite-difference pass it was meant to skip: well under three
+  # times the cold solve, where before the fix it did not converge at all
+  expect_lt(attr(r, "feval"), 3L * attr(fd, "feval"))
+})
+
+test_that("newton reports a non-finite starting residual as an outcome, not an R error", {
+  nan_start <- function(z) if (all(z == c(0, 0))) c(NaN, 1) else sys(z)
+  r <- util_nlsolve(c(0, 0), nan_start, solver = "newton", require_converged = FALSE)
+  expect_false(attr(r, "converged"))
+  expect_equal(attr(r, "code"), 5L)
+  expect_match(attr(r, "message"), "non-finite")
+  expect_equal(attr(r, "iter"), 0L)
+  expect_null(attr(r, "jacobian"))
+  expect_error(util_nlsolve(c(0, 0), nan_start, solver = "newton"), "Solver has likely failed")
+})
+
 test_that("newton reports failure honestly", {
   no_root <- function(z) c(z[1]^2 + 1, z[2]^2 + 1)
   expect_error(util_nlsolve(c(0.5, 0.5), no_root, solver = "newton", maxit = 10), "Solver has likely failed")
