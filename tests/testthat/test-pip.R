@@ -480,3 +480,25 @@ test_that("a contour leaving through the edge of the mutant range is drawn to th
   expect_equal(range(other$mutant), c(-2, 2), tolerance = 1e-8)
   expect_equal(other$mutant, dd99_y2(other$resident), tolerance = 1e-6)
 })
+
+test_that("GM99's fold beside the singular strategy is linked and joined at default settings", {
+  pip <- community_start(bounds(x = c(0.06, 0.95)), trait_scale = "log",
+                         harness = harness_gm99(alpha = 7, beta = 15)) |>
+    community_pip()
+  br <- pip_branches(pip)
+  on_diag <- abs(br$resident - br$mutant) < 1e-8
+  diag_id <- as.integer(names(which.max(table(br$branch[on_diag]))))
+  # no stray single-point branches: every off-diagonal branch is drawable
+  sizes <- table(br$branch[br$branch != diag_id])
+  expect_true(all(sizes >= 2L))
+  # the arm rising to the diagonal keeps its own crossing rather than the diagonal's
+  arm <- br[br$branch != diag_id & br$resident > 0.6 & br$mutant > br$resident, ]
+  expect_gt(nrow(arm), 0L)
+  # the two arms of the right-facing fold end together at one vertex
+  ends <- tapply(arm$resident, arm$branch, max)
+  expect_equal(length(unique(round(ends, 10))), 1L)
+  vertex <- arm[abs(arm$resident - max(arm$resident)) < 1e-10, ]
+  expect_equal(nrow(vertex), 2L)
+  expect_equal(vertex$mutant[1], vertex$mutant[2])
+  expect_false(vertex$resident[1] %in% pip$residents$resident)
+})
