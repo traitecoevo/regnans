@@ -1,4 +1,5 @@
-# N-dimensional singular-strategy solving and classification.
+# Singular-strategy solving (any dimension; Newton or a 1-D bracket) and
+# classification.
 #
 # Both functions are model-agnostic, so they are developed and validated here
 # against the toy harnesses, whose singular strategies and second-order
@@ -44,10 +45,56 @@ test_that("community_solve_singularity recovers the 1D DD99 singular strategy", 
   expect_lt(abs(out$selection_gradient), 1e-6)
 })
 
-test_that("community_solve_singularity agrees with the 1D uniroot solver", {
+test_that("the bracket solver recovers the 1D DD99 singular strategy", {
+  out <- community_solve_singularity(dd99_1d(x0 = -0.35), solver = "bracket",
+                                     tol = 1e-8)
+  expect_true(attr(out, "converged"))
+  expect_equal(attr(out, "solver"), "bracket")
+  expect_equal(unname(attr(out, "singularity")), -0.35, tolerance = 1e-6)
+  expect_equal(as.numeric(out$traits), -0.35, tolerance = 1e-6)
+  expect_lt(abs(out$selection_gradient), 1e-6)
+  # Newton from the midpoint finds the same root
   nd <- community_solve_singularity(dd99_1d(x0 = -0.35))
-  one <- community_solve_singularity_1D(dd99_1d(x0 = -0.35), tol = 1e-8)
-  expect_equal(as.numeric(nd$traits), as.numeric(one$traits), tolerance = 1e-5)
+  expect_equal(as.numeric(nd$traits), as.numeric(out$traits), tolerance = 1e-5)
+})
+
+test_that("the bracket solver searches on the trait scale", {
+  # GM99 seed size is strictly positive; the root is the same on either scale
+  h <- harness_gm99(alpha = 4.5, beta = 15)
+  log_root <- community_start(bounds(x = c(0.06, 0.9)), harness = h,
+                              trait_scale = "log") |>
+    community_solve_singularity(solver = "bracket", tol = 1e-8)
+  lin_root <- community_start(bounds(x = c(0.06, 0.9)), harness = h,
+                              trait_scale = "linear") |>
+    community_solve_singularity(solver = "bracket", tol = 1e-8)
+  expect_equal(as.numeric(log_root$traits), as.numeric(lin_root$traits),
+               tolerance = 1e-6)
+})
+
+test_that("the bracket solver returns the bound selection pushes towards", {
+  # x* = 0 lies below [0.5, 1.5]: the gradient is negative at both ends
+  expect_warning(
+    edge <- community_solve_singularity(dd99_1d(), bounds = c(0.5, 1.5),
+                                        solver = "bracket"),
+    "Bounds do not include a singularity")
+  expect_equal(as.numeric(edge$traits), 0.5)
+  expect_false(attr(edge, "converged"))
+  # and above it, the upper bound
+  expect_warning(
+    edge <- community_solve_singularity(dd99_1d(), bounds = c(-1.5, -0.5),
+                                        solver = "bracket"),
+    "Bounds do not include a singularity")
+  expect_equal(as.numeric(edge$traits), -0.5)
+
+  expect_error(
+    community_solve_singularity(dd99_1d(), bounds = c(0.5, 1.5),
+                                solver = "bracket", edge_ok = FALSE),
+    "Bounds do not include a singularity")
+})
+
+test_that("the bracket solver needs a single trait", {
+  expect_error(community_solve_singularity(dd99_2d(), solver = "bracket"),
+               "needs a single trait")
 })
 
 test_that("community_solve_singularity recovers the 2-trait DD99 singularity", {

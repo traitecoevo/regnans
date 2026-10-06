@@ -8,7 +8,7 @@ community_solve_singularity(
   community,
   x0 = NULL,
   bounds = NULL,
-  solver = c("nleqslv", "dfsane"),
+  solver = c("nleqslv", "dfsane", "bracket"),
   tol = 1e-06,
   maxit = 100,
   birth_rate = NULL,
@@ -26,9 +26,12 @@ on the community's trait scale.}
 vector is accepted when there is a single trait). Defaults to the
 community's bounds.}
 
-\item{solver}{Root finder: \code{"nleqslv"} (default) or \code{"dfsane"}.}
+\item{solver}{Root finder: \code{"nleqslv"} (default), \code{"dfsane"},
+or \code{"bracket"} (one trait only).}
 
-\item{tol}{Convergence tolerance passed to the solver.}
+\item{tol}{Convergence tolerance passed to the solver: on the residual for
+\code{"nleqslv"} and \code{"dfsane"}, on the root (on the trait scale) for
+\code{"bracket"}.}
 
 \item{maxit}{Maximum solver iterations.}
 
@@ -52,11 +55,13 @@ Find a singular strategy in any number of trait dimensions.
 }
 \details{
 A singular strategy is a resident trait combination at which the selection
-gradient vanishes. \code{\link{community_solve_singularity_1D}} finds one in
-a single trait by bracketing the scalar gradient with \code{uniroot}; this
-function generalises it to \code{k} traits by handing the vector-valued
-selection gradient to a multivariate root finder (\code{nleqslv} or
-\code{dfsane}, via \code{\link{util_nlsolve}}).
+gradient vanishes. The vector-valued selection gradient is handed to a root
+finder: \code{nleqslv} or \code{dfsane} (via \code{\link{util_nlsolve}})
+in any number of traits, or, for a single trait, \code{"bracket"}, which
+brackets the scalar gradient between the bounds with \code{uniroot}. The
+bracket needs a sign change of the gradient across the bounds but then
+cannot miss the root inside them; the other two are local searches from
+\code{x0}.
 
 Each residual evaluation introduces the candidate trait combination as the
 sole resident, solves the community to demographic equilibrium, and
@@ -70,8 +75,10 @@ The search runs on the community's trait scale (see
 sought in \code{log(x)} and the residual is the gradient with respect to
 \code{log(x)}, which is far better conditioned for strictly positive
 biological traits. The root is the same either way. Candidate points are
-clamped to \code{bounds}, and hitting a bound produces a warning --- as with
-the 1-D solver, that means the search region did not contain a singularity.
+clamped to \code{bounds}, and hitting a bound produces a warning: the search
+region did not contain a singularity. With \code{"bracket"} the same happens
+when the gradient has one sign across the bounds, and the returned point is
+the bound selection pushes towards.
 }
 \seealso{
 \code{\link{community_classify_singularity}} to determine whether

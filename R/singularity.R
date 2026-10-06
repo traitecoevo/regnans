@@ -1,12 +1,8 @@
-# Singular strategies in N dimensions: solving and classifying.
+# Singular strategies in any number of dimensions: solving and classifying.
 #
-# community_solve_singularity_1D() (R/solve_attractors.R) brackets the scalar
-# selection gradient with uniroot(). That is robust but strictly one-trait. The
-# functions here are dimension-agnostic:
-#
-#   community_solve_singularity()     multivariate root-find on the selection
-#                                     gradient (which is already dimension
-#                                     agnostic, see community_selection_gradient)
+#   community_solve_singularity()     root-find on the selection gradient
+#                                     (which is already dimension agnostic, see
+#                                     community_selection_gradient)
 #   community_classify_singularity()  second-order conditions at a singular
 #                                     point: is it a CSS, a branching point, a
 #                                     repeller, or a Garden of Eden?
@@ -71,9 +67,8 @@ singularity_gradient_fn <- function(community, birth_rate = NULL) {
   fn
 }
 
-## Normalise a bounds argument to a k x 2 matrix. Accepts what
-## community_solve_singularity_1D() accepts (a bare length-2 vector) when there
-## is a single trait.
+## Normalise a bounds argument to a k x 2 matrix, accepting a bare length-2
+## vector when there is a single trait.
 singularity_bounds <- function(bounds, trait_names) {
   k <- length(trait_names)
   if (!is.matrix(bounds)) {
@@ -90,14 +85,33 @@ singularity_bounds <- function(bounds, trait_names) {
   bounds
 }
 
+## Root of a scalar residual bracketed between z_lo and z_hi. Without a sign
+## change there is no root to bracket; the bound the residual points towards is
+## returned unconverged, which the caller reports as a missed singularity.
+singularity_bracket <- function(residual, z_lo, z_hi, tol, maxit) {
+  f_lo <- residual(z_lo)
+  f_hi <- residual(z_hi)
+  if (!isTRUE(f_lo * f_hi <= 0)) {
+    z <- if (f_lo < 0) z_lo else z_hi
+    return(structure(z, converged = FALSE,
+                     message = "no sign change across the bounds"))
+  }
+  out <- uniroot(residual, lower = z_lo, upper = z_hi, f.lower = f_lo,
+                 f.upper = f_hi, tol = tol, maxiter = maxit)
+  structure(out$root, converged = out$iter < maxit,
+            message = sprintf("uniroot, %d iterations", out$iter))
+}
+
 ##' Find a singular strategy in any number of trait dimensions.
 ##'
 ##' A singular strategy is a resident trait combination at which the selection
-##' gradient vanishes. \code{\link{community_solve_singularity_1D}} finds one in
-##' a single trait by bracketing the scalar gradient with \code{uniroot}; this
-##' function generalises it to \code{k} traits by handing the vector-valued
-##' selection gradient to a multivariate root finder (\code{nleqslv} or
-##' \code{dfsane}, via \code{\link{util_nlsolve}}).
+##' gradient vanishes. The vector-valued selection gradient is handed to a root
+##' finder: \code{nleqslv} or \code{dfsane} (via \code{\link{util_nlsolve}})
+##' in any number of traits, or, for a single trait, \code{"bracket"}, which
+##' brackets the scalar gradient between the bounds with \code{uniroot}. The
+##' bracket needs a sign change of the gradient across the bounds but then
+##' cannot miss the root inside them; the other two are local searches from
+##' \code{x0}.
 ##'
 ##' Each residual evaluation introduces the candidate trait combination as the
 ##' sole resident, solves the community to demographic equilibrium, and
@@ -111,8 +125,10 @@ singularity_bounds <- function(bounds, trait_names) {
 ##' sought in \code{log(x)} and the residual is the gradient with respect to
 ##' \code{log(x)}, which is far better conditioned for strictly positive
 ##' biological traits. The root is the same either way. Candidate points are
-##' clamped to \code{bounds}, and hitting a bound produces a warning --- as with
-##' the 1-D solver, that means the search region did not contain a singularity.
+##' clamped to \code{bounds}, and hitting a bound produces a warning: the search
+##' region did not contain a singularity. With \code{"bracket"} the same happens
+##' when the gradient has one sign across the bounds, and the returned point is
+##' the bound selection pushes towards.
 ##'
 ##' @title Solve for a singular strategy (N-dimensional)
 ##' @param community A \code{community} object to search within.
@@ -122,8 +138,11 @@ singularity_bounds <- function(bounds, trait_names) {
 ##' @param bounds A \code{k} by 2 matrix of lower/upper bounds (a length-2
 ##' vector is accepted when there is a single trait). Defaults to the
 ##' community's bounds.
-##' @param solver Root finder: \code{"nleqslv"} (default) or \code{"dfsane"}.
-##' @param tol Convergence tolerance passed to the solver.
+##' @param solver Root finder: \code{"nleqslv"} (default), \code{"dfsane"},
+##' or \code{"bracket"} (one trait only).
+##' @param tol Convergence tolerance passed to the solver: on the residual for
+##' \code{"nleqslv"} and \code{"dfsane"}, on the root (on the trait scale) for
+##' \code{"bracket"}.
 ##' @param maxit Maximum solver iterations.
 ##' @param birth_rate Birth rate to start each candidate's equilibrium solve
 ##' from. Defaults to the resident's own birth rate if the community has one,
@@ -141,12 +160,16 @@ singularity_bounds <- function(bounds, trait_names) {
 ##' @author Daniel Falster
 ##' @export
 community_solve_singularity <- function(community, x0 = NULL, bounds = NULL,
-                                        solver = c("nleqslv", "dfsane"),
+                                        solver = c("nleqslv", "dfsane", "bracket"),
                                         tol = 1e-6, maxit = 100,
                                         birth_rate = NULL, edge_ok = TRUE) {
   solver <- match.arg(solver)
   trait_names <- community$trait_names
   k <- length(trait_names)
+
+  if (solver == "bracket" && k != 1L) {
+    stop("solver = \"bracket\" needs a single trait; this community has ", k)
+  }
 
   if (is.null(bounds)) {
     bounds <- community$bounds
@@ -189,9 +212,12 @@ community_solve_singularity <- function(community, x0 = NULL, bounds = NULL,
     gradient(x) * dxdz
   }
 
-  z0 <- tf$fwd(x0)
-  sol <- util_nlsolve(z0, residual, tol = tol, maxit = maxit, solver = solver,
-                      require_converged = FALSE)
+  sol <- if (solver == "bracket") {
+    singularity_bracket(residual, z_lo, z_hi, tol = tol, maxit = maxit)
+  } else {
+    util_nlsolve(tf$fwd(x0), residual, tol = tol, maxit = maxit,
+                 solver = solver, require_converged = FALSE)
+  }
   converged <- isTRUE(attr(sol, "converged"))
 
   z_root <- pmin(pmax(as.numeric(sol), z_lo), z_hi)
@@ -276,8 +302,7 @@ community_solve_singularity <- function(community, x0 = NULL, bounds = NULL,
 ##' @title Classify a singular strategy (1-D and N-D)
 ##' @param community A \code{community} with a single resident at (or very near)
 ##' a singular strategy --- typically the output of
-##' \code{\link{community_solve_singularity}} or
-##' \code{\link{community_solve_singularity_1D}}.
+##' \code{\link{community_solve_singularity}}.
 ##' @param birth_rate Birth rate to start each resident equilibrium solve from;
 ##' see \code{\link{community_solve_singularity}}. Defaults to the singular
 ##' resident's own equilibrium birth rate, which is normally what you want.

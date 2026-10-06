@@ -72,7 +72,7 @@ test_that("single resident solves to equilibrium, gradient and inviable check (S
 })
 
 test_that("selection gradient brackets the 1D attractor (SCM)", {
-  # The model-agnostic singularity root-finder (community_solve_singularity_1D)
+  # The model-agnostic singularity root-finder (community_solve_singularity)
   # is exercised fast on the DD99 toy harness. The full iterative solve against
   # the real SCM cost ~45s (it re-solves a resident to equilibrium on every
   # gradient evaluation). Here we only confirm the genuine plant model produces
