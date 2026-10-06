@@ -63,7 +63,7 @@ test_that("iterating the demography reaches the same equilibrium for every model
 test_that("every equilibrium solver reaches the model's own equilibrium through the iterated demography", {
   cs <- cases[[4]]
   closed <- solve_with(cs)
-  for (solver in c("equilibrium_iteration", "equilibrium_solve_nleqslv",
+  for (solver in c("equilibrium_iteration", "equilibrium_solve_newton", "equilibrium_solve_nleqslv",
                    "equilibrium_solve_dfsane", "equilibrium_hybrid")) {
     comm <- solve_with(cs, solver)
     expect_true(attr(comm, "converged"), info = solver)
@@ -71,6 +71,17 @@ test_that("every equilibrium solver reaches the model's own equilibrium through 
                  tolerance = 1e-6, info = solver)
     expect_gt(NROW(attr(comm, "progress")), 1L, label = solver)
   }
+})
+
+test_that("near GM99's viability edge Newton needs far fewer evaluations than fixed-point iteration", {
+  # at x = 0.9 the one-generation map's multiplier is ~0.9, so the iteration
+  # crawls; Newton does not care
+  cs <- list(harness_gm99(alpha = 7, beta = 15), bounds(x = c(0.08, 0.95)), "log", 0.9, 1)
+  iterated <- solve_with(cs, "equilibrium_iteration")
+  newton <- solve_with(cs, "equilibrium_solve_newton")
+  expect_equal(as.numeric(newton$birth_rate), as.numeric(iterated$birth_rate), tolerance = 1e-5)
+  expect_gt(NROW(attr(iterated, "progress")), 40L)
+  expect_lt(NROW(attr(newton, "progress")), NROW(attr(iterated, "progress")) / 3)
 })
 
 test_that("a start near the equilibrium converges in fewer evaluations than a cold one", {
@@ -101,4 +112,19 @@ test_that("print.harness says how the equilibrium is found", {
   expect_match(out, "supplied by the model")
   out <- paste(utils::capture.output(print(harness_plant())), collapse = "\n")
   expect_match(out, "iterating the demography runner")
+})
+
+test_that("Newton reaches GM99's equilibrium from the cold default start at every resident", {
+  h <- harness_gm99(alpha = 7, beta = 15)
+  ctrl <- demographic_step_control(list(equilibrium_solver_name = "equilibrium_solve_newton",
+                                        equilibrium_eps = 1e-8, equilibrium_nsteps = 1000))
+  for (x in exp(seq(log(0.08), log(0.9), length.out = 9))) {
+    closed <- community_start(bounds(x = c(0.08, 0.9)), trait_scale = "log", harness = h) |>
+      community_add(trait_matrix(x, "x")) |> community_demography()
+    newton <- expect_no_warning(
+      community_start(bounds(x = c(0.08, 0.9)), trait_scale = "log", harness = h, demography_control = ctrl) |>
+        community_add(trait_matrix(x, "x")) |> community_demography())
+    expect_true(attr(newton, "converged"), info = x)
+    expect_equal(as.numeric(newton$birth_rate), as.numeric(closed$birth_rate), tolerance = 1e-6, info = x)
+  }
 })

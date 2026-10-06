@@ -16,14 +16,15 @@ comm <- community_start(bounds(x = c(0.08, 0.9)), trait_scale = "log",
                           list(equilibrium_solver_name = "equilibrium_iteration",
                                equilibrium_eps = 1e-8, equilibrium_nsteps = 1000)))
 
-run <- function(seed, refine, workers) {
+run <- function(seed, refine, workers, solver = "equilibrium_iteration") {
   if (workers > 1L) {
     old <- future::plan(future::multicore, workers = workers)
     on.exit(future::plan(old), add = TRUE)
   }
+  comm$demography_control$equilibrium_solver_name <- solver
   pip <- community_pip(comm, control = pip_control(list(
     n_resident = 41, n_mutant = 201, n_coarse = 9, seed = seed, refine = refine)))
-  data.frame(seed = seed, refine = refine, workers = workers,
+  data.frame(solver = sub("equilibrium_", "", solver), seed = seed, refine = refine, workers = workers,
              residents = nrow(pip$residents),
              evaluations = sum(pip$residents$n_evals),
              evals_per_resident = round(mean(pip$residents$n_evals), 1),
@@ -35,5 +36,9 @@ grid <- expand.grid(seed = c("cold", "neighbour", "interpolate"),
                     refine = c(0L, 2L), workers = c(1L, 4L),
                     stringsAsFactors = FALSE)
 results <- do.call(rbind, Map(run, grid$seed, grid$refine, grid$workers))
+# the solver comparison: the same surface, iteration vs Newton-Broyden
+solvers <- expand.grid(seed = c("cold", "interpolate"), solver = c("equilibrium_iteration", "equilibrium_solve_newton"),
+                       stringsAsFactors = FALSE)
+results <- rbind(results, do.call(rbind, Map(function(seed, solver) run(seed, 0L, 1L, solver), solvers$seed, solvers$solver)))
 rownames(results) <- NULL
 print(results, row.names = FALSE)

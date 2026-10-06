@@ -121,6 +121,13 @@ several, and the connectors dispatch through `community$harness`.
 - `single_step` — one demography step, no iteration.
 - `equilibrium_iteration` — **plant's default, working**. Fixed-point iteration of
   incoming→outgoing offspring until `equilibrium_eps` is reached.
+- `equilibrium_solve_newton` — the package's own Newton–Broyden iteration in
+  `util_nlsolve(solver = "newton")`: one finite-difference Jacobian, Broyden
+  rank-one updates between refreshes, backtracking line search, the step capped
+  at a factor e² in log density, and the final Jacobian kept in
+  `community$demography_state` so the next solve of a nearby community starts
+  from it. On GM99 it needs a third of the iteration's evaluations where the
+  one-generation map's multiplier nears one (#56).
 - `equilibrium_solve_nleqslv` / `equilibrium_solve_dfsane` — root-finding via
   `util_nlsolve` (`R/util_nlsolve.R`). Verified against a known fixed point and
   against the SCM; worth reaching for when the iteration converges slowly.
@@ -192,12 +199,12 @@ here follow current plant terminology.
 
 ## Test baseline
 
-`devtools::test()` is **green: 782 pass, 0 fail, 0 skip, 0 warn**. Tests run in
+`devtools::test()` is **green: 841 pass, 0 fail, 0 skip, 0 warn**. Tests run in
 parallel (`Config/testthat/parallel: true`); the `test-plant-smoke*.R` files
 dominate the wall-clock as they are the only ones that run the real SCM. The
 `test-harness-*.R` and `test-singularity.R` files run no SCM and are fast.
 
-(The count has grown as the toy-harness tier has: 197 → 256 → 401 → 537 → 782.
+(The count has grown as the toy-harness tier has: 197 → 256 → 401 → 537 → 841.
 What matters is that a change moves it up and moves nothing to FAIL.)
 
 Note: the testthat parallel workers may fail to find `plant` on startup in some
