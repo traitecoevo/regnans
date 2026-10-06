@@ -1,11 +1,13 @@
-migrated_on: 2026-08-13
+migrated_on: 2026-10-07
 plant_version: 2.0.0.9002
-plant_ref: develop (post-#459; build_schedule/run_scm_collect/scm_base_control removed)
+plant_ref: develop@6cc5da4 (2026-10-07, plant#652; odelia 0.6.0 @815a54f and phylloptim 0.9.1 @08104af)
 applied_breaking_changes:
   - scm-consolidation        # build_schedule -> run_scm(refine_schedule=TRUE); run_scm_collect -> run_scm(collect=TRUE)
   - control-defaults         # scm_base_control() -> control(); fast settings now the Control() default
   - strategy-api-rename      # strategy_list -> generate_strategy(p first, birth_rate=); mutant_parameters -> add_mutant(p first, birth_rate=) [2026-06-28]
   - strategy-default-pars    # strategy_default traits moved under $pars: strategy_default[trait] -> strategy_default$pars[trait] [2026-06-28]
+  - unknown-trait-error      # generate_strategy()/add_mutant() refuse a trait that is not a model parameter (plant#636) [2026-10-07]
+  - tf24-leaf-renames        # TF24_Pars p_50 -> stem_P50, c -> stem_c, b -> stem_b, beta2 -> TF24_beta2, g1_TF24 -> TF24_cost_scale (plant#634) [2026-10-07]
 non_breaking_changes:
   - ff16-allocation-reaction-norm  # FF16_Pars gains a_f4 (shade delay) and a_f5 (shade cap), both defaulting to 0 [2026-08-13]
 notes: >-
@@ -18,9 +20,15 @@ notes: >-
   2.0.0.9002 and started a non_breaking_changes section. FF16 gains a_f4 and
   a_f5, a reproductive-allocation reaction norm on canopy openness; both default
   to 0.0 and reproduce the existing FF16 behaviour exactly, so nothing in
-  regnans changes. They need no hyperparameter work to be used as traits here:
-  generate_strategy() writes every trait-matrix column into pars and
-  FF16_hyperpar passes through columns it does not generate. Note that as of
-  this entry the *installed* plant 2.0.0.9002 does not yet carry them (the FF16
-  change is on a plant branch); this records the interface regnans assumes, and
-  the assumption is safe either way because the parameters are additive.
+  regnans changes.
+
+  2026-10-07: pinned plant_ref to the develop commit the suite was run against
+  (traitecoevo/regnans#32) rather than the moving branch name. Neither new
+  breaking change needed an edit here. unknown-trait-error: regnans passes only
+  its trait-matrix columns to generate_strategy(), and the plant tests use real
+  FF16 parameters (lma, hmat). It does retract the 2026-08-13 claim that any
+  trait-matrix column reaches pars: a_f4 and a_f5 can be evolved here only once
+  the FF16 change that adds them is on develop (it is not at 6cc5da4), and until
+  then naming one is an error rather than a silent no-op. tf24-leaf-renames:
+  regnans names no TF24 parameter; harness_plant(model = "TF24") is metadata
+  only. The odelia pin (815a54f) is the one plant pins, as pak requires.
