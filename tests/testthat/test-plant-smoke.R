@@ -25,7 +25,7 @@ test_that("empty community: fundamental niche and fitness peak (SCM)", {
                           model_support = assembly_model_support())
 
   # fundamental niche: the positive-fitness interval, strictly inside the bounds
-  vb <- community_viable_fitness_1D(comm)
+  vb <- community_viable_fitness(comm)
   expect_equal(rownames(vb), "lma")
   expect_equal(colnames(vb), c("lower", "upper"))
   expect_lt(vb[, "lower"], vb[, "upper"])

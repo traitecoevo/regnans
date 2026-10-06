@@ -8,81 +8,91 @@ plant_log_inviable <- function(...) {
 
 ##' Compute the region of positive (fundamental) fitness for a community.
 ##'
-##' Finds the trait range over which a strategy has positive invasion fitness
-##' into the community's environment. This is normally run on an *empty*
-##' community, in which case it is the fundamental niche: the range where a lone
-##' strategy can persist with no competitors.
+##' Finds the trait region over which a strategy has positive invasion fitness
+##' into the community's environment, as the smallest box of trait bounds that
+##' contains it. This is normally run on an \emph{empty} community, in which
+##' case it is the fundamental niche: where a lone strategy can persist with no
+##' competitors.
 ##'
-##' Reimplemented on the community machinery: it uses
-##' \code{community$fitness_function} (built by
-##' \code{plant_community_update_fitness_function}) as the fitness function,
-##' rather than the removed plant \code{fundamental_fitness()}/\code{viable_fitness()}.
+##' Along each trait the box runs as far as the region does: it is the interval
+##' over which the \emph{profile} of fitness, its maximum over the other traits
+##' with this one held fixed, stays positive. That interval is bracketed and
+##' refined by root-finding outwards from the fitness maximum, on the
+##' community's trait scale. With one trait the profile is the fitness itself;
+##' with \code{k} traits each profile value is a \code{k - 1} trait
+##' maximisation, which dominates the cost.
 ##'
 ##' @title Compute region of positive fitness for a community
 ##' @param community A \code{community} object (usually empty).
-##' @param x Initial trait value. If \code{NULL}, the value from the default
-##'   strategy in \code{community$model_support$p} is used.
-##' @param log_scale Is the trait naturally on a log scale? If so this speeds
-##'   up the search considerably.
-##' @param dx Amount to step the trait when bracketing (on the log scale when
-##'   \code{log_scale} is \code{TRUE}).
+##' @param x Trait values inside the region to search out from. Defaults to the
+##'   fitness maximum within the community's bounds (\code{\link{max_fitness}}),
+##'   which is also used when fitness at \code{x} is negative.
+##' @param dx Initial step outwards when bracketing each edge, on the trait
+##'   scale; it doubles until fitness turns negative or a bound is reached.
 ##' @return A bounds matrix (\code{lower}/\code{upper} columns, one row per
-##'   trait), or \code{NULL} if no positive-fitness region was found.
+##'   trait), or \code{NULL} if fitness is nowhere positive within the bounds.
+##'   An edge that reaches the community's bounds is returned as that bound.
 ##' @export
 ##' @author Rich FitzJohn, Daniel Falster
-community_viable_fitness_1D <- function(community, x = NULL,
-                                        log_scale = TRUE, dx = 1) {
+community_viable_fitness <- function(community, x = NULL, dx = 1) {
   bounds <- check_bounds(community$bounds)
   traits <- rownames(bounds)
-  if (length(traits) != 1L) {
-    stop("review implementation of 2D viable fitness landscape")
-  }
+  k <- length(traits)
 
-  ## Fundamental fitness == invasion fitness into this (empty) community.
   if (is.null(community$fitness_function)) {
     community <- community_update_fitness_function(community)
   }
-  fitness <- function(trait_value) {
-    community$fitness_function(as.numeric(trait_value))
+  fitness <- function(y) community$fitness_function(trait_matrix(y, traits))
+
+  tf <- community_trait_transform(community)
+  lb <- tf$fwd(bounds)
+  if (!all(is.finite(lb))) {
+    stop("community_viable_fitness needs finite bounds on the trait scale")
   }
 
-  ## Default starting point: the default strategy's trait value.
-  if (is.null(x)) {
-    x <- unlist(community$model_support$p$strategy_default$pars[traits])
+  if (!is.null(x)) {
+    x <- check_point(x, bounds)
   }
-  x <- check_point(x, bounds)
-  w <- fitness(x)
-
-  if (w < 0) {
-    plant_log_viable("Starting value had negative fitness, looking for max")
-    x <- max_fitness(community, bounds = bounds, log_scale = log_scale)
+  if (is.null(x) || fitness(x) < 0) {
+    x <- max_fitness(community, bounds = bounds)
     w <- attr(x, "fitness")
-    plant_log_viable(sprintf("\t...found max fitness at %s (w=%2.5f)",
+    plant_log_viable(sprintf("\t...searching out from max fitness at %s (w=%2.5f)",
                              paste(formatC(x), collapse = ", "), w))
     if (w < 0) {
       return(NULL)
     }
   }
+  x <- as.numeric(x)
 
-  if (log_scale) {
-    bounds[bounds[, 1] == -Inf, 1] <- 0
-    bounds <- log(bounds)
-    x <- log(as.numeric(x))
-    f <- function(z) fitness(exp(z))
-  } else {
-    x <- as.numeric(x)
-    f <- function(z) fitness(z)
-  }
-
-  out <- positive_1d(f, x, dx, lower = bounds[, 1], upper = bounds[, 2])
-  ret <- rbind(out, deparse.level = 0)
-
-  if (log_scale) {
-    ret <- exp(ret)
-  }
-  colnames(ret) <- c("lower", "upper")
-  rownames(ret) <- traits
+  ret <- t(vapply(seq_len(k), function(i) {
+    h <- viable_profile(fitness, i, x, bounds, tf)
+    tf$inv(positive_1d(function(z) h(tf$inv(z)), tf$fwd(x[[i]]), dx,
+                       lower = lb[i, 1], upper = lb[i, 2]))
+  }, numeric(2)))
+  dimnames(ret) <- list(traits, c("lower", "upper"))
   ret
+}
+
+## Fitness profile along trait i: t -> the maximum of fitness over the other
+## traits with trait i held at t. Each maximisation starts from the previous
+## one's answer, since successive values of t along a bracket sit close
+## together. With one trait there is nothing to maximise over.
+viable_profile <- function(fitness, i, x, bounds, tf) {
+  if (length(x) == 1L) {
+    return(function(t) fitness(t))
+  }
+  others <- x[-i]
+  function(t) {
+    g <- function(y_others) {
+      y <- numeric(length(x))
+      y[i] <- t
+      y[-i] <- y_others
+      fitness(y)
+    }
+    fit <- maximize_scaled(g, others, bounds[-i, , drop = FALSE], tf)
+    others <<- fit$par
+    fit$value
+  }
 }
 
 ## --- pure numerical root helpers (reimplemented, no plant dependency) -------

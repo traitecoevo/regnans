@@ -15,7 +15,7 @@ The [{plant}](https://github.com/traitecoevo/plant) package for R is an extensib
 ## What it does
 
 - **Resident demographic equilibrium** — `community_demography()`, with fixed-point iteration, a Newton–Broyden solver that carries its Jacobian between solves, `nleqslv`/`dfsane` root-finding and a hybrid.
-- **Invasion fitness and landscapes** — `community_fitness_landscape()`, `max_fitness()`, viable trait bounds (`community_viable_fitness_1D()`).
+- **Invasion fitness and landscapes** — `community_fitness_landscape()`, `max_fitness()`, viable trait bounds in any number of traits (`community_viable_fitness()`).
 - **Fitness derivatives** — `community_fitness_gradient()`, `community_fitness_hessian()` and the selection-gradient Jacobian, exact where a model provides them and finite differences otherwise, with `harness_check_derivatives()` to verify a provider.
 - **Pairwise and mutual invasibility plots** — `community_pip()` (zero contours found by Newton, regions shaded), `plot(type = "mip")` and the trait-evolution plot `community_tep()`.
 - **Selection gradients and singular strategies** — `community_selection_gradient()`, `community_solve_singularity()` (any number of traits; Newton or a 1-D bracket), and `community_classify_singularity()` (CSS / branching point / repeller / Garden of Eden, with the branching direction).
