@@ -78,34 +78,58 @@ harness_provides <- function(harness, what = NULL) {
   what %in% provides
 }
 
-##' Make an explicit harness reach its equilibrium numerically.
+##' Reach an explicit harness's equilibrium by iterating its demography.
 ##'
 ##' The reference models return their resident equilibrium in closed form (or
 ##' from their own internal solver), so the package's equilibrium solvers never
 ##' iterate on them and nothing about warm starts, seeding or convergence is
-##' exercised. This wrapper replaces the equilibrium with the model's own
-##' generation-to-generation dynamics,
+##' exercised. This wrapper replaces that shortcut with the model's own
+##' generation-to-generation demography,
 ##' \deqn{n_{t+1} = n_t \exp(s(x; x, n_t)),}
 ##' where \eqn{s} is the model's invasion fitness of each resident against the
 ##' current community --- for GK98 this is its soft-selection recursion (Eq. 19),
 ##' for JJ12 the territory recursion, for GM99 the seeds-per-seed return; for
-##' DD99, whose fitness is a per-capita rate, it is a unit time step. The fixed
-##' point is the same equilibrium, now found by whichever solver
-##' \code{\link{demographic_step_control}} selects, from whatever starting
-##' density it is given. Use it to test and time the solvers on models whose
-##' answers are known.
+##' DD99, whose fitness is a per-capita rate, it is a unit time step.
 ##'
-##' @title Numerical equilibrium for an explicit harness
+##' The wrapper supplies only that one-step map, as the demography runner,
+##' because that is all a model is asked to know: what its residents produce
+##' next generation. Finding the fixed point of the map is an algorithm, and
+##' it belongs to regnans, chosen per community, so that the same solver code
+##' runs against the plant SCM and against a reference model --- a solver
+##' verified here is the one plant gets. \emph{Which} solver iterates the map
+##' to the fixed point is therefore the community's choice, exactly as for the
+##' plant model:
+##' \code{community$demography_control$equilibrium_solver_name}, set through
+##' \code{\link{demographic_step_control}} --- plain fixed-point iteration
+##' (\code{"equilibrium_iteration"}, the default), root-finding on
+##' \eqn{n - f(n)} with \code{"equilibrium_solve_nleqslv"} or
+##' \code{"equilibrium_solve_dfsane"}, or the \code{"equilibrium_hybrid"}
+##' combination --- together with its tolerance and step limit. The starting
+##' density is the resident's \code{birth_rate}. Use it to test and time the
+##' solvers on models whose answers are known.
+##'
+##' @title Iterate an explicit harness's demography to equilibrium
 ##' @param harness A harness from \code{\link{harness_explicit}} or one of the
 ##' shipped reference models.
-##' @return The harness, iterating its own dynamics for the equilibrium.
+##' @return The harness, with its demography runner replaced by the model's
+##' one-generation map.
+##' @examples
+##' h <- harness_iterate_demography(harness_gm99(alpha = 7, beta = 15))
+##' comm <- community_start(bounds(x = c(0.08, 0.9)), trait_scale = "log", harness = h,
+##'                         demography_control = demographic_step_control(
+##'                           list(equilibrium_solver_name = "equilibrium_solve_nleqslv",
+##'                                equilibrium_eps = 1e-8))) |>
+##'   community_add(trait_matrix(0.3, "x"), birth_rate = 1) |>
+##'   community_demography()
+##' comm$birth_rate                       # the same equilibrium the closed form gives
+##' NROW(attr(comm, "progress"))          # how many one-generation steps it cost
 ##' @author Daniel Falster
 ##' @export
-harness_numerical <- function(harness) {
+harness_iterate_demography <- function(harness) {
   if (!inherits(harness, "harness_explicit")) {
-    stop("harness_numerical() applies to explicit (reference-model) harnesses")
+    stop("harness_iterate_demography() applies to explicit (reference-model) harnesses")
   }
-  harness$mode <- "numerical"
+  harness$mode <- "iterate_demography"
   harness$fns$make_demography_runner <- explicit_community_make_dynamics_runner
   harness
 }
@@ -559,8 +583,8 @@ print.harness <- function(x, ...) {
   if (inherits(x, "harness_plant")) {
     cat(sprintf("  plant model: %s (plant %s)\n", x$model, x$version))
   }
-  if (identical(x$mode, "numerical")) {
-    cat("  equilibrium: iterated from the model's own dynamics\n")
+  if (identical(x$mode, "iterate_demography")) {
+    cat("  equilibrium: iterated from the model's own demography\n")
   }
   if (!is.null(x$pars)) {
     flat <- vapply(x$pars, function(v) paste(format(v), collapse = ","), character(1))

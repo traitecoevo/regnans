@@ -2,7 +2,7 @@
 #
 # Compares the seeding strategies of community_pip() on the Geritz et al. 1999
 # seed-size model with its equilibrium iterated from the model's own dynamics
-# (harness_numerical), so that every resident is a genuine fixed-point solve
+# (harness_iterate_demography), so that every resident is a genuine fixed-point solve
 # whose cost depends on where it starts. Reports demography evaluations and
 # wall time, sequentially and under a multicore plan.
 #
@@ -11,7 +11,7 @@
 suppressMessages(devtools::load_all(".", quiet = TRUE))
 
 comm <- community_start(bounds(x = c(0.08, 0.9)), trait_scale = "log",
-                        harness = harness_numerical(harness_gm99(alpha = 7, beta = 15)))
+                        harness = harness_iterate_demography(harness_gm99(alpha = 7, beta = 15)))
 comm$demography_control$equilibrium_eps <- 1e-8
 comm$demography_control$equilibrium_nsteps <- 1000
 

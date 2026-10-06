@@ -63,7 +63,7 @@ test_that("community_pip reproduces the DD99 surface and solves every resident",
 
 test_that("seeding strategies give the same surface, and interpolated seeds cost less on an iterated model", {
   comm <- community_start(bounds(x = c(0.08, 0.9)), trait_scale = "log",
-                          harness = harness_numerical(harness_gm99(alpha = 7, beta = 15)))
+                          harness = harness_iterate_demography(harness_gm99(alpha = 7, beta = 15)))
   ctl <- function(seed) pip_control(list(n_resident = 13, n_mutant = 41, n_coarse = 4,
                                          refine = 0, seed = seed))
   # the fixed-point map is slowly convergent near the viability edge (its
@@ -347,7 +347,7 @@ test_that("an iterated GK98 gives the same surface and contours as the closed fo
   closed <- community_pip(community_start(bounds(x = c(-3, 3)), trait_scale = "linear", harness = h),
                           control = ctl)
   numerical <- community_start(bounds(x = c(-3, 3)), trait_scale = "linear",
-                               harness = harness_numerical(h))
+                               harness = harness_iterate_demography(h))
   numerical$demography_control$equilibrium_eps <- 1e-10
   iterated <- community_pip(numerical, control = ctl)
   expect_equal(iterated$residents$resident, closed$residents$resident)

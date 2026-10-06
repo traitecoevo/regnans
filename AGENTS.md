@@ -230,8 +230,8 @@ shells; run `TESTTHAT_PARALLEL=FALSE Rscript -e 'devtools::test()'` if so.
 - `helper-harness-map.R` — a test-only harness whose demography runner is an
   arbitrary map `n -> map(n)` with a real, tunably-slow fixed point, which is
   what tests the root finders. (The shipped toy harnesses return their
-  equilibrium in closed form unless wrapped in `harness_numerical()`, which
-  iterates each model's own dynamics instead — `test-harness-numerical.R`.)
+  equilibrium in closed form unless wrapped in `harness_iterate_demography()`, which
+  iterates each model's own one-generation demography instead — `test-harness-iterate-demography.R`.)
 - `test-pip.R` — `community_pip()` against the closed-form DD99 zero contours
   (`y2(x) = (x(σ_K² + σ_C²) − 2x0σ_C²)/(σ_K² − σ_C²)`), the near-diagonal
   root at a resident beside the singular strategy, refinement landing only at
