@@ -256,24 +256,33 @@ demography_solve_equilibrium_solve <- function(community,
   tol <- ctrl$equilibrium_eps
   ## NOTE: Hard coded minimum of 100 steps here.
   maxit <- max(100, ctrl$equilibrium_nsteps)
-  ## Newton starts from the Jacobian a previous solve of this community left
-  ## behind, when it is for the same number of residents (nearby residents
-  ## have nearby Jacobians, and Broyden corrects the rest), which saves the
-  ## finite-difference pass.
-  J0 <- community$demography_state$jacobian
-  if (!is.null(J0) && !identical(dim(J0), c(length(x0), length(x0)))) J0 <- NULL
+  ## Newton starts from the Jacobian a previous converged solve of this
+  ## community left behind (nearby residents have nearby Jacobians, and
+  ## Broyden corrects the rest), which saves the finite-difference pass. The
+  ## hint is only taken when the residual it describes is the one being solved:
+  ## the same residents in the search (`i_keep`), the same `keep` flags (a kept
+  ## species' residual is relative, a free one's absolute, so a flipped flag
+  ## rescales that row by the birth rate) and the same density scale.
+  key <- list(i_keep = which(!to_drop), keep = keep, logN = logN)
+  state <- community$demography_state
+  J0 <- if (!is.null(state) && identical(state$key, key)) state$jacobian else NULL
   ## in log density a Newton step is capped at a factor e^2 per iteration: from
   ## a cold start the uncapped step overflows, and the line search then crawls
   sol <- util_nlsolve(x0, target, tol = tol, maxit = maxit, solver = solver,
                       require_converged = solver != "newton", J0 = J0,
                       max_step = if (logN) 2 else Inf)
-  if (solver == "newton" && !isTRUE(attr(sol, "converged"))) {
+  converged <- isTRUE(attr(sol, "converged"))
+  if (solver == "newton" && !converged) {
     warning(sprintf("equilibrium_solve_newton did not converge (%s)", attr(sol, "message")))
   }
 
   res <- community_demography_runner_cleanup(community, runner, attr(sol, "converged"))
-  if (!is.null(attr(sol, "jacobian"))) {
-    res$demography_state <- list(jacobian = attr(sol, "jacobian"))
+  ## a Jacobian from a failed solve is not a hint worth passing on; drop any
+  ## stale one too, so the next solve starts cold rather than from it
+  res$demography_state <- if (converged && !is.null(attr(sol, "jacobian"))) {
+    list(jacobian = attr(sol, "jacobian"), key = key)
+  } else {
+    NULL
   }
   attr(res, "sol") <- sol
   res

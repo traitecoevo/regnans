@@ -124,10 +124,13 @@ several, and the connectors dispatch through `community$harness`.
 - `equilibrium_solve_newton` — the package's own Newton–Broyden iteration in
   `util_nlsolve(solver = "newton")`: one finite-difference Jacobian, Broyden
   rank-one updates between refreshes, backtracking line search, the step capped
-  at a factor e² in log density, and the final Jacobian kept in
-  `community$demography_state` so the next solve of a nearby community starts
-  from it. On GM99 it needs a third of the iteration's evaluations where the
-  one-generation map's multiplier nears one (#56).
+  at a factor e² in log density, and the final Jacobian of a converged solve
+  kept in `community$demography_state` so the next solve of a nearby community
+  starts from it (only when the residual it describes matches: same residents
+  in the search, same `keep` flags, same density scale; `community_reset()`
+  clears it, so a caller carrying it across `community_add()` re-attaches it,
+  as `canonical_rhs()` does). On GM99 it needs a third of the iteration's
+  evaluations where the one-generation map's multiplier nears one (#56).
 - `equilibrium_solve_nleqslv` / `equilibrium_solve_dfsane` — root-finding via
   `util_nlsolve` (`R/util_nlsolve.R`). Verified against a known fixed point and
   against the SCM; worth reaching for when the iteration converges slowly.
