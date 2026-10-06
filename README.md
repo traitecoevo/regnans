@@ -9,21 +9,29 @@ The [{plant}](https://github.com/traitecoevo/plant) package for R is an extensib
 
 > **Status:** under active development. The fitness and equilibrium machinery was
 > recently moved out of {plant} into this package, so a compatible recent {plant}
-> is required (see `.plant-interface-version`). Developer notes, the working/not-working
-> map, and build/test commands live in `CLAUDE.md`.
+> is required (see `.plant-interface-version`). Developer notes and build/test
+> commands live in [`AGENTS.md`](AGENTS.md).
 
-Current capabilities include:
+## What it does
 
-- solving a community to demographic equilibrium (`community_demography`)
-- 1D selection gradients and viable trait bounds
-- stochastic assembly and maximum-fitness ("fitmax") assembly for one trait
-- solving the 1-species, 1-trait evolutionary attractor
+- **Resident demographic equilibrium** — `community_demography()`, with fixed-point iteration, `nleqslv`/`dfsane` root-finding and a hybrid.
+- **Invasion fitness and landscapes** — `community_fitness_landscape()`, `max_fitness()`, viable trait bounds (`community_viable_fitness_1D()`).
+- **Selection gradients and singular strategies** — `community_selection_gradient()`, `community_solve_singularity_1D()`, the multi-trait `community_solve_singularity()`, and `community_classify_singularity()` (CSS / branching point / repeller / Garden of Eden, with the branching direction).
+- **Community assembly** — `assembler_run()` with maximum-fitness or stochastic births, and inviable-strategy deaths.
+- **Model harnesses** — `harness_plant()` for the `plant` SCM, plus fast reference models with analytic answers (`harness_dd99()`, `harness_gk98()`, `harness_gm99()`, `harness_jj12()`) for learning the workflow and testing the algorithms.
 
-Envisioned future capabilities:
+Worked examples are on the docs hub under [Theory → Adaptive dynamics](https://traitecoevo.github.io/overstorey/theory/adaptive-dynamics.html).
 
-- emulators (Gaussian-process surrogates) to approximate fitness landscapes
-- more tools for 1D analysis, e.g. pairwise invasibility plots (PIPs)
-- attractor solving in 2D / 3D trait space
+## Where it is going
+
+The aim is a reasonably comprehensive toolkit of adaptive-dynamics methods for *numerically solved* models, designed around the exact derivatives that `plant` is gaining through automatic differentiation. Next up:
+
+- pairwise and mutual invasibility plots;
+- the canonical equation of adaptive dynamics with branching detection, then its stiff multi-trait form;
+- Newton equilibrium solves and implicit sensitivities once `plant` exposes the Jacobians;
+- continuation of singular strategies and coexistence boundaries through parameter space.
+
+[`ROADMAP.md`](ROADMAP.md) has the full inventory with the status of every method, what the package needs from `plant`, and the order of work.
 
 ## The plant model family
 

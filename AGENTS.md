@@ -19,7 +19,8 @@ breaking interface changes. As of now:
 - The **core path works and is verified**: `community_start` → `community_add` →
   `community_demography()` (default `equilibrium_iteration` solver) →
   `community_selection_gradient()`. At equilibrium resident fitness ≈ 0 and the
-  selection gradient is finite — matches `vignettes/solving_attractors.Rmd`.
+  selection gradient is finite — matches overstorey's
+  `theory/adaptive-dynamics/solving_attractors.qmd`.
 - **Viable-bounds path works** and is reimplemented on the community machinery:
   `community_viable_fitness_1D(community)` / `community_viable_bounds()` use an
   empty community's `fitness_function` as the fundamental-fitness function (no
@@ -53,9 +54,11 @@ devtools::document()        # regenerate man/ + NAMESPACE from roxygen
 devtools::test()            # run testthat suite (see baseline below)
 ```
 
-There is a manual smoke script mirroring the core vignette path; the canonical
-end-to-end exercises live in `vignettes/solving_attractors.Rmd`,
-`vignettes/assembly_fitmax.Rmd`, `vignettes/assembly_stochastic.Rmd`.
+The canonical end-to-end exercises are the overstorey pages (the former
+vignettes, now in `../overstorey/theory/adaptive-dynamics/`):
+`solving_attractors.qmd`, `assembly_fitmax.qmd`, `assembly_stochastic.qmd`, plus
+`assembly.qmd` and one page per reference model. Rendered at
+<https://traitecoevo.github.io/overstorey/theory/adaptive-dynamics.html>.
 
 ## Architecture
 
@@ -72,7 +75,7 @@ mutated through a pipeline. Key fields:
 - `fitness_control`, `fitness_function`, `fitness_points`, `resident_fitness`,
   `selection_gradient` — populated by the fitness/gradient functions.
 
-The typical pipeline (see `solving_attractors.Rmd`):
+The typical pipeline (see overstorey's `solving_attractors.qmd`):
 
 ```r
 community_start(bounds, model_support = list(p = ..., plant_control = ...)) |>
@@ -236,10 +239,15 @@ duplicate `test-fitness-support.R` were deleted.
 
 ## Known issues / TODO
 
-- **2D maximum-fitness births (`find_max_fitness_2d`) are unverified** — the path
-  is now self-contained (uses `sys$fitness_function`) but relies on
-  `fitness_slopes`/`maximize_logspace` and is commented as "not very well tested".
-  Only 1D fitmax births are exercised.
+What is *planned* — every method, its status, what regnans needs from plant, and
+the order of work — lives in **[`ROADMAP.md`](ROADMAP.md)**; keep that the single
+source of truth and list only live defects here.
+
+- **2D maximum-fitness births (`find_max_fitness_2d`) are lightly verified** — the
+  path is self-contained (a multistart `maximize_scaled` hill-climb over
+  `sys$fitness_function`) and is commented as "not very well tested"; the only
+  exercise is the warning-free 2D DD99 assembly in `test-assembly.R`. There is
+  also a live `browser()` at `R/births_maximum.R:15`.
 - `plant_community_check_for_inviable_strategies` still has a TODO to drop its
   direct plant dependency and reuse the community fitness functions.
 - `equilibrium_extinct_birth_rate` (`demographic_step_control()`, default `1e-3`)
