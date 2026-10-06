@@ -11,6 +11,7 @@ Depends:
     R (>= 4.5.0)
 Imports:
     plant,
+    odelia (>= 0.6.0),
     Rcpp,
     lhs,
     mvtnorm,
@@ -33,7 +34,8 @@ Imports:
 LinkingTo:
     Rcpp
 Remotes:
-    traitecoevo/plant@develop
+    traitecoevo/plant@develop,
+    traitecoevo/odelia@815a54f
 Suggests:
     testthat (>= 3.0.0),
     parallel,

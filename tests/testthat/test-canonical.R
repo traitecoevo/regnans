@@ -28,11 +28,11 @@ events_of <- function(ce, what) ce$events[ce$events$event == what, ]
 
 test_that("canonical_control validates its settings", {
   ctrl <- canonical_control()
-  expect_equal(ctrl$stepper, "rk23")
+  expect_equal(ctrl$stepper, "rodas")
   expect_equal(ctrl$branch, "expected")
   expect_equal(ctrl$t_max, Inf)
   expect_equal(ctrl$establishment_factor, 2)
-  expect_equal(canonical_control(list(stepper = "rosenbrock"))$stepper, "rosenbrock")
+  expect_equal(canonical_control(list(stepper = "rkck"))$stepper, "rkck")
   expect_equal(canonical_control(list(branch = FALSE))$branch, "none")      # the old logical still works
   expect_equal(canonical_control(list(branch = TRUE))$branch, "immediate")
   expect_error(canonical_control(list(stepper = "euler")), "should be one of")
@@ -71,12 +71,12 @@ test_that("JJ12 converges to its CSS and stops, with no branching", {
   expect_match(paste(utils::capture.output(print(ce)), collapse = ""), "stable after")
 })
 
-test_that("the rate scales evolutionary time and the Rosenbrock stepper agrees with rk23", {
+test_that("the rate scales evolutionary time and Cash-Karp agrees with RODAS", {
   slow <- community_canonical_equation(jj12(), x0 = -1.5, control = canonical_control(list(rate = 1)))
   fast <- community_canonical_equation(jj12(), x0 = -1.5, control = canonical_control(list(rate = 2)))
   cross <- function(ce) { tr <- ce$trajectory; tr$time[which(tr$x > 0)[1]] }
   expect_equal(cross(slow) / cross(fast), 2, tolerance = 0.1)
-  ros <- community_canonical_equation(jj12(), x0 = -1.5, control = canonical_control(list(stepper = "rosenbrock")))
+  ros <- community_canonical_equation(jj12(), x0 = -1.5, control = canonical_control(list(stepper = "rkck")))
   expect_equal(ros$outcome, "stable")
   expect_equal(final(ros)$x, final(slow)$x, tolerance = 1e-3)
 })
@@ -110,11 +110,15 @@ test_that("an immediate split at x0 gives mirror-image daughters, finished by Ne
 
 test_that("without polishing the explicit stepper jitters at its stability limit and never converges", {
   unpolished <- community_canonical_equation(dd99(sigma_C = 0.4, x0 = 0), x0 = 0.8,
-    control = canonical_control(list(branch = "immediate", max_residents = 2, polish = FALSE, max_steps = 400)))
+    control = canonical_control(list(stepper = "rkck", branch = "immediate", max_residents = 2, polish = FALSE, max_steps = 400)))
   expect_equal(unpolished$outcome, "max_steps")
   polished <- community_canonical_equation(dd99(sigma_C = 0.4, x0 = 0), x0 = 0.8,
-    control = canonical_control(list(branch = "immediate", max_residents = 2)))
+    control = canonical_control(list(stepper = "rkck", branch = "immediate", max_residents = 2)))
   expect_gt(unpolished$evaluations, 5L * polished$evaluations)
+  rodas <- community_canonical_equation(dd99(sigma_C = 0.4, x0 = 0), x0 = 0.8,
+    control = canonical_control(list(branch = "immediate", max_residents = 2, polish = FALSE, max_steps = 400)))
+  expect_equal(rodas$outcome, "max_residents")
+  expect_lt(rodas$evaluations, 300L)
 })
 
 test_that("GK98 branches to the dimorphic coalition the trait-evolution plot shows", {
@@ -283,7 +287,7 @@ test_that("mutation and immigration run together: both kinds of event occur and 
   # branching needs the resident to reach stationarity between arrivals, so
   # the mutation rate must be high relative to the immigration rate here
   ce <- community_canonical_equation(dd99(sigma_C = 0.4, x0 = 0), x0 = 0.8,
-    control = canonical_control(list(rate = 200, mutation_sd = 0.1, max_residents = 6, t_max = 80, seed = 11,
+    control = canonical_control(list(rate = 200, mutation_sd = 0.1, max_residents = 6, t_max = 80, seed = 1,
                                      immigration = list(rate = 0.3))))
   expect_true(ce$outcome %in% c("t_max", "max_steps"))
   expect_gt(nrow(events_of(ce, "branch")), 0L)

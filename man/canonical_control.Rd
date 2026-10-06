@@ -19,13 +19,19 @@ canonical_control(control = NULL)
   \item{\code{density}}{multiply each resident's speed by its equilibrium
     density relative to the initial total (mutation supply scales with
     population size).}
-  \item{\code{stepper}}{\code{"rk23"} (explicit, adaptive) or
-    \code{"rosenbrock"} (linearly implicit ROS2, adaptive, for stiff
-    dynamics).}
+  \item{\code{stepper}}{an \code{odelia} stepper: \code{"rodas"} (linearly
+    implicit RODAS4(3), the default: trait models are stiff as a rule, and
+    an L-stable step is not held at a stability limit; its Jacobian is
+    formed by finite differences across the residents, one equilibrium
+    solve per unknown), \code{"rkck"} (explicit Cash--Karp 4(5), the
+    cheapest on smooth stretches) or \code{"dopri"} (explicit
+    Dormand--Prince 5(4)). See \code{\link[odelia]{OdeSolver}}.}
   \item{\code{t_max}, \code{max_steps}}{limits on evolutionary time
     (\code{Inf} by default: a run ends when the coalition is stable or a
     limit is reached) and accepted steps.}
-  \item{\code{rtol}, \code{atol}}{step-size control on the trait scale.}
+  \item{\code{rtol}, \code{atol}}{tolerances of the step-size control, on
+    the trait scale: a step is accepted when its error estimate is within
+    \code{atol + rtol * abs(z)}.}
   \item{\code{dt0}, \code{dt_max}}{initial and largest step; \code{NULL}
     chooses \code{dt0} from the initial speed.}
   \item{\code{gradient_tol}}{selection has stopped when every resident's
