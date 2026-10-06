@@ -2,28 +2,24 @@
 % Please edit documentation in R/solve_attractors.R
 \name{community_selection_gradient}
 \alias{community_selection_gradient}
-\title{Calculates selection gradient in a single-species community
-with given trait value}
+\title{Selection gradient of the residents}
 \usage{
-community_selection_gradient(community, dx = 1e-04, log_scale = TRUE)
+community_selection_gradient(community)
 }
 \arguments{
-\item{community}{community object to use.}
-
-\item{dx}{Interval over which derivative is calculated}
-
-\item{log_scale}{(currently disabled) Determines whether derivative is taken
-with respect to raw or log-transformed x values. The latter
-is useful when x is log-normally distributed.}
+\item{community}{A \code{community} solved to demographic equilibrium.}
 }
 \value{
-a community with selection gradient added.
+The community with \code{selection_gradient} (a vector for a single
+resident, otherwise a residents-by-traits matrix) and \code{resident_fitness}
+set.
 }
 \description{
-Adds selection gradient to a single-species community
-with given trait value. This is derivative of fitness
-with respect to trait value. You should first solv for
-using \code{community_demography}
+The derivative of invasion fitness with respect to the mutant trait,
+evaluated at each resident's own traits: the direction in which selection
+pushes that resident. Solve the community to demographic equilibrium first
+(\code{\link{community_demography}}). Derivative settings come from
+\code{\link{derivative_control}}.
 }
 \author{
 Daniel Falster

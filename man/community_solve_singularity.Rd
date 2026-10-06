@@ -11,7 +11,6 @@ community_solve_singularity(
   solver = c("nleqslv", "dfsane"),
   tol = 1e-06,
   maxit = 100,
-  dx = 1e-04,
   birth_rate = NULL,
   edge_ok = TRUE
 )
@@ -32,8 +31,6 @@ community's bounds.}
 \item{tol}{Convergence tolerance passed to the solver.}
 
 \item{maxit}{Maximum solver iterations.}
-
-\item{dx}{Step size for the selection-gradient finite differences.}
 
 \item{birth_rate}{Birth rate to start each candidate's equilibrium solve
 from. Defaults to the resident's own birth rate if the community has one,

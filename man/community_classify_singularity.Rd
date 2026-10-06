@@ -5,16 +5,7 @@
 \alias{print.singularity_classification}
 \title{Classify a singular strategy (1-D and N-D)}
 \usage{
-community_classify_singularity(
-  community,
-  dx = 1e-04,
-  d = 0.001,
-  eps = 0.001,
-  r_hessian = 2L,
-  r_jacobian = 1L,
-  birth_rate = NULL,
-  tol = 1e-08
-)
+community_classify_singularity(community, birth_rate = NULL, tol = 1e-08)
 
 \method{print}{singularity_classification}(x, ...)
 }
@@ -23,19 +14,6 @@ community_classify_singularity(
 a singular strategy --- typically the output of
 \code{\link{community_solve_singularity}} or
 \code{\link{community_solve_singularity_1D}}.}
-
-\item{dx}{Step size for the selection-gradient finite differences.}
-
-\item{d}{Relative finite-difference step for the Hessian and Jacobian.}
-
-\item{eps}{Absolute finite-difference step, used for traits that are ~0
-(the usual case for the toy harnesses, whose singular strategies sit at 0).}
-
-\item{r_hessian}{Number of halved step sizes to Richardson-extrapolate the
-Hessian over. Cheap, so 2 by default.}
-
-\item{r_jacobian}{As \code{r_hessian} for the Jacobian. Each level costs
-\code{2k} demographic solves, so 1 by default.}
 
 \item{birth_rate}{Birth rate to start each resident equilibrium solve from;
 see \code{\link{community_solve_singularity}}. Defaults to the singular
@@ -96,10 +74,13 @@ point is not an ESS the leading eigenvector of \eqn{H} is the direction in
 trait space along which the population disruptively splits, which is itself
 the scientific result in a multi-trait problem.
 
-Cost: the Hessian needs \code{1 + 4k^2} invasion-fitness evaluations, all
-made in a single vectorised call against the cached resident environment, so
-it is cheap. The Jacobian needs \code{2k} \emph{resident} evaluations, each a
-full demographic equilibrium solve, so it dominates.
+Cost: the Hessian (\code{\link{community_fitness_hessian}}) needs
+\code{1 + 4k^2} invasion-fitness evaluations, all made in a single
+vectorised call against the cached resident environment, so it is cheap. The
+Jacobian (\code{\link{community_selection_gradient_jacobian}}) needs
+\code{2k} \emph{resident} evaluations, each a full demographic equilibrium
+solve, so it dominates. Derivative settings come from
+\code{\link{derivative_control}}.
 }
 \author{
 Daniel Falster

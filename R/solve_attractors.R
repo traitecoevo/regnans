@@ -84,49 +84,29 @@ community_solve_singularity_1D <- function(community, bounds = NULL, tol = 1e-04
   community_out
 }
 
-#' Calculates selection gradient in a single-species community
-#' with given trait value
+#' Selection gradient of the residents
 #'
-#' Adds selection gradient to a single-species community
-#' with given trait value. This is derivative of fitness
-#' with respect to trait value. You should first solv for
-#' using \code{community_demography}
-#' @param community community object to use. 
-#' @param dx Interval over which derivative is calculated
-#' @param log_scale (currently disabled) Determines whether derivative is taken
-#' with respect to raw or log-transformed x values. The latter
-#' is useful when x is log-normally distributed.
+#' The derivative of invasion fitness with respect to the mutant trait,
+#' evaluated at each resident's own traits: the direction in which selection
+#' pushes that resident. Solve the community to demographic equilibrium first
+#' (\code{\link{community_demography}}). Derivative settings come from
+#' \code{\link{derivative_control}}.
+#' @param community A \code{community} solved to demographic equilibrium.
 #' @author Daniel Falster
 #' @export
-#' @return a community with selection gradient added.
-community_selection_gradient <- function(community, dx=1e-04,
-                                log_scale=TRUE) {
+#' @return The community with \code{selection_gradient} (a vector for a single
+#' resident, otherwise a residents-by-traits matrix) and \code{resident_fitness}
+#' set.
+community_selection_gradient <- function(community) {
 
   msg <- sprintf("Calculating selection gradient for [%s] = [%s]",
     paste(community$trait_names, collapse = ", "), 
     paste(community$traits, collapse = ", ")
   )
   plant_log_assembler(msg)
-  
-  trait_names <- community$trait_names
-  # get points needed for gradient
-  points <- gradient_points(community$traits, d = dx, r = 1)
- 
-  # bind on current traits so we can return current fitness too
-  xx <- 
-    rbind(
-      community$traits,
-      points
-    )
-  
-  # calculate fitness
-  ff <- community$fitness_function(xx)
 
-  # extract points for derivative
-  y <- ff[-1]  
-  dim(y) <- attr(points, "dim_y")
-  # caluclate gradient using forward difference
-  ret <- gradient_extrapolate(y, points)
+  g <- community_fitness_gradient(community)
+  ret <- if (nrow(g) == 1L) as.vector(g[1, ]) else g
 
   msg <- sprintf("Solved! Selection gradient for [%s] = [%s] is [%s]", 
     paste(community$trait_names, collapse = ", "), 
@@ -135,7 +115,7 @@ community_selection_gradient <- function(community, dx=1e-04,
   )
   plant_log_assembler(msg)
 
-  community[["resident_fitness"]] <- ff[1]
+  community[["resident_fitness"]] <- attr(g, "value")
   community[["selection_gradient"]] <- ret
   community
 }

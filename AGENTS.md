@@ -132,14 +132,18 @@ invasion-fitness closure on the community.
 - `R/community_fitness_landscape.R`, `community_fitness_viable.R`,
   `community_fitness_solve_max.R` — invasion-fitness landscapes (some use
   `mlr3`/Gaussian-process surrogates) and viable trait bounds.
-- `R/solve_attractors.R` — `community_selection_gradient()`,
-  `community_solve_singularity_1D()`. Finite-difference gradients use the
-  internal `gradient_points()`/`gradient_extrapolate()` in `R/util_gradient.R`.
+- `R/derivatives.R` — the only source of derivatives: `derivative_control()`,
+  `community_fitness_gradient()`, `community_fitness_hessian()`,
+  `community_selection_gradient_jacobian()`. Consumers never build their own
+  stencils; the finite-difference machinery (`gradient_points()`,
+  `util_hessian()`, `util_jacobian()`) in `R/util_gradient.R` is reached only
+  from here, so model-supplied derivatives can slot in later (#50).
+- `R/solve_attractors.R` — `community_selection_gradient()` (a thin wrapper over
+  `community_fitness_gradient()`), `community_solve_singularity_1D()`.
 - `R/singularity.R` — `community_solve_singularity()` (N-D root-find on the
   selection gradient) and `community_classify_singularity()` (CSS / branching
   point / repeller / Garden of Eden, with eigen-decompositions). Their
-  second-order finite differences (`util_hessian()`, `util_jacobian()`) live
-  beside the gradient helpers in `R/util_gradient.R`. See **Singular
+  second-order derivatives come from `R/derivatives.R`. See **Singular
   strategies** below.
 - `R/assembler.R` — `assembler_start`/`assembler_run`/`assembler_control` drive
   full assembly (births → demography → deaths) over many steps.
@@ -152,7 +156,8 @@ invasion-fitness closure on the community.
 |---|---|---|
 | `demography_control` | `demographic_step_control()` | Equilibrium solving: `equilibrium_solver_name`, `equilibrium_eps`, `equilibrium_nsteps`, `equilibrium_large_birth_rate_change`, `equilibrium_extinct_birth_rate`, etc. Lives at `community$demography_control`. |
 | `plant_control` | `plant_default_assembly_control()` / `plant::control()` | Passed straight to `run_scm()`. A plant `Control` S4 object — **cannot** hold extra fields, so all equilibrium params go in `demography_control`. Lives at `community$model_support$plant_control`. |
-| `fitness_control` | (list) | How fitness landscapes are sampled (`method`, `n_evals`, …). |
+| `fitness_control` | `fitness_landscape_control()` | How fitness landscapes are sampled (`method`, `n_evals`, …). |
+| `derivative_control` | `derivative_control()` | Finite-difference steps and Richardson levels for every derivative (`d_gradient`, `eps_gradient`, `d_second`, `eps_second`, `r_*`). Lives at `community$derivative_control`. |
 | `assembler_control` | `assembler_control()` | Assembly loop: birth/death type, tolerances. |
 
 Note: plant renamed `seed_rain` → `birth_rate`/`offspring`; control field names
