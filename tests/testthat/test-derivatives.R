@@ -185,11 +185,11 @@ test_that("derivative settings on the community change the finite-difference ste
 test_that("harnesses advertise what they can differentiate", {
   for (h in list(harness_dd99(), harness_dd99_nd(), harness_gk98(),
                  harness_gm99(), harness_jj12())) {
-    expect_equal(harness_provides(h), c("fitness_gradient", "fitness_hessian"),
+    expect_equal(harness_provides(h), c("fitness_gradient", "fitness_hessian", "equilibrium"),
                  info = h$label)
     expect_true(harness_provides(h, "fitness_hessian"), info = h$label)
   }
-  expect_equal(harness_provides(dd99_fd()), character(0))
+  expect_equal(harness_provides(dd99_fd()), "equilibrium")
   expect_false(harness_provides(dd99_fd(), "fitness_hessian"))
   expect_error(harness_provides(harness_dd99(), "jacobian"), "should be one of")
 })

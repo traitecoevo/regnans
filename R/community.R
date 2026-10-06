@@ -50,6 +50,20 @@ community_start <- function(bounds,
   ## Any derivative the model does not supply is computed by finite differences.
   harness <- harness_fd(harness)
 
+  ## A control that leaves the equilibrium solver open takes the harness's
+  ## default, recorded here so the community says which solver it uses.
+  if (is.null(demography_control$equilibrium_solver_name)) {
+    demography_control$equilibrium_solver_name <- harness$equilibrium_solver_default
+    if (is.null(demography_control$equilibrium_solver_name)) {
+      demography_control$equilibrium_solver_name <- "equilibrium_iteration"
+    }
+  }
+  if (identical(demography_control$equilibrium_solver_name, "model") &&
+      !is.function(harness$fns$equilibrium)) {
+    stop("The 'model' equilibrium solver needs a harness that supplies its own ",
+         "equilibrium; this one does not")
+  }
+
   ## How trait space is spaced/searched during assembly. "log" suits strictly
   ## positive biological traits (plant: lma, height, seed mass); "linear" suits
   ## traits that span zero or are naturally additive (e.g. DD99/GK98, whose

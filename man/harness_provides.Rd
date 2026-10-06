@@ -9,8 +9,10 @@ harness_provides(harness, what = NULL)
 \arguments{
 \item{harness}{A \code{harness}.}
 
-\item{what}{A derivative name: \code{"fitness_gradient"} or
-\code{"fitness_hessian"}. With \code{NULL}, the names of all it provides.}
+\item{what}{\code{"fitness_gradient"}, \code{"fitness_hessian"} or
+\code{"equilibrium"} (the model's own resident equilibrium, analytic or
+from its own internal solver). With
+\code{NULL}, the names of all it provides.}
 }
 \value{
 A logical, or with \code{what = NULL} a character vector.

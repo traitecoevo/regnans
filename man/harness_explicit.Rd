@@ -42,12 +42,23 @@ a `harness` object
 A harness for fast toy models with explicitly-supplied fitness/equilibrium.
 }
 \details{
-Implements all six connectors generically in terms of two model primitives:
-a vectorised invasion-fitness function and a resident-equilibrium solver
-(both typically backed by C++), plus optional derivatives of fitness in the
-mutant direction. Concrete instances --- \code{harness_dd99},
+Implements the connectors generically in terms of two model primitives:
+a vectorised invasion-fitness function and the model's own resident
+equilibrium --- analytic where the model has one, otherwise from the
+model's own internal solver (both typically backed by C++) --- plus optional derivatives of
+fitness in the mutant direction. Concrete instances --- \code{harness_dd99},
 \code{harness_gk98}, \code{harness_gm99}, \code{harness_jj12} --- supply
-all of them. "Explicit" refers to the mechanism (the fitness/equilibrium are
+all of them.
+
+The demography runner is the model's own one-generation map
+\eqn{n_{t+1} = n_t \exp(s(x; x, n_t))} --- for GK98 its soft-selection
+recursion (Eq. 19), for JJ12 the territory recursion, for GM99 the
+seeds-per-seed return, for DD99 (a per-capita rate) a unit time step --- so
+every equilibrium solver in \code{\link{demographic_step_control}} can be
+run and timed on these models against the model's own answer. That answer
+is the \code{"model"} solver and the default these harnesses
+recommend; \code{community_start()} adopts it unless the control names
+another. "Explicit" refers to the mechanism (the fitness/equilibrium are
 computed directly, not by running the plant SCM), NOT a claim that every
 quantity is closed-form.
 
@@ -57,9 +68,8 @@ Conventions:
     state the equilibrium solver returns), not a plant offspring rate.
   \item \code{fitness} returns invasion fitness with the resident value ~0
     (a log ratio for jj12/gk98/gm99; a per-capita rate for dd99).
-  \item demography is solved by returning the model's equilibrium directly;
-    the standard \code{equilibrium_iteration} loop then converges in a couple
-    of steps.
+  \item the \code{"model"} solver returns the model's own equilibrium in
+    one evaluation; every other solver iterates the one-generation map.
 }
 }
 \author{
