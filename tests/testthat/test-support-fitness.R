@@ -93,7 +93,7 @@ test_that("max_fitness finds the DD99 ESS in one trait", {
                                                  sigma_C = 1.5)) |>
     community_add(trait_matrix(0, "x"), birth_rate = 500) |>
     community_demography()
-  mx <- max_fitness(comm, log_scale = FALSE, tol = 1e-8)
+  mx <- max_fitness(comm, tol = 1e-8)
   expect_named(mx, "x")
   expect_equal(as.numeric(mx), 0, tolerance = 1e-6)
   expect_equal(attr(mx, "fitness"), 0, tolerance = 1e-10)
@@ -105,7 +105,7 @@ test_that("max_fitness finds the DD99 ESS in two traits", {
                           trait_scale = "linear", harness = h) |>
     community_add(trait_matrix(c(0, 0), c("x1", "x2")), birth_rate = 500) |>
     community_demography()
-  mx <- max_fitness(comm, log_scale = FALSE)
+  mx <- max_fitness(comm)
   expect_named(mx, c("x1", "x2"))
   expect_equal(as.numeric(mx), c(0, 0), tolerance = 1e-6)
   expect_equal(attr(mx, "fitness"), 0, tolerance = 1e-10)

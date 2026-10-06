@@ -33,8 +33,3 @@ community_selection_gradient <- function(community) {
   community[["selection_gradient"]] <- ret
   community
 }
-
-## NOTE: max_fitness() and max_growth_rate() now live in
-## R/community_fitness_solve_max.R, reimplemented on the community machinery.
-## The previous plant-style versions here called the removed plant
-## fitness_landscape_empty()/fundamental_fitness() and have been deleted.

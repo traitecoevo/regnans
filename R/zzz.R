@@ -1,6 +1,6 @@
 ##' @import plant
 ##' @importFrom Rcpp evalCpp
-##' @importFrom stats rpois uniroot
+##' @importFrom stats optim optimise rpois uniroot
 ##' @importFrom utils capture.output modifyList
 ##' @importFrom dplyr mutate relocate any_of
 ##' @importFrom ggplot2 .data autoplot

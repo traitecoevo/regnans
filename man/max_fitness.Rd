@@ -4,7 +4,7 @@
 \alias{max_fitness}
 \title{Find point of maximum fitness within some range}
 \usage{
-max_fitness(community, bounds = NULL, log_scale = TRUE, tol = 0.001)
+max_fitness(community, bounds = NULL, tol = 0.001)
 }
 \arguments{
 \item{community}{A \code{community} object.}
@@ -12,10 +12,8 @@ max_fitness(community, bounds = NULL, log_scale = TRUE, tol = 0.001)
 \item{bounds}{Bounds matrix (\code{lower}/\code{upper} per trait). Defaults
 to \code{community$bounds}.}
 
-\item{log_scale}{Is the trait naturally on a log scale? If so the search is
-done in log space, which is usually much better behaved.}
-
-\item{tol}{Tolerance passed to the optimiser.}
+\item{tol}{Tolerance on the trait scale for the one-trait search; with more
+traits L-BFGS-B uses its own convergence test.}
 }
 \value{
 The maximising trait value(s), named by trait, with the achieved
@@ -27,8 +25,10 @@ Find the trait value of maximum fitness within some bounds.
 \details{
 Searches \code{bounds} for the trait value(s) that maximise invasion fitness
 into the community's environment (the fundamental niche peak for an empty
-community). Uses \code{stats::optimise} in 1D and \code{stats::optim}
-(L-BFGS-B) in higher dimensions, operating on \code{community$fitness_function}.
+community), on the community's trait scale (see
+\code{community_start(trait_scale = )}). One trait is searched by golden
+section over the whole interval; more traits by L-BFGS-B from the centre of
+the bounds, which finds the maximum nearest it.
 }
 \author{
 Daniel Falster, Rich FitzJohn
