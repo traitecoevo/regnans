@@ -123,3 +123,89 @@ NumericVector gk98_equilibrium(NumericVector x_res, List pars,
   }
   return n;
 }
+
+// --- derivatives in the mutant direction -------------------------------------
+// With S(y) = log A(y), A = sum_j w_j f_j(y) and f_j'(y) = f_j b_j,
+// b_j = -(y - mu_j)/sigma^2, f_j'' = f_j (b_j^2 - 1/sigma^2):
+//   S'  = sum_j w_j f_j b_j / A
+//   S'' = sum_j w_j f_j (b_j^2 - 1/sigma^2) / A - S'^2
+// where w_j = K_j / D_j against residents, or c_j for a lone strategy.
+
+namespace gk98 {
+
+static void weights(const NumericVector& x_res, const NumericVector& n_res,
+                    const NumericVector& mu, const NumericVector& Kp,
+                    double sigma, std::vector<double>& w) {
+  int m = mu.size(), nr = x_res.size();
+  w.assign(m, 0.0);
+  if (nr == 0) {
+    double Ktot = 0.0;
+    for (int j = 0; j < m; j++) Ktot += Kp[j];
+    for (int j = 0; j < m; j++) w[j] = Kp[j] / Ktot;
+    return;
+  }
+  for (int j = 0; j < m; j++) {
+    double D = 0.0;
+    for (int h = 0; h < nr; h++) D += f_of(x_res[h], mu[j], sigma) * n_res[h];
+    w[j] = Kp[j] / D;
+  }
+}
+
+static void derivs(double y, const std::vector<double>& w, const NumericVector& mu,
+                   double sigma, double& d1, double& d2) {
+  int m = mu.size();
+  double A = 0.0, A1 = 0.0, A2 = 0.0;
+  for (int j = 0; j < m; j++) {
+    double f = f_of(y, mu[j], sigma);
+    double b = -(y - mu[j]) / (sigma * sigma);
+    A  += w[j] * f;
+    A1 += w[j] * f * b;
+    A2 += w[j] * f * (b * b - 1.0 / (sigma * sigma));
+  }
+  d1 = A1 / A;
+  d2 = A2 / A - d1 * d1;
+}
+
+} // namespace gk98
+
+//' GK98 soft-selection model: gradient of log invasion fitness with respect to the mutant trait
+//'
+//' @inheritParams gk98_fitness
+//' @return numeric matrix, one row per mutant and one column
+//' @keywords internal
+// [[Rcpp::export]]
+NumericMatrix gk98_fitness_gradient(NumericVector x_mut, NumericVector x_res,
+                                    NumericVector n_res, List pars) {
+  double sigma = pars["sigma"];
+  NumericVector mu = pars["mu"], Kp = pars["K"];
+  std::vector<double> w;
+  gk98::weights(x_res, n_res, mu, Kp, sigma, w);
+  NumericMatrix out(x_mut.size(), 1);
+  for (int i = 0; i < x_mut.size(); i++) {
+    double d1, d2;
+    gk98::derivs(x_mut[i], w, mu, sigma, d1, d2);
+    out(i, 0) = d1;
+  }
+  return out;
+}
+
+//' GK98 soft-selection model: second derivative of log invasion fitness with respect to the mutant trait
+//'
+//' @param x_mut a single mutant trait value
+//' @inheritParams gk98_fitness
+//' @return a 1 x 1 numeric matrix
+//' @keywords internal
+// [[Rcpp::export]]
+NumericMatrix gk98_fitness_hessian(NumericVector x_mut, NumericVector x_res,
+                                   NumericVector n_res, List pars) {
+  if (x_mut.size() != 1) stop("gk98_fitness_hessian takes a single mutant");
+  double sigma = pars["sigma"];
+  NumericVector mu = pars["mu"], Kp = pars["K"];
+  std::vector<double> w;
+  gk98::weights(x_res, n_res, mu, Kp, sigma, w);
+  double d1, d2;
+  gk98::derivs(x_mut[0], w, mu, sigma, d1, d2);
+  NumericMatrix out(1, 1);
+  out(0, 0) = d2;
+  return out;
+}

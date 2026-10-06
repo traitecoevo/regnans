@@ -15,6 +15,15 @@ dd99_resident <- function(x, x0 = 0, sigma_K = 1, sigma_C = 0.4, r = 1, ...) {
     community_demography()
 }
 
+# DD99 with its fitness only: the finite-difference path for a model that
+# supplies no derivatives, now that every shipped model supplies its own.
+dd99_fd <- function() {
+  harness_explicit(fitness = dd99_fitness,
+                   equilibrium = function(x_res, pars) dd99_equilibrium(x_res, pars),
+                   pars = list(r = 1, K0 = 500, x0 = 0, sigma_K = 1, sigma_C = 0.4),
+                   trait_names = "x", label = "dd99_fd")
+}
+
 dd99_dsdy <- function(y, x, x0 = 0, sigma_K = 1, sigma_C = 0.4, r = 1) {
   K <- function(z) exp(-(z - x0)^2 / (2 * sigma_K^2))
   C <- exp(-(y - x)^2 / (2 * sigma_C^2))
@@ -154,32 +163,34 @@ test_that("community_selection_gradient returns one row per resident", {
 })
 
 test_that("derivative settings on the community change the finite-difference stencil", {
-  # GK98 supplies no derivatives, so its gradient is a finite difference
-  gk98_at <- function(...) {
-    community_start(bounds(x = c(-4, 4)), trait_scale = "linear",
-                    harness = harness_gk98(d = 1.5), ...) |>
-      community_add(trait_matrix(0.7, "x"), birth_rate = 1) |>
+  fd_at <- function(...) {
+    community_start(bounds(x = c(-2, 2)), trait_scale = "linear",
+                    harness = dd99_fd(), ...) |>
+      community_add(trait_matrix(0.7, "x"), birth_rate = 100) |>
       community_demography()
   }
-  fine <- gk98_at()
-  coarse <- gk98_at(derivative_control = list(d_gradient = 0.3, eps_gradient = 0.3))
+  fine <- fd_at()
+  coarse <- fd_at(derivative_control = list(d_gradient = 0.3, eps_gradient = 0.3))
   reference <- as.numeric(regnans:::fd_fitness_gradient(
     fine$fitness_function, matrix(0.7), derivative_control(list(r_gradient = 4))))
   g_fine <- as.numeric(community_fitness_gradient(fine))
   g_coarse <- as.numeric(community_fitness_gradient(coarse))
   expect_gt(abs(g_coarse - reference), abs(g_fine - reference))
   expect_equal(g_fine, reference, tolerance = 1e-6)
-  expect_equal(g_coarse, reference, tolerance = 0.1)
+  expect_equal(g_coarse, reference, tolerance = 0.25)
 })
 
 # ---- model-supplied derivatives and the finite-difference fill --------------
 
 test_that("harnesses advertise what they can differentiate", {
-  expect_equal(harness_provides(harness_dd99()),
-               c("fitness_gradient", "fitness_hessian"))
-  expect_true(harness_provides(harness_dd99_nd(), "fitness_gradient"))
-  expect_equal(harness_provides(harness_gk98()), character(0))
-  expect_false(harness_provides(harness_jj12(), "fitness_hessian"))
+  for (h in list(harness_dd99(), harness_dd99_nd(), harness_gk98(),
+                 harness_gm99(), harness_jj12())) {
+    expect_equal(harness_provides(h), c("fitness_gradient", "fitness_hessian"),
+                 info = h$label)
+    expect_true(harness_provides(h, "fitness_hessian"), info = h$label)
+  }
+  expect_equal(harness_provides(dd99_fd()), character(0))
+  expect_false(harness_provides(dd99_fd(), "fitness_hessian"))
   expect_error(harness_provides(harness_dd99(), "jacobian"), "should be one of")
 })
 
@@ -188,27 +199,27 @@ test_that("community_start records the source of every derivative", {
   expect_equal(dd$fitness_derivatives$source,
                c(fitness_gradient = "model", fitness_hessian = "model"))
 
-  gk <- community_start(bounds(x = c(-4, 4)), trait_scale = "linear",
-                        harness = harness_gk98()) |>
-    community_add(trait_matrix(0.2, "x"), birth_rate = 1) |>
+  fd <- community_start(bounds(x = c(-2, 2)), trait_scale = "linear",
+                        harness = dd99_fd()) |>
+    community_add(trait_matrix(0.2, "x"), birth_rate = 100) |>
     community_demography()
-  expect_equal(gk$fitness_derivatives$source,
+  expect_equal(fd$fitness_derivatives$source,
                c(fitness_gradient = "finite difference",
                  fitness_hessian = "finite difference"))
-  expect_true(is.function(gk$fitness_derivatives$gradient))
-  expect_true(is.function(gk$fitness_derivatives$hessian))
+  expect_true(is.function(fd$fitness_derivatives$gradient))
+  expect_true(is.function(fd$fitness_derivatives$hessian))
 })
 
 test_that("harness_fd is idempotent and required", {
-  h <- harness_fd(harness_gk98())
+  h <- harness_fd(dd99_fd())
   expect_true(h$fd)
   expect_identical(harness_fd(h), h)
   expect_error(harness_fd(list()), "needs a harness object")
 
-  bare <- list(bounds = bounds(x = c(-4, 4)), trait_names = "x",
-               traits = trait_matrix(0.2, "x"), birth_rate = 1,
+  bare <- list(bounds = bounds(x = c(-2, 2)), trait_names = "x",
+               traits = trait_matrix(0.2, "x"), birth_rate = 100,
                demography_control = demographic_step_control(),
-               harness = harness_gk98(), trait_scale = "linear")
+               harness = dd99_fd(), trait_scale = "linear")
   class(bare) <- "community"
   bare <- community_demography(bare)
   expect_error(community_fitness_gradient(bare), "harness_fd")
@@ -267,6 +278,41 @@ test_that("a provider returning the wrong shape is refused", {
 test_that("print.harness reports derivatives", {
   out <- paste(utils::capture.output(print(harness_dd99())), collapse = "\n")
   expect_match(out, "derivatives: fitness_gradient, fitness_hessian")
-  out <- paste(utils::capture.output(print(harness_fd(harness_gk98()))), collapse = "\n")
+  out <- paste(utils::capture.output(print(harness_fd(dd99_fd()))), collapse = "\n")
   expect_match(out, "derivatives: none \\(finite differences for the rest\\)")
+})
+
+test_that("GK98, JJ12 and GM99 derivatives reproduce their closed-form oracles", {
+  # GK98 symmetric three-patch at x* = 0: S' = 0, S'' = -1/sigma^2 + 2 d^2/(3 sigma^4)
+  gk <- community_start(bounds(x = c(-4, 4)), trait_scale = "linear",
+                        harness = harness_gk98(d = 1.5, sigma = 1)) |>
+    community_add(trait_matrix(0, "x"), birth_rate = 1) |>
+    community_demography()
+  expect_equal(as.numeric(community_fitness_gradient(gk)), 0, tolerance = 1e-12)
+  expect_equal(as.numeric(community_fitness_hessian(gk)), -1 + 2 * 1.5^2 / 3,
+               tolerance = 1e-12)
+
+  # JJ12 single resident x at n*: S'(x) = (1 - p) (-(x - x_opt)/sigma^2 - a)
+  a <- 0.1; sigma <- 1.4; x_opt <- 0.5; p <- 0.5; x <- 0.2
+  jj12_at <- function(x) {
+    community_start(bounds(x = c(-3, 3)), trait_scale = "linear",
+                    harness = harness_jj12(a = a, x_opt = x_opt, sigma = sigma,
+                                           p = p)) |>
+      community_add(trait_matrix(x, "x"), birth_rate = 1) |>
+      community_demography()
+  }
+  expect_equal(as.numeric(community_fitness_gradient(jj12_at(x))),
+               (1 - p) * (-(x - x_opt) / sigma^2 - a), tolerance = 1e-12)
+  expect_equal(as.numeric(community_fitness_gradient(jj12_at(x_opt - a * sigma^2))),
+               0, tolerance = 1e-12)
+
+  # GM99 lone strategy: log W = log R - log y + log s(y), s = 1 - 2 exp(-beta y)
+  gm <- community_start(bounds(x = c(0.05, 1)), trait_scale = "log",
+                        harness = harness_gm99(alpha = 6, beta = 25, R = 1)) |>
+    community_demography()
+  y <- c(0.1, 0.3)
+  e <- exp(-25 * y); s <- 1 - 2 * e
+  expect_equal(as.numeric(community_fitness_gradient(gm, y)),
+               -1 / y + 2 * 25 * e / s, tolerance = 1e-12)
+  expect_true(is.na(as.numeric(community_fitness_gradient(gm, 0.01))))
 })

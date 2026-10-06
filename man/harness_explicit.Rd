@@ -44,9 +44,10 @@ A harness for fast toy models with explicitly-supplied fitness/equilibrium.
 \details{
 Implements all six connectors generically in terms of two model primitives:
 a vectorised invasion-fitness function and a resident-equilibrium solver
-(both typically backed by C++). Concrete instances --- \code{harness_dd99},
+(both typically backed by C++), plus optional derivatives of fitness in the
+mutant direction. Concrete instances --- \code{harness_dd99},
 \code{harness_gk98}, \code{harness_gm99}, \code{harness_jj12} --- supply
-these. "Explicit" refers to the mechanism (the fitness/equilibrium are
+all of them. "Explicit" refers to the mechanism (the fitness/equilibrium are
 computed directly, not by running the plant SCM), NOT a claim that every
 quantity is closed-form.
 

@@ -184,12 +184,12 @@ here follow current plant terminology.
 
 ## Test baseline
 
-`devtools::test()` is **green: 490 pass, 0 fail, 0 skip, 0 warn**. Tests run in
+`devtools::test()` is **green: 504 pass, 0 fail, 0 skip, 0 warn**. Tests run in
 parallel (`Config/testthat/parallel: true`); the `test-plant-smoke*.R` files
 dominate the wall-clock as they are the only ones that run the real SCM. The
 `test-harness-*.R` and `test-singularity.R` files run no SCM and are fast.
 
-(The count has grown as the toy-harness tier has: 197 → 256 → 401 → 490. What
+(The count has grown as the toy-harness tier has: 197 → 256 → 401 → 504. What
 matters is that a change moves it up and moves nothing to FAIL.)
 
 Note: the testthat parallel workers may fail to find `plant` on startup in some
@@ -372,7 +372,8 @@ metadata for now.)
 generically from two primitives — a vectorised **invasion-fitness** function and
 an **equilibrium solve** — plus optional `fitness_gradient` / `fitness_hessian`
 primitives that make the harness advertise those derivatives (`h$provides`;
-DD99 and DD99-nD supply them, closed form in C++). `community_start()` passes
+every shipped model supplies them, closed form in C++ — GM99's from the same
+Poisson odometer pass as its fitness). `community_start()` passes
 every harness through `harness_fd()`, which fills any missing derivative with
 finite differences, so a model never has to provide them to work;
 `harness_check_derivatives()` is the contract that what it does provide agrees

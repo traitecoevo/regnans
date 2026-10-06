@@ -159,9 +159,10 @@ harness_plant <- function(model = c("FF16", "TF24"),
 ##'
 ##' Implements all six connectors generically in terms of two model primitives:
 ##' a vectorised invasion-fitness function and a resident-equilibrium solver
-##' (both typically backed by C++). Concrete instances --- \code{harness_dd99},
+##' (both typically backed by C++), plus optional derivatives of fitness in the
+##' mutant direction. Concrete instances --- \code{harness_dd99},
 ##' \code{harness_gk98}, \code{harness_gm99}, \code{harness_jj12} --- supply
-##' these. "Explicit" refers to the mechanism (the fitness/equilibrium are
+##' all of them. "Explicit" refers to the mechanism (the fitness/equilibrium are
 ##' computed directly, not by running the plant SCM), NOT a claim that every
 ##' quantity is closed-form.
 ##'
@@ -420,7 +421,9 @@ harness_gk98 <- function(d = 1.5, sigma = 1, mu = c(-d, 0, d),
     equilibrium = function(x_res, pars) gk98_equilibrium(x_res, pars),
     pars        = pars,
     trait_names = trait_name,
-    label       = "gk98"
+    label       = "gk98",
+    fitness_gradient = gk98_fitness_gradient,
+    fitness_hessian  = gk98_fitness_hessian
   )
 }
 
@@ -455,7 +458,9 @@ harness_gm99 <- function(alpha = 6, beta = 25, R = 1, trait_name = "x") {
     equilibrium = function(x_res, pars) gm99_equilibrium(x_res, pars),
     pars        = pars,
     trait_names = trait_name,
-    label       = "gm99"
+    label       = "gm99",
+    fitness_gradient = gm99_fitness_gradient,
+    fitness_hessian  = gm99_fitness_hessian
   )
 }
 
@@ -492,7 +497,9 @@ harness_jj12 <- function(a = 0.1, x_opt = 0, sigma = 1, R0 = 1, K = 1, p = 0.5,
     equilibrium = function(x_res, pars) jj12_equilibrium(x_res, pars),
     pars        = pars,
     trait_names = trait_name,
-    label       = "jj12"
+    label       = "jj12",
+    fitness_gradient = jj12_fitness_gradient,
+    fitness_hessian  = jj12_fitness_hessian
   )
 }
 

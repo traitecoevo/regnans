@@ -33,15 +33,20 @@ static inline double c_of(double x, double alpha) {
   return std::exp(alpha * x);
 }
 
-// E[ c_mut / (c_mut + sum_j k_j cres_j) ] over independent k_j ~ Poisson(N_j).
+// Expectations over independent k_j ~ Poisson(N_j), with Z = sum_j k_j cres_j:
+//   g0 = E[ c / (c + Z) ]           establishment probability of the mutant
+//   g1 = E[ c Z / (c + Z)^2 ]       (d/dy) g = alpha g1,  since dc/dy = alpha c
+//   g2 = E[ c Z (Z - c) / (c + Z)^3 ]   (d2/dy2) g = alpha^2 g2
 //
 // Cartesian odometer over per-resident truncated Poisson pmfs. Truncation at
 // N + 6*sqrt(N+1) + 6 captures > 1-1e-10 of the Poisson mass (tighter than
 // the previous N + 10*sqrt(N+1) + 20, giving ~2x fewer terms per dimension).
-static double estab(double c_mut, const std::vector<double>& cres,
-                    const std::vector<double>& N) {
+static void estab_moments(double c_mut, const std::vector<double>& cres,
+                          const std::vector<double>& N,
+                          double& g0, double& g1, double& g2) {
   int n = cres.size();
-  if (n == 0) return 1.0;
+  g0 = 1.0; g1 = 0.0; g2 = 0.0;
+  if (n == 0) return;
   std::vector<std::vector<double> > P(n);
   std::vector<int> Kmax(n);
   for (int j = 0; j < n; j++) {
@@ -52,16 +57,43 @@ static double estab(double c_mut, const std::vector<double>& cres,
     Kmax[j] = kmax;
   }
   std::vector<int> k(n, 0);
-  double sum = 0.0;
+  double sum = 0.0, sum1 = 0.0, sum2 = 0.0;
   while (true) {
     double w = 1.0, denom = c_mut;
     for (int j = 0; j < n; j++) { w *= P[j][k[j]]; denom += k[j] * cres[j]; }
-    sum += w * c_mut / denom;
+    double Z = denom - c_mut;
+    sum  += w * c_mut / denom;
+    sum1 += w * c_mut * Z / (denom * denom);
+    sum2 += w * c_mut * Z * (Z - c_mut) / (denom * denom * denom);
     int j = 0;
     while (j < n) { if (++k[j] <= Kmax[j]) break; k[j] = 0; j++; }
     if (j == n) break;
   }
-  return sum;
+  g0 = sum; g1 = sum1; g2 = sum2;
+}
+
+static double estab(double c_mut, const std::vector<double>& cres,
+                    const std::vector<double>& N) {
+  double g0, g1, g2;
+  estab_moments(c_mut, cres, N, g0, g1, g2);
+  return g0;
+}
+
+// log W = log R - log y + log s(y) + log g(y); first and second derivatives in
+// the mutant seed size y. NaN where the mutant is not viable (s(y) <= 0).
+static void derivs(double y, const std::vector<double>& cres,
+                   const std::vector<double>& N, double R, double alpha,
+                   double beta, double& d1, double& d2) {
+  double s = s_of(y, beta);
+  if (s <= 0.0 || y <= 0.0) { d1 = NA_REAL; d2 = NA_REAL; return; }
+  double e = std::exp(-beta * y);
+  double s1 = 2.0 * beta * e, s2 = -2.0 * beta * beta * e;
+  double g0, g1, g2;
+  estab_moments(c_of(y, alpha), cres, N, g0, g1, g2);
+  double dlg = alpha * g1 / g0;
+  d1 = -1.0 / y + s1 / s + dlg;
+  d2 = 1.0 / (y * y) + (s2 * s - s1 * s1) / (s * s)
+     + alpha * alpha * g2 / g0 - dlg * dlg;
 }
 
 // Evaluate log fitness for each resident at densities Nv.
@@ -239,4 +271,46 @@ NumericVector gm99_equilibrium(NumericVector x_res, List pars,
     }
   }
   return n;
+}
+
+//' GM99 seed-size model: gradient of log invasion fitness with respect to the mutant seed size
+//'
+//' @inheritParams gm99_fitness
+//' @return numeric matrix, one row per mutant and one column (NaN for non-viable mutants)
+//' @keywords internal
+// [[Rcpp::export]]
+NumericMatrix gm99_fitness_gradient(NumericVector x_mut, NumericVector x_res,
+                                    NumericVector n_res, List pars) {
+  double R = pars["R"], alpha = pars["alpha"], beta = pars["beta"];
+  int nr = x_res.size();
+  std::vector<double> cres(nr), N(nr);
+  for (int j = 0; j < nr; j++) { cres[j] = gm99::c_of(x_res[j], alpha); N[j] = n_res[j]; }
+  NumericMatrix out(x_mut.size(), 1);
+  for (int i = 0; i < x_mut.size(); i++) {
+    double d1, d2;
+    gm99::derivs(x_mut[i], cres, N, R, alpha, beta, d1, d2);
+    out(i, 0) = d1;
+  }
+  return out;
+}
+
+//' GM99 seed-size model: second derivative of log invasion fitness with respect to the mutant seed size
+//'
+//' @param x_mut a single mutant seed size
+//' @inheritParams gm99_fitness
+//' @return a 1 x 1 numeric matrix (NaN for a non-viable mutant)
+//' @keywords internal
+// [[Rcpp::export]]
+NumericMatrix gm99_fitness_hessian(NumericVector x_mut, NumericVector x_res,
+                                   NumericVector n_res, List pars) {
+  if (x_mut.size() != 1) stop("gm99_fitness_hessian takes a single mutant");
+  double R = pars["R"], alpha = pars["alpha"], beta = pars["beta"];
+  int nr = x_res.size();
+  std::vector<double> cres(nr), N(nr);
+  for (int j = 0; j < nr; j++) { cres[j] = gm99::c_of(x_res[j], alpha); N[j] = n_res[j]; }
+  double d1, d2;
+  gm99::derivs(x_mut[0], cres, N, R, alpha, beta, d1, d2);
+  NumericMatrix out(1, 1);
+  out(0, 0) = d2;
+  return out;
 }
