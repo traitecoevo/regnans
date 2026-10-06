@@ -145,6 +145,11 @@ invasion-fitness closure on the community.
   point / repeller / Garden of Eden, with eigen-decompositions). Their
   second-order derivatives come from `R/derivatives.R`. See **Singular
   strategies** below.
+- `R/pip.R` — `community_pip()` (resident sweep → fitness surface + exact zero
+  contours, with `pip_control()` for seeding/refinement), `pip_mutual()`,
+  `community_tep()`, and their `plot()` methods. `R/parallel.R` holds the one
+  `future`-backed map (`regnans_map()`, contiguous `regnans_chunks()`) that
+  independent model evaluations go through.
 - `R/assembler.R` — `assembler_start`/`assembler_run`/`assembler_control` drive
   full assembly (births → demography → deaths) over many steps.
 - `R/births*.R`, `R/deaths.R` — add/remove strategies (maximum-fitness or
@@ -184,13 +189,13 @@ here follow current plant terminology.
 
 ## Test baseline
 
-`devtools::test()` is **green: 537 pass, 0 fail, 0 skip, 0 warn**. Tests run in
+`devtools::test()` is **green: 650 pass, 0 fail, 0 skip, 0 warn**. Tests run in
 parallel (`Config/testthat/parallel: true`); the `test-plant-smoke*.R` files
 dominate the wall-clock as they are the only ones that run the real SCM. The
 `test-harness-*.R` and `test-singularity.R` files run no SCM and are fast.
 
-(The count has grown as the toy-harness tier has: 197 → 256 → 401 → 537. What
-matters is that a change moves it up and moves nothing to FAIL.)
+(The count has grown as the toy-harness tier has: 197 → 256 → 401 → 537 → 650.
+What matters is that a change moves it up and moves nothing to FAIL.)
 
 Note: the testthat parallel workers may fail to find `plant` on startup in some
 shells; run `TESTTHAT_PARALLEL=FALSE Rscript -e 'devtools::test()'` if so.
@@ -223,9 +228,17 @@ shells; run `TESTTHAT_PARALLEL=FALSE Rscript -e 'devtools::test()'` if so.
   genuine fixed-point tests and the `equilibrium_hybrid` extinct-species
   accept/reject branches built on `helper-harness-map.R`.
 - `helper-harness-map.R` — a test-only harness whose demography runner is an
-  arbitrary map `n -> map(n)`. The shipped toy harnesses return their
-  equilibrium analytically, so no solver ever iterates on them; this one has a
-  real, tunably-slow fixed point, which is what actually tests the root finders.
+  arbitrary map `n -> map(n)` with a real, tunably-slow fixed point, which is
+  what tests the root finders. (The shipped toy harnesses return their
+  equilibrium in closed form unless wrapped in `harness_numerical()`, which
+  iterates each model's own dynamics instead — `test-harness-numerical.R`.)
+- `test-pip.R` — `community_pip()` against the closed-form DD99 zero contours
+  (`y2(x) = (x(σ_K² + σ_C²) − 2x0σ_C²)/(σ_K² − σ_C²)`), the near-diagonal
+  root at a resident beside the singular strategy, refinement landing only at
+  contour exits and the singular strategy, seeding strategies agreeing on an
+  iterated GM99 while costing fewer evaluations, `pip_mutual()`,
+  `community_tep()` mirror symmetry, the plots, and a multicore run matching
+  the sequential surface.
 - `test-community-plots.R` — `community_plot_fitness_landscape`, forcing
   `ggplot_build()` so the aesthetics are actually evaluated.
 - `test-derivatives.R` — `derivative_control`, the dispatch functions in

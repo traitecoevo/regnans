@@ -108,7 +108,7 @@ Tier letters refer to the section above. Tests are in `tests/testthat/`; docs ar
 |---|---|---|---|---|---|
 | Harness contract, six connectors | `harness_plant()`, `harness_explicit()`, `R/harness.R` | done | — | `test-harness-*.R` | [#33](https://github.com/traitecoevo/regnans/issues/33) |
 | Reference models with analytic oracles | `harness_dd99()`, `harness_dd99_nd()`, `harness_gk98()`, `harness_gm99()`, `harness_jj12()` | done; every reference model supplies its fitness gradient and Hessian in closed form (GM99's from the same Poisson sum as its fitness) | — | `test-harness-{dd99,gk98,gm99,jj12}.R`, `test-singularity.R`; `DD99.qmd`, `GK98.qmd`, `GM99.qmd`, `JJ12.qmd` | — |
-| Reference models run as numerical models (`mode = "numerical"`, scalar-templated C++) | `harness_explicit()` | planned | — | — | [#55](https://github.com/traitecoevo/regnans/issues/55) |
+| Reference models run as numerical models | `harness_numerical()` iterates each model's own dynamics `n ↦ n·exp(s(x; x, n))` to the equilibrium, so the solvers genuinely solve | done | — | `test-harness-numerical.R` | [#55](https://github.com/traitecoevo/regnans/issues/55) |
 | Derivative connectors, `harness_fd()`, dispatch layer | `R/derivatives.R`, `derivative_control()`, `community_fitness_gradient()`, `community_fitness_hessian()`, `community_selection_gradient_jacobian()`, `harness_provides()`, `harness_fd()` | done for the mutant direction (gradient, Hessian); resident Jacobian is finite-differenced over the gradient until plant E3/E4; demography Jacobians arrive with the Newton solver | A enabler | `test-derivatives.R` | [#50](https://github.com/traitecoevo/regnans/issues/50) |
 | Derivative verification contract | `harness_check_derivatives()` | done | — | `test-derivatives-contract.R` | [#50](https://github.com/traitecoevo/regnans/issues/50) |
 | Warm-started resident solve (initial guess including environment) | runner / `model_support` | blocked | B | — | [plant#650](https://github.com/traitecoevo/plant/issues/650) (E5) |
@@ -118,7 +118,7 @@ Tier letters refer to the section above. Tests are in `tests/testthat/`; docs ar
 | Method | Functions | Status | Tier | Tests / docs | Tracking |
 |---|---|---|---|---|---|
 | Fixed-point iteration (default), `nleqslv`, `dfsane`, hybrid, single step | `community_demography()`, `demographic_step_control()`, `util_nlsolve()` | done | — | `test-demography-solvers.R`, `test-community.R`, `test-plant-smoke-singularity.R`; `assembly_fitmax.qmd` | — |
-| Newton with exact `∂f/∂n`, warm start, Broyden updates between refreshes | `equilibrium_newton` solver | planned; exact version blocked | B | — | [#56](https://github.com/traitecoevo/regnans/issues/56); [plant#650](https://github.com/traitecoevo/plant/issues/650) (E3) |
+| Newton with exact `∂f/∂n`, warm start, Broyden updates between refreshes | `equilibrium_newton` solver | planned; exact version blocked. Measured motivation (`scripts/pip-benchmark.R`, GM99 iterated): good seeding removes 41 % of demography evaluations, but ~18 per resident remain because the fixed-point map's multiplier approaches one near the viability edge — only a Newton step removes those | B | — | [#56](https://github.com/traitecoevo/regnans/issues/56); [plant#650](https://github.com/traitecoevo/plant/issues/650) (E3) |
 | Equilibrium sensitivity `(I − f_n)⁻¹ f_θ` | `community_equilibrium_sensitivity()` | planned; exact version blocked | B | — | [#50](https://github.com/traitecoevo/regnans/issues/50); [plant#650](https://github.com/traitecoevo/plant/issues/650) (E3, E4, E7); [odelia#39](https://github.com/traitecoevo/odelia/issues/39) |
 | Joint eco-evolutionary Newton on `(n, x)` | — | planned | B | — | [#53](https://github.com/traitecoevo/regnans/issues/53) |
 
@@ -133,8 +133,8 @@ Tier letters refer to the section above. Tests are in `tests/testthat/`; docs ar
 | Maximum of fitness within bounds | `max_fitness()` | done in 1-D; N-D untested | A | `test-plant-smoke.R` | [#27](https://github.com/traitecoevo/regnans/issues/27) |
 | Viable trait bounds, 1-D | `community_viable_fitness_1D()`, `community_viable_bounds()` | done | C | `test-support-fitness.R`, `test-plant-smoke.R` | — |
 | Viable trait region, N-D | — | planned (currently errors) | C | — | [#58](https://github.com/traitecoevo/regnans/issues/58) |
-| Pairwise invasibility plots | `community_pip()` | planned (overstorey hand-rolls one per model page) | C | `DD99.qmd`, `GK98.qmd`, `GM99.qmd` | [#51](https://github.com/traitecoevo/regnans/issues/51) |
-| Mutual invasibility and trait-evolution plots (two residents) | — | planned | C | — | [#51](https://github.com/traitecoevo/regnans/issues/51) |
+| Pairwise invasibility surface and exact zero contours | `community_pip()`, `pip_control()`, `plot.pip()` | done: residents solved in parallel from interpolated seeds, resident axis refined where contours bend, crossings by Newton on the model gradient | C | `test-pip.R`; overstorey pages still hand-roll theirs — to replace | [#51](https://github.com/traitecoevo/regnans/issues/51) |
+| Mutual invasibility and trait-evolution plots (two residents) | `pip_mutual()`, `plot(pip, type = "mip")`, `community_tep()`, `plot.tep()` | done | C | `test-pip.R` | [#51](https://github.com/traitecoevo/regnans/issues/51) |
 
 ### Selection gradients and singular strategies
 
@@ -169,7 +169,7 @@ Tier letters refer to the section above. Tests are in `tests/testthat/`; docs ar
 
 | Method | Functions | Status | Tier | Tests / docs | Tracking |
 |---|---|---|---|---|---|
-| Parallel evaluation of grids, scouting and independent branches (`future` / `mirai`) | — | planned | C | — | [#59](https://github.com/traitecoevo/regnans/issues/59) |
+| Parallel evaluation of grids, scouting and independent branches (`future` / `mirai`) | `regnans_map()`, `regnans_chunks()` in `R/parallel.R`; used by `community_pip()` and `community_tep()` | partial: one `future`-backed map, sequential without a plan; landscapes and scouting still to route through it | C | `test-pip.R` (multicore run equals sequential) | [#59](https://github.com/traitecoevo/regnans/issues/59) |
 | Caching of plant runs via `logpile` | none in regnans | planned, in plant | C | — | [plant#651](https://github.com/traitecoevo/plant/issues/651) (E9) |
 | Emulators | see landscapes above | partial | C | `scripts/gps/` survey | [#27](https://github.com/traitecoevo/regnans/issues/27) |
 
