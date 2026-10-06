@@ -2,28 +2,44 @@
 % Please edit documentation in R/pip.R
 \name{plot.tep}
 \alias{plot.tep}
+\alias{autoplot.tep}
 \title{Plot a trait-evolution plot}
 \usage{
-\method{plot}{tep}(x, arrow = 0.05, ...)
+\method{plot}{tep}(x, arrow = 0.08, n_arrows = 15L, n_display = 300L, ...)
+
+\method{autoplot}{tep}(object, ...)
 }
 \arguments{
 \item{x}{A \code{tep} from \code{\link{community_tep}}.}
 
 \item{arrow}{Length of the longest arrow as a fraction of the axis range.}
 
+\item{n_arrows}{Most arrows along each axis.}
+
+\item{n_display}{Number of columns the shaded region is sampled at.}
+
 \item{...}{Ignored.}
+
+\item{object}{A \code{tep}, for \code{autoplot}.}
 }
 \value{
-A \code{ggplot} object.
+A \code{ggplot} object, returned rather than drawn, to extend
+before printing; \code{autoplot()} is the same.
 }
 \description{
 Plot a trait-evolution plot.
 }
 \details{
-Each coexisting pair is a point at \eqn{(x_1, x_2)} with an arrow in the
-direction of the selection gradient on the two residents, scaled so the
-longest arrow spans \code{arrow} of the axis range on the plotting scale.
-A dimorphic singular coalition sits where the arrows vanish.
+The region where two strategies can coexist (mutual invasibility, from the
+surface the plot was built on) is shaded; inside it, a lattice of at most
+\code{n_arrows} coexisting pairs per axis (one per occupied cell, the one
+nearest its centre) carries an arrow in the direction of the selection
+gradient on the two residents, scaled so the longest spans \code{arrow} of
+the axis range on the plotting scale. A dimorphic singular coalition sits
+where the arrows vanish. The picture is symmetric about the diagonal
+\eqn{x_1 = x_2}, where the two residents are one strategy: the coexistence
+region touches that line only at branching points, so arrows leading away
+from it there are evolutionary branching in progress.
 }
 \author{
 Daniel Falster

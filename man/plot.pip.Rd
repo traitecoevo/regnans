@@ -2,6 +2,7 @@
 % Please edit documentation in R/pip.R
 \name{plot.pip}
 \alias{plot.pip}
+\alias{autoplot.pip}
 \title{Plot a pairwise or mutual invasibility surface}
 \usage{
 \method{plot}{pip}(
@@ -13,6 +14,8 @@
   n_display = 300L,
   ...
 )
+
+\method{autoplot}{pip}(object, ...)
 }
 \arguments{
 \item{x}{A \code{pip} from \code{\link{community_pip}}.}
@@ -28,12 +31,16 @@ from the raw cells.}
 \item{contours}{Draw the zero contours (\code{"pip"} only): as lines when
 smooth, as the located points otherwise.}
 
-\item{n_display}{Resolution of the smooth display grid.}
+\item{n_display}{Number of columns the smooth polygons are sampled at.}
 
 \item{...}{Ignored.}
+
+\item{object}{A \code{pip}, for \code{autoplot}.}
 }
 \value{
-A \code{ggplot} object.
+A \code{ggplot} object, returned rather than drawn, so it can be
+extended with further layers, labels, themes or coordinates before
+printing; \code{autoplot()} is the same.
 }
 \description{
 Plot a pairwise or mutual invasibility surface.
@@ -46,10 +53,10 @@ the resident, is drawn through.
 
 By default (\code{smooth = TRUE}) the exactly located zero crossings are
 linked across residents into contour branches, each interpolated along the
-trait axis, and the shading is derived from them on a fine display grid ---
+trait axis, and the shading is drawn as polygons bounded by those curves ---
 between consecutive contours in a column the sign of fitness is constant, so
-this adds no model evaluations and the boundaries follow the contours
-rather than the resident cells. \code{smooth = FALSE} shows the data as
+this adds no model evaluations and the fill meets the contour lines exactly
+rather than approximating them with cells. \code{smooth = FALSE} shows the data as
 computed: one cell per (resident, mutant), following the possibly refined
 resident grid, with \code{fill = "fitness"} available to show the value on
 a diverging scale instead of its sign.

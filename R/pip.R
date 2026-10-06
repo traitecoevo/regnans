@@ -499,6 +499,7 @@ community_tep <- function(community, pip) {
   attr(out, "trait_name") <- trait_names
   attr(out, "trait_scale") <- pip$trait_scale
   attr(out, "excluded") <- sum(!kept)
+  attr(out, "pip") <- pip
   class(out) <- c("tep", class(out))
   out
 }
@@ -506,19 +507,25 @@ community_tep <- function(community, pip) {
 ## Link the exact crossings of consecutive residents into contour branches.
 ## A branch alive at the previous resident predicts where it will cross the
 ## next one by extrapolating its last two points (its last point alone when it
-## has only one); it claims the nearest crossing to that prediction if the miss
-## is under an eighth of the mutant range. Two branches may claim the same
-## crossing where their predictions coincide -- that is an intersection, such
-## as a contour meeting the diagonal at a singular strategy -- and both go on.
-## A crossing no branch claims starts a branch; a branch that claims nothing
-## ends. Matching on position alone would swap two contours of different slope
-## as they diverge; the prediction keeps them apart.
+## has only one) and claims the nearest crossing to that prediction if the miss
+## is within a window that grows with the gap to the next resident (a contour
+## of slope two moves two gaps; a branch with no slope yet needs the room).
+## When several branches want the same crossing, the one predicting it best
+## takes it; another may share it only if it has a slope of its own and its
+## prediction lands within two mutant-grid cells -- a genuine intersection,
+## such as a contour meeting the diagonal at a singular strategy -- otherwise
+## it ends there, which is what happens to the arms of a fold. A crossing no
+## branch claims starts a branch. Matching on position alone would swap two
+## contours of different slope as they diverge; the prediction keeps them
+## apart.
 pip_branches <- function(pip) {
   tf <- pip_transform(pip$trait_scale)
   co <- pip$contours
   residents <- pip$residents$resident
-  span <- diff(range(tf$fwd(pip$surface$mutant)))
-  alive <- list()      # id -> c(z_resident, z_mutant, slope)
+  z_mutant <- tf$fwd(sort(unique(pip$surface$mutant)))
+  span <- diff(range(z_mutant))
+  coincide <- 2 * span / (length(z_mutant) - 1L)
+  alive <- list()      # id -> c(z_resident, z_mutant, slope, n_points)
   next_id <- 1L
   rows <- list()
   for (x in residents) {
@@ -526,28 +533,131 @@ pip_branches <- function(pip) {
     zy <- sort(tf$fwd(co$mutant[co$resident == x]))
     claimed <- rep(FALSE, length(zy))
     survivors <- list()
-    for (id in names(alive)) {
-      b <- alive[[id]]
-      pred <- b[2] + b[3] * (zx - b[1])
-      if (length(zy) == 0L) next
-      j <- which.min(abs(zy - pred))
-      if (abs(zy[j] - pred) <= span / 8) {
+    if (length(alive) > 0L && length(zy) > 0L) {
+      pred <- vapply(alive, function(b) b[2] + b[3] * (zx - b[1]), numeric(1))
+      gap <- vapply(alive, function(b) zx - b[1], numeric(1))
+      has_slope <- vapply(alive, function(b) b[4] >= 2, logical(1))
+      want <- vapply(pred, function(p) which.min(abs(zy - p)), integer(1))
+      miss <- abs(zy[want] - pred)
+      ok <- miss <= pmax(span / 8, 2 * gap)
+      for (j in unique(want[ok])) {
+        contenders <- which(ok & want == j)
+        best <- contenders[which.min(miss[contenders])]
+        ok[contenders] <- contenders == best |
+          (has_slope[contenders] & miss[contenders] <= coincide)
+      }
+      for (k in which(ok)) {
+        id <- names(alive)[k]
+        b <- alive[[id]]
+        j <- want[k]
         claimed[j] <- TRUE
         slope <- if (zx > b[1]) (zy[j] - b[2]) / (zx - b[1]) else b[3]
-        survivors[[id]] <- c(zx, zy[j], slope)
+        survivors[[id]] <- c(zx, zy[j], slope, b[4] + 1)
         rows[[length(rows) + 1L]] <- c(as.integer(id), zx, zy[j])
       }
     }
     for (j in which(!claimed)) {
-      survivors[[as.character(next_id)]] <- c(zx, zy[j], 0)
+      survivors[[as.character(next_id)]] <- c(zx, zy[j], 0, 1)
       rows[[length(rows) + 1L]] <- c(next_id, zx, zy[j])
       next_id <- next_id + 1L
     }
     alive <- survivors
   }
   m <- do.call(rbind, rows)
-  tibble::tibble(branch = as.integer(m[, 1]), resident = tf$inv(m[, 2]),
-                 mutant = tf$inv(m[, 3]), z_resident = m[, 2], z_mutant = m[, 3])
+  br <- tibble::tibble(branch = as.integer(m[, 1]), resident = tf$inv(m[, 2]),
+                       mutant = tf$inv(m[, 3]), z_resident = m[, 2], z_mutant = m[, 3])
+  pip_join_folds(br, tf$fwd(residents), tf, range(pip$surface$mutant))
+}
+
+## Where a contour folds back, its two arms both end at the last resident
+## before the fold (a fold facing right) or both start at the first resident
+## after it (facing left), and the fold itself lies between that resident and
+## the next one out. Estimate it: a parabola with a vertical tangent at its
+## vertex is fixed by the two arms' endpoints and tangents, and the vertex is
+## appended to both arms so they meet there rather than stopping short. Arms
+## without a slope (one point) are left alone, and an estimate that does not
+## fall before the next resident out is clamped to just short of it.
+pip_join_folds <- function(br, z_residents, tf, extremes) {
+  z_residents <- sort(z_residents)
+  by_branch <- split(br, br$branch)
+  extra <- list()
+  for (direction in c(1, -1)) {
+    ## the resident at which each branch ends (direction 1) or starts (-1)
+    tip <- vapply(by_branch, function(b) if (direction > 0) max(b$z_resident) else min(b$z_resident), numeric(1))
+    for (i in seq_along(z_residents)) {
+      i_next <- i + direction
+      if (i_next < 1L || i_next > length(z_residents)) next
+      zx <- z_residents[i]
+      arms <- names(tip)[abs(tip - zx) < 1e-12]
+      if (length(arms) < 2L) next
+      tip_y <- vapply(arms, function(id) {
+        b <- by_branch[[id]]
+        b$z_mutant[if (direction > 0) which.max(b$z_resident) else which.min(b$z_resident)]
+      }, numeric(1))
+      arms <- arms[order(tip_y)]
+      tip_y <- sort(tip_y)
+      slope_of <- function(id) {
+        b <- by_branch[[id]][order(by_branch[[id]]$z_resident), ]
+        if (nrow(b) < 2L) return(NA_real_)
+        k <- if (direction > 0) c(nrow(b) - 1L, nrow(b)) else c(1L, 2L)
+        (b$z_mutant[k[2]] - b$z_mutant[k[1]]) / (b$z_resident[k[2]] - b$z_resident[k[1]])
+      }
+      for (j in seq_len(length(arms) - 1L)) {
+        a <- arms[j]; b <- arms[j + 1L]
+        sa <- slope_of(a); sb <- slope_of(b)
+        ya <- tip_y[j]; yb <- tip_y[j + 1L]
+        ## approaching the vertex, the lower arm rises and the upper arm falls
+        ## (as x moves towards the fold)
+        if (!is.finite(sa) || !is.finite(sb) || direction * sa <= 0 || direction * sb >= 0) next
+        r <- sb / sa
+        yf <- (ya - r * yb) / (1 - r)
+        ## each arm gives an estimate of the vertex distance; the curve is not
+        ## exactly a parabola, so take their mean (which also keeps a fold and
+        ## its mirror image symmetric)
+        cc_a <- -direction / (2 * sa * (ya - yf))
+        cc_b <- -direction / (2 * sb * (yb - yf))
+        if (!is.finite(cc_a) || !is.finite(cc_b) || cc_a <= 0 || cc_b <= 0) next
+        zf <- zx + direction * (cc_a * (ya - yf)^2 + cc_b * (yb - yf)^2) / 2
+        z_out <- z_residents[i_next]
+        if (direction > 0) zf <- min(zf, zx + 0.95 * (z_out - zx)) else zf <- max(zf, zx - 0.95 * (zx - z_out))
+        for (id in c(a, b)) {
+          extra[[length(extra) + 1L]] <- tibble::tibble(
+            branch = as.integer(id), resident = tf$inv(zf), mutant = tf$inv(yf),
+            z_resident = zf, z_mutant = yf)
+        }
+      }
+    }
+  }
+  joined <- vapply(extra, function(e) e$branch, integer(1))
+  ## a branch that ends alone is a contour leaving through the top or bottom of
+  ## the mutant range: carry it on to the edge if its slope gets there before
+  ## the next resident out, so the line does not stop at the last resident
+  zm <- range(tf$fwd(c(br$mutant, extremes)))
+  for (direction in c(1, -1)) {
+    tip <- vapply(by_branch, function(b) if (direction > 0) max(b$z_resident) else min(b$z_resident), numeric(1))
+    for (id in names(by_branch)) {
+      if (as.integer(id) %in% joined) next
+      b <- by_branch[[id]][order(by_branch[[id]]$z_resident), ]
+      if (nrow(b) < 2L) next
+      i <- which(abs(z_residents - tip[[id]]) < 1e-12)
+      i_next <- i + direction
+      if (length(i) != 1L || i_next < 1L || i_next > length(z_residents)) next
+      k <- if (direction > 0) c(nrow(b) - 1L, nrow(b)) else c(2L, 1L)
+      slope <- (b$z_mutant[k[2]] - b$z_mutant[k[1]]) / (b$z_resident[k[2]] - b$z_resident[k[1]])
+      if (!is.finite(slope) || slope == 0) next
+      y_tip <- b$z_mutant[k[2]]
+      edge <- if (slope * direction > 0) zm[2] else zm[1]
+      dz <- (edge - y_tip) / slope
+      gap <- z_residents[i_next] - tip[[id]]
+      if (dz * direction <= 0 || abs(dz) >= abs(gap)) next
+      extra[[length(extra) + 1L]] <- tibble::tibble(
+        branch = as.integer(id), resident = tf$inv(tip[[id]] + dz), mutant = tf$inv(edge),
+        z_resident = tip[[id]] + dz, z_mutant = edge)
+    }
+  }
+  if (length(extra) == 0L) return(br)
+  out <- rbind(br, do.call(rbind, extra))
+  out[order(out$branch, out$z_resident), ]
 }
 
 ## One interpolant per branch on the trait scale: a monotone Hermite spline
@@ -590,17 +700,20 @@ pip_sign_function <- function(pip) {
     zx <- tf$fwd(x)
     zy <- tf$fwd(y)
     out <- rep(NA_real_, length(zx))
+    at_residents <- lapply(zr, values_at)
     for (ux in unique(zx)) {
       sel <- which(zx == ux)
-      i <- which.min(abs(zr - ux))
       here <- values_at(ux)
-      there <- values_at(zr[i])
-      if (length(here) != length(there)) {
-        ## branch topology differs from the nearest resident's: fall back to
-        ## that resident's raw column
+      ## read the sign off the nearest resident whose contours have the same
+      ## topology as this column; beside a fold that is not the nearest one
+      same <- which(lengths(at_residents) == length(here))
+      if (length(same) == 0L) {
+        i <- which.min(abs(zr - ux))
         out[sel] <- sign(stats::approx(zm, cols[[i]], xout = zy[sel], rule = 2)$y)
         next
       }
+      i <- same[which.min(abs(zr[same] - ux))]
+      there <- at_residents[[i]]
       k <- findInterval(zy[sel], here)
       edges <- c(min(zm), there, max(zm))
       mid <- (edges[k + 1L] + edges[k + 2L]) / 2
@@ -610,23 +723,103 @@ pip_sign_function <- function(pip) {
   }
 }
 
-## Smooth shading of the sign on a fine display grid, as rectangles.
-pip_smooth_cells <- function(pip, n_display, square = FALSE) {
+## Regions of constant sign as ribbons bounded by the contour curves. Each
+## display column is cut by the live branch values into intervals; over a
+## stretch of columns on which the set and order of live branches does not
+## change, interval k is one ribbon whose edges are the interpolated contours
+## themselves, so the fill meets the lines exactly rather than approximating
+## them with cells. For the mutual-invasibility view a column is also cut where
+## a contour passes through height x1 -- the reflected contours -- found by
+## root-finding on the branch interpolants, and each interval's value is the
+## mutual test at its midpoint.
+pip_regions <- function(pip, n_display, type = c("pip", "mip")) {
+  type <- match.arg(type)
   tf <- pip_transform(pip$trait_scale)
-  zr <- range(tf$fwd(pip$residents$resident))
-  zm <- range(tf$fwd(pip$surface$mutant))
-  if (square) zm <- zr
-  gx <- seq(zr[1], zr[2], length.out = n_display)
-  gy <- seq(zm[1], zm[2], length.out = n_display)
+  fns <- Filter(Negate(is.null), pip_branch_functions(pip_branches(pip)))
   sgn <- pip_sign_function(pip)
-  grid <- expand.grid(zx = gx, zy = gy)
-  value <- sgn(tf$inv(grid$zx), tf$inv(grid$zy))
-  hx <- diff(gx[1:2]) / 2
-  hy <- diff(gy[1:2]) / 2
-  tibble::tibble(xmin = tf$inv(grid$zx - hx), xmax = tf$inv(grid$zx + hx),
-                 ymin = tf$inv(grid$zy - hy), ymax = tf$inv(grid$zy + hy),
-                 value = value,
-                 x = tf$inv(grid$zx), y = tf$inv(grid$zy))
+  zr <- range(tf$fwd(pip$residents$resident))
+  zm <- if (type == "mip") zr else range(tf$fwd(pip$surface$mutant))
+  gx <- seq(zr[1], zr[2], length.out = n_display)
+  half <- diff(gx[1:2]) / 2
+
+  live_values <- function(zx) {
+    v <- vapply(fns, function(b) if (zx >= b$lo && zx <= b$hi) b$fn(zx) else NA_real_, numeric(1))
+    v[v < zm[1] | v > zm[2]] <- NA_real_
+    v
+  }
+  ## heights at which each branch curve passes through x1 = zx, as a function
+  ## of the column, by bracketing on a fine sample of the branch and polishing
+  reflected <- if (type == "mip") lapply(fns, function(b) {
+    z <- seq(b$lo, b$hi, length.out = 200L)
+    list(z = z, f = b$fn(z), fn = b$fn)
+  }) else list()
+  reflected_values <- function(zx) {
+    unlist(lapply(reflected, function(r) {
+      d <- r$f - zx
+      flips <- which(sign(d[-1]) != sign(d[-length(d)]) & d[-1] != 0)
+      roots <- vapply(flips, function(j) {
+        stats::uniroot(function(z) r$fn(z) - zx, c(r$z[j], r$z[j + 1L]), tol = 1e-10)$root
+      }, numeric(1))
+      c(roots, r$z[d == 0])
+    }))
+  }
+  column <- function(zx) {
+    v <- live_values(zx)
+    ids <- paste0("b", names(fns))[is.finite(v)]
+    v <- v[is.finite(v)]
+    if (type == "mip") {
+      w <- reflected_values(zx)
+      w <- w[w > zm[1] & w < zm[2]]
+      ids <- c(ids, rep("r", length(w)))
+      v <- c(v, w)
+    }
+    o <- order(v)
+    ids <- ids[o]
+    v <- v[o]
+    ## a contour that is its own reflection (JJ12's y = 2x* - x) puts a branch
+    ## value and a reflected root at the same height: one boundary, not two
+    if (length(v) > 1L) {
+      keep <- c(TRUE, diff(v) > 1e-6 * span)
+      ids <- ids[keep]
+      v <- v[keep]
+    }
+    list(id = ids, z = v)
+  }
+  span <- diff(zm)
+  value_at <- function(zx, zy) {
+    if (type == "pip") sgn(tf$inv(zx), tf$inv(zy)) > 0
+    else sgn(tf$inv(zx), tf$inv(zy)) > 0 & sgn(tf$inv(zy), tf$inv(zx)) > 0
+  }
+
+  cols <- lapply(gx, column)
+  key <- vapply(cols, function(cc) paste(cc$id, collapse = ","), character(1))
+  stretch <- cumsum(c(TRUE, key[-1] != key[-length(key)]))
+  out <- list()
+  for (st in unique(stretch)) {
+    idx <- which(stretch == st)
+    K <- length(cols[[idx[1]]]$z)
+    ## extend a full column either side so neighbouring stretches overlap
+    ## rather than abut (an abutting edge shows through anti-aliasing);
+    ## boundaries there take the nearest column's values
+    xs <- c(gx[idx[1]] - 2 * half, gx[idx], gx[idx[length(idx)]] + 2 * half)
+    B <- rbind(cols[[idx[1]]]$z,
+               do.call(rbind, lapply(cols[idx], function(cc) cc$z)),
+               cols[[idx[length(idx)]]]$z)
+    if (K == 0L) B <- matrix(numeric(0), nrow = length(xs), ncol = 0)
+    B <- cbind(zm[1], B, zm[2])
+    mid <- idx[ceiling(length(idx) / 2)]
+    zmid <- c(zm[1], cols[[mid]]$z, zm[2])
+    for (k in seq_len(K + 1L)) {
+      if (max(B[, k + 1L] - B[, k]) <= 1e-6 * span) next
+      value <- value_at(gx[mid], (zmid[k] + zmid[k + 1L]) / 2)
+      out[[length(out) + 1L]] <- tibble::tibble(
+        region = sprintf("%d.%d", st, k), x = tf$inv(xs),
+        ymin = tf$inv(B[, k]), ymax = tf$inv(B[, k + 1L]), value = value)
+    }
+  }
+  out <- do.call(rbind, out)
+  ## shaded regions are drawn after unshaded ones, so their edges lie on top
+  out[order(out$value), ]
 }
 
 ## The branches sampled finely for drawing as lines.
@@ -669,7 +862,7 @@ pip_axes <- function(scale, trait, xlab, ylab) {
     ggplot2::coord_equal(),
     ggplot2::xlab(paste(xlab, trait)), ggplot2::ylab(paste(ylab, trait)),
     ggplot2::theme_classic(),
-    ggplot2::theme(text = ggplot2::element_text(size = 16))))
+    ggplot2::theme(text = ggplot2::element_text(size = 16), legend.position = "none")))
 }
 
 ##' Plot a pairwise or mutual invasibility surface.
@@ -681,10 +874,10 @@ pip_axes <- function(scale, trait, xlab, ylab) {
 ##'
 ##' By default (\code{smooth = TRUE}) the exactly located zero crossings are
 ##' linked across residents into contour branches, each interpolated along the
-##' trait axis, and the shading is derived from them on a fine display grid ---
+##' trait axis, and the shading is drawn as polygons bounded by those curves ---
 ##' between consecutive contours in a column the sign of fitness is constant, so
-##' this adds no model evaluations and the boundaries follow the contours
-##' rather than the resident cells. \code{smooth = FALSE} shows the data as
+##' this adds no model evaluations and the fill meets the contour lines exactly
+##' rather than approximating them with cells. \code{smooth = FALSE} shows the data as
 ##' computed: one cell per (resident, mutant), following the possibly refined
 ##' resident grid, with \code{fill = "fitness"} available to show the value on
 ##' a diverging scale instead of its sign.
@@ -698,9 +891,12 @@ pip_axes <- function(scale, trait, xlab, ylab) {
 ##' \code{"fitness"}.
 ##' @param contours Draw the zero contours (\code{"pip"} only): as lines when
 ##' smooth, as the located points otherwise.
-##' @param n_display Resolution of the smooth display grid.
+##' @param n_display Number of columns the smooth polygons are sampled at.
+##' @param object A \code{pip}, for \code{autoplot}.
 ##' @param ... Ignored.
-##' @return A \code{ggplot} object.
+##' @return A \code{ggplot} object, returned rather than drawn, so it can be
+##' extended with further layers, labels, themes or coordinates before
+##' printing; \code{autoplot()} is the same.
 ##' @author Daniel Falster
 ##' @export
 plot.pip <- function(x, type = c("pip", "mip"), smooth = TRUE,
@@ -709,25 +905,45 @@ plot.pip <- function(x, type = c("pip", "mip"), smooth = TRUE,
   type <- match.arg(type)
   fill <- match.arg(fill)
   tf <- pip_transform(x$trait_scale)
+  invades_colours <- c(`TRUE` = "forestgreen", `FALSE` = "white")
+  mutual_colours <- c(`TRUE` = "steelblue", `FALSE` = "white")
   rect <- function(data, aes_fill) {
     ggplot2::geom_rect(data = data,
                        ggplot2::aes(xmin = .data[["xmin"]], xmax = .data[["xmax"]],
                                     ymin = .data[["ymin"]], ymax = .data[["ymax"]],
                                     fill = .data[[aes_fill]]))
   }
-  invades_scale <- ggplot2::scale_fill_manual(
-    values = c(`TRUE` = "forestgreen", `FALSE` = "white"), na.value = "grey85",
-    name = "mutant invades")
-  mutual_scale <- ggplot2::scale_fill_manual(
-    values = c(`TRUE` = "steelblue", `FALSE` = "white"), na.value = "grey85",
-    name = "coexist")
+  invades_scale <- ggplot2::scale_fill_manual(values = invades_colours, na.value = "grey85",
+                                              name = "mutant invades")
+  mutual_scale <- ggplot2::scale_fill_manual(values = mutual_colours, na.value = "grey85",
+                                             name = "coexist")
 
+  ## shaded ribbons are outlined in their own colour so that anti-aliasing
+  ## leaves no seam where two meet; unshaded ones get no outline, which would
+  ## otherwise draw a hairline over their shaded neighbours
+  ribbon <- function(regions, aes_fill, colours) {
+    regions[[aes_fill]] <- regions$value
+    regions$group <- factor(regions$region, levels = unique(regions$region))
+    outline <- colours
+    outline[["FALSE"]] <- NA
+    list(ggplot2::geom_ribbon(data = regions,
+                              ggplot2::aes(x = .data[["x"]], ymin = .data[["ymin"]],
+                                           ymax = .data[["ymax"]], group = .data[["group"]],
+                                           fill = .data[[aes_fill]], colour = .data[[aes_fill]]),
+                              linewidth = 0.4),
+         ggplot2::scale_colour_manual(values = outline, guide = "none", na.value = NA))
+  }
+
+  none <- function(p, what) {
+    lim <- as.numeric(range(x$residents$resident))
+    p + ggplot2::annotate("text", x = tf$inv(mean(tf$fwd(lim))), y = tf$inv(mean(tf$fwd(lim))),
+                          label = what, size = 4.5)
+  }
   if (type == "mip") {
     if (smooth) {
-      cells <- pip_smooth_cells(x, n_display, square = TRUE)
-      sgn <- pip_sign_function(x)
-      cells$mutual <- cells$value > 0 & sgn(cells$y, cells$x) > 0
-      p <- ggplot2::ggplot() + rect(cells, "mutual") + mutual_scale
+      regions <- pip_regions(x, n_display, "mip")
+      p <- ggplot2::ggplot() + ribbon(regions, "mutual", mutual_colours) + mutual_scale
+      if (!any(regions$value)) p <- none(p, "no mutually invasible pairs")
     } else {
       rx <- x$residents$resident
       ex <- pip_edges(rx, tf)
@@ -737,14 +953,13 @@ plot.pip <- function(x, type = c("pip", "mip"), smooth = TRUE,
       cells <- tibble::tibble(xmin = ex$lo[i], xmax = ex$hi[i], ymin = ex$lo[j], ymax = ex$hi[j],
                               mutual = m$mutual)
       p <- ggplot2::ggplot() + rect(cells, "mutual") + mutual_scale
+      if (!any(m$mutual)) p <- none(p, "no mutually invasible pairs")
     }
     return(p + pip_axes(x$trait_scale, x$trait_name, "resident 1", "resident 2"))
   }
 
   if (smooth) {
-    cells <- pip_smooth_cells(x, n_display)
-    cells$invades <- cells$value > 0
-    p <- ggplot2::ggplot() + rect(cells, "invades") + invades_scale
+    p <- ggplot2::ggplot() + ribbon(pip_regions(x, n_display, "pip"), "invades", invades_colours) + invades_scale
     if (contours) {
       lines <- pip_branch_lines(x, n_display)
       if (!is.null(lines) && nrow(lines) > 0L) {
@@ -782,37 +997,96 @@ plot.pip <- function(x, type = c("pip", "mip"), smooth = TRUE,
   p + pip_axes(x$trait_scale, x$trait_name, "resident", "mutant")
 }
 
+##' @rdname plot.pip
+##' @export
+autoplot.pip <- function(object, ...) plot.pip(object, ...)
+
 ##' Plot a trait-evolution plot.
 ##'
-##' Each coexisting pair is a point at \eqn{(x_1, x_2)} with an arrow in the
-##' direction of the selection gradient on the two residents, scaled so the
-##' longest arrow spans \code{arrow} of the axis range on the plotting scale.
-##' A dimorphic singular coalition sits where the arrows vanish.
+##' The region where two strategies can coexist (mutual invasibility, from the
+##' surface the plot was built on) is shaded; inside it, a lattice of at most
+##' \code{n_arrows} coexisting pairs per axis (one per occupied cell, the one
+##' nearest its centre) carries an arrow in the direction of the selection
+##' gradient on the two residents, scaled so the longest spans \code{arrow} of
+##' the axis range on the plotting scale. A dimorphic singular coalition sits
+##' where the arrows vanish. The picture is symmetric about the diagonal
+##' \eqn{x_1 = x_2}, where the two residents are one strategy: the coexistence
+##' region touches that line only at branching points, so arrows leading away
+##' from it there are evolutionary branching in progress.
 ##'
 ##' @title Plot a trait-evolution plot
 ##' @param x A \code{tep} from \code{\link{community_tep}}.
 ##' @param arrow Length of the longest arrow as a fraction of the axis range.
+##' @param n_arrows Most arrows along each axis.
+##' @param n_display Number of columns the shaded region is sampled at.
+##' @param object A \code{tep}, for \code{autoplot}.
 ##' @param ... Ignored.
-##' @return A \code{ggplot} object.
+##' @return A \code{ggplot} object, returned rather than drawn, to extend
+##' before printing; \code{autoplot()} is the same.
 ##' @author Daniel Falster
 ##' @export
-plot.tep <- function(x, arrow = 0.05, ...) {
+plot.tep <- function(x, arrow = 0.08, n_arrows = 15L, n_display = 300L, ...) {
   tf <- pip_transform(attr(x, "trait_scale"))
-  data <- tibble::as_tibble(unclass(x)[c("x1", "x2", "n1", "n2", "g1", "g2")])
+  trait <- attr(x, "trait_name")
+  pip <- attr(x, "pip")
+  all <- tibble::as_tibble(unclass(x)[c("x1", "x2", "n1", "n2", "g1", "g2")])
+
+  p <- ggplot2::ggplot()
+  if (!is.null(pip)) {
+    regions <- pip_regions(pip, n_display, "mip")
+    regions$coexist <- regions$value
+    regions$group <- factor(regions$region, levels = unique(regions$region))
+    p <- p + ggplot2::geom_ribbon(
+      data = regions,
+      ggplot2::aes(x = .data[["x"]], ymin = .data[["ymin"]], ymax = .data[["ymax"]],
+                   group = .data[["group"]], fill = .data[["coexist"]],
+                   colour = .data[["coexist"]]),
+      linewidth = 0.4) +
+      ggplot2::scale_fill_manual(values = c(`TRUE` = "lightsteelblue", `FALSE` = "white"), guide = "none") +
+      ggplot2::scale_colour_manual(values = c(`TRUE` = "lightsteelblue", `FALSE` = NA), guide = "none", na.value = NA)
+  }
+  if (nrow(all) == 0L) {
+    lim <- if (is.null(pip)) c(0, 1) else as.numeric(range(pip$residents$resident))
+    return(p + ggplot2::annotate("text", x = tf$inv(mean(tf$fwd(lim))), y = tf$inv(mean(tf$fwd(lim))),
+                                 label = "no coexisting pairs", size = 4.5) +
+             pip_axes(tf$scale, trait, "resident 1", "resident 2"))
+  }
+
+  ## the picture is symmetric about the diagonal: draw each pair on both sides
+  all <- rbind(all, tibble::tibble(x1 = all$x2, x2 = all$x1, n1 = all$n2, n2 = all$n1,
+                                   g1 = all$g2, g2 = all$g1))
+  z1 <- tf$fwd(all$x1)
+  z2 <- tf$fwd(all$x2)
+  lim <- range(c(z1, z2))
+  ## one pair per occupied lattice cell, the one nearest the cell centre
+  cell <- diff(lim) / n_arrows
+  i1 <- pmin(floor((z1 - lim[1]) / cell), n_arrows - 1L)
+  i2 <- pmin(floor((z2 - lim[1]) / cell), n_arrows - 1L)
+  centre_d <- (z1 - (lim[1] + (i1 + 0.5) * cell))^2 + (z2 - (lim[1] + (i2 + 0.5) * cell))^2
+  o <- order(centre_d)
+  keep <- logical(nrow(all))
+  keep[o] <- !duplicated(paste(i1, i2)[o])
+  data <- all[keep, ]
+
   ## On a log axis the natural direction is the gradient with respect to
   ## log(x), which is x times the gradient.
   d1 <- if (identical(tf$scale, "log")) data$g1 * data$x1 else data$g1
   d2 <- if (identical(tf$scale, "log")) data$g2 * data$x2 else data$g2
-  span <- diff(range(tf$fwd(c(data$x1, data$x2))))
   longest <- max(sqrt(d1^2 + d2^2), .Machine$double.eps)
-  k <- arrow * span / longest
+  k <- arrow * diff(lim) / longest
   data$xend <- tf$inv(tf$fwd(data$x1) + k * d1)
   data$yend <- tf$inv(tf$fwd(data$x2) + k * d2)
 
-  ggplot2::ggplot(data, ggplot2::aes(x = .data[["x1"]], y = .data[["x2"]])) +
-    ggplot2::geom_segment(ggplot2::aes(xend = .data[["xend"]], yend = .data[["yend"]]),
-                          arrow = ggplot2::arrow(length = ggplot2::unit(0.15, "cm")),
-                          colour = "grey30") +
-    ggplot2::geom_point(size = 0.8) +
-    pip_axes(tf$scale, attr(x, "trait_name"), "resident 1", "resident 2")
+  p +
+    ggplot2::geom_segment(data = data,
+                          ggplot2::aes(x = .data[["x1"]], y = .data[["x2"]],
+                                       xend = .data[["xend"]], yend = .data[["yend"]]),
+                          arrow = ggplot2::arrow(length = ggplot2::unit(0.22, "cm"), type = "closed"),
+                          colour = "grey15", linewidth = 0.6, lineend = "round") +
+    ggplot2::geom_point(data = data, ggplot2::aes(x = .data[["x1"]], y = .data[["x2"]]), size = 1.2) +
+    pip_axes(tf$scale, trait, "resident 1", "resident 2")
 }
+
+##' @rdname plot.tep
+##' @export
+autoplot.tep <- function(object, ...) plot.tep(object, ...)

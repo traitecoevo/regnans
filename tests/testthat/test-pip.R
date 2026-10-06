@@ -199,9 +199,17 @@ test_that("the raw-cell plots build, on linear and log axes", {
   expect_equal(nrow(b$data[[1]]), 11L * 11L)
 
   tep <- community_tep(dd99(), pip)
-  b <- built(plot(tep))
-  expect_equal(length(b$data), 3L)                 # arrows, points, diagonal
-  expect_equal(nrow(b$data[[2]]), nrow(tep))
+  expect_s3_class(attr(tep, "pip"), "pip")
+  b <- built(plot(tep, n_arrows = 6, n_display = 30))
+  expect_equal(length(b$data), 4L)                 # coexistence region, arrows, lattice points, diagonal
+  expect_lte(nrow(b$data[[2]]), 6L * 6L)
+  # mirrored: arrows on both sides of the diagonal (cells straddling it keep one)
+  above <- sum(b$data[[2]]$x < b$data[[2]]$y)
+  below <- sum(b$data[[2]]$x > b$data[[2]]$y)
+  expect_gt(above, 0L)
+  expect_gt(below, 0L)
+  expect_lte(abs(above - below), 6L)
+  expect_equal(nrow(b$data[[2]]), nrow(b$data[[3]]))
 
   lp <- community_start(bounds(lma = c(0.05, 2)), trait_scale = "log",
                         harness = harness_dd99(x0 = 0.5, trait_name = "lma")) |>
@@ -326,6 +334,11 @@ test_that("JJ12 is a CSS: the second contour is y = 2 x* - x and nothing is mutu
   tep <- community_tep(comm, pip)
   expect_equal(nrow(tep), 0L)
   expect_equal(attr(tep, "excluded"), 0L)
+  # the empty views say so rather than drawing a blank
+  b <- built(plot(pip, type = "mip", n_display = 20))
+  expect_true(any(vapply(b$data, function(d) "label" %in% names(d) && any(grepl("no mutually", d$label)), logical(1))))
+  b <- built(plot(tep))
+  expect_true(any(vapply(b$data, function(d) "label" %in% names(d) && any(grepl("no coexisting", d$label)), logical(1))))
 })
 
 test_that("an iterated GK98 gives the same surface and contours as the closed form", {
@@ -367,14 +380,30 @@ test_that("crossings link into branches and the derived sign matches the DD99 or
   expect_equal(sgn(g$x[away], g$y[away]), sign(truth[away]))
 })
 
-test_that("the smooth views build and agree with the raw cells on the residents", {
+test_that("the smooth views build as ribbons and agree with the raw cells on the residents", {
   pip <- community_pip(dd99(), control = pip_control(list(n_resident = 9, n_mutant = 41, refine = 1)))
+  regions <- pip_regions(pip, 40)
+  expect_equal(names(regions), c("region", "x", "ymin", "ymax", "value"))
+  expect_true(all(regions$ymax >= regions$ymin - 1e-12))
+  # the ribbons tile each column: the lowest starts at the mutant floor, the
+  # highest ends at the ceiling, and the sign alternates up the column
+  col <- regions[abs(regions$x - regions$x[which.min(abs(regions$x - 0.9))]) < 1e-12, ]
+  col <- col[order(col$ymin), ]
+  expect_equal(min(col$ymin), -2)
+  expect_equal(max(col$ymax), 2)
+  expect_true(all(col$ymin[-1] == col$ymax[-nrow(col)]))
+  expect_true(all(col$value[-1] != col$value[-nrow(col)]))
   b <- built(plot(pip, n_display = 40))
-  expect_equal(length(b$data), 3L)                      # smooth cells, branch lines, diagonal
-  expect_equal(nrow(b$data[[1]]), 40L * 40L)
+  expect_equal(length(b$data), 3L)                      # ribbons, branch lines, diagonal
   expect_gt(nrow(b$data[[2]]), 0L)
   b <- built(plot(pip, type = "mip", n_display = 30))
-  expect_equal(nrow(b$data[[1]]), 30L * 30L)
+  expect_gt(nrow(b$data[[1]]), 0L)
+  m <- pip_regions(pip, 30, "mip")
+  expect_true(any(m$value) && any(!m$value))
+  # a region may taper to nothing where two contours cross, but never inverts
+  # and never has zero width throughout
+  expect_true(all(m$ymax - m$ymin >= -1e-12))
+  expect_true(all(tapply(m$ymax - m$ymin, m$region, max) > 0))
   # raw cells are still available
   expect_equal(nrow(built(plot(pip, smooth = FALSE))$data[[1]]), nrow(pip$surface))
 
@@ -391,4 +420,61 @@ test_that("GK98's folded contour links into branches that the smooth view can dr
   expect_gte(nrow(br), nrow(pip$contours))
   expect_gte(length(unique(br$branch)), 2L)
   expect_equal(length(built(plot(pip, n_display = 60))$data), 3L)
+})
+
+test_that("the plots are ggplot objects that can be extended, and autoplot is the same", {
+  pip <- community_pip(dd99(), control = pip_control(list(n_resident = 7, n_mutant = 31, refine = 0)))
+  p <- plot(pip, n_display = 20)
+  expect_s3_class(p, "ggplot")
+  q <- p + ggplot2::labs(x = "resident trait", title = "DD99") + ggplot2::theme_minimal()
+  b <- ggplot2::ggplot_build(q)
+  expect_equal(b$plot$labels$x, "resident trait")
+  expect_s3_class(ggplot2::autoplot(pip, n_display = 20), "ggplot")
+  tep <- community_tep(dd99(), pip)
+  expect_s3_class(ggplot2::autoplot(tep), "ggplot")
+})
+
+test_that("a fold's arms end together and are joined at an estimated vertex", {
+  pip <- community_pip(community_start(bounds(x = c(-3, 3)), trait_scale = "linear",
+                                       harness = harness_gk98(d = 1.5)),
+                       control = pip_control(list(n_resident = 31, n_mutant = 201, refine = 2)))
+  br <- pip_branches(pip)
+  # the diagonal is one branch over every resident and never shares a point
+  # with another branch except at the singular strategy
+  on_diag <- abs(br$resident - br$mutant) < 1e-8
+  diag_id <- as.integer(names(which.max(table(br$branch[on_diag]))))
+  expect_equal(sum(br$branch == diag_id), nrow(pip$residents))
+  shared <- br[br$branch != diag_id & on_diag, ]
+  expect_true(all(abs(shared$resident) < 1e-6))
+  # the two arms of the fold on x > 0 end at the same resident and get one
+  # vertex each, at the same place, beyond their last resident
+  arms <- br[br$branch != diag_id & br$resident > 0 & br$mutant > 0, ]
+  ends <- tapply(arms$resident, arms$branch, max)
+  expect_equal(length(ends), 2L)
+  expect_equal(unname(ends[1]), unname(ends[2]))
+  vertex <- arms[arms$resident == max(arms$resident), ]
+  expect_equal(nrow(vertex), 2L)
+  expect_equal(vertex$mutant[1], vertex$mutant[2])
+  expect_false(vertex$resident[1] %in% pip$residents$resident)
+  # the mirror fold on x < 0 has its arms starting together, and is joined too
+  mirror <- br[br$branch != diag_id & br$resident < 0 & br$mutant < 0, ]
+  starts <- tapply(mirror$resident, mirror$branch, min)
+  expect_equal(length(starts), 2L)
+  expect_equal(unname(starts[1]), unname(starts[2]))
+  mv <- mirror[mirror$resident == min(mirror$resident), ]
+  expect_equal(nrow(mv), 2L)
+  expect_equal(mv$mutant[1], mv$mutant[2])
+  expect_equal(unname(mv$resident[1]), -unname(vertex$resident[1]), tolerance = 1e-6)
+  expect_equal(unname(mv$mutant[1]), -unname(vertex$mutant[1]), tolerance = 1e-6)
+})
+
+test_that("a contour leaving through the edge of the mutant range is drawn to the edge", {
+  # DD99's second contour y = 1.38 x leaves the mutant range |y| <= 2 at |x| = 1.45,
+  # between residents of a coarse grid
+  pip <- community_pip(dd99(), control = pip_control(list(n_resident = 9, n_mutant = 41, refine = 0)))
+  br <- pip_branches(pip)
+  on_diag <- abs(br$resident - br$mutant) < 1e-8
+  other <- br[br$branch != as.integer(names(which.max(table(br$branch[on_diag])))), ]
+  expect_equal(range(other$mutant), c(-2, 2), tolerance = 1e-8)
+  expect_equal(other$mutant, dd99_y2(other$resident), tolerance = 1e-6)
 })
