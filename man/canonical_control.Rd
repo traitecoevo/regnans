@@ -28,9 +28,10 @@ canonical_control(control = NULL)
     gradient on the trait scale is below this.}
   \item{\code{polish}, \code{polish_tol}}{once every gradient is below
     \code{polish_tol}, finish the approach to the stationary coalition by
-    Newton on the residents' gradients instead of integrating the slow tail
-    (the approach to a stable point is exponential, and its rate can be
-    small).}
+    Newton on the residents' gradients instead of integrating it: near a
+    stable coalition the dynamics are stiff, and an explicit stepper held at
+    its stability limit jitters about the point without reaching
+    \code{gradient_tol}.}
   \item{\code{branch}}{test stationary residents for evolutionary stability
     and split the invadable ones.}
   \item{\code{branch_distance}}{how far, as a fraction of the trait range on

@@ -38,9 +38,10 @@
 ##'     gradient on the trait scale is below this.}
 ##'   \item{\code{polish}, \code{polish_tol}}{once every gradient is below
 ##'     \code{polish_tol}, finish the approach to the stationary coalition by
-##'     Newton on the residents' gradients instead of integrating the slow tail
-##'     (the approach to a stable point is exponential, and its rate can be
-##'     small).}
+##'     Newton on the residents' gradients instead of integrating it: near a
+##'     stable coalition the dynamics are stiff, and an explicit stepper held at
+##'     its stability limit jitters about the point without reaching
+##'     \code{gradient_tol}.}
 ##'   \item{\code{branch}}{test stationary residents for evolutionary stability
 ##'     and split the invadable ones.}
 ##'   \item{\code{branch_distance}}{how far, as a fraction of the trait range on
@@ -291,8 +292,12 @@ community_canonical_equation <- function(community, x0 = NULL, control = canonic
     }
     record(t, z, k1)
 
-    ## near stationarity, finish with Newton on the coalition's gradients rather
-    ## than integrating the slow exponential tail
+    ## near stationarity, finish with Newton on the coalition's gradients. Near a
+    ## stable coalition the dynamics are stiff: the explicit stepper's step is
+    ## capped by the fastest mode's stability limit, and at that step it jitters
+    ## about the fixed point without ever meeting gradient_tol (DD99's pair:
+    ## |g| stalls at ~6e-4 for hundreds of time units). An L-stable stepper
+    ## converges, but still has to follow the approach; Newton does not.
     if (control$polish && max(abs(k1$g_z)) < control$polish_tol &&
         max(abs(k1$g_z)) >= control$gradient_tol) {
       polished <- canonical_polish(rhs$f, z, control)
