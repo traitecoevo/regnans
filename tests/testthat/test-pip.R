@@ -187,15 +187,15 @@ test_that("the trait-evolution plot solves each dimorphism and reports its gradi
   expect_error(community_tep(other, pip), "computed for trait x")
 })
 
-test_that("the invasibility plots build, on linear and log axes", {
+test_that("the raw-cell plots build, on linear and log axes", {
   pip <- community_pip(dd99(), control = ctrl())
-  b <- built(plot(pip))
+  b <- built(plot(pip, smooth = FALSE))
   expect_equal(length(b$data), 3L)                 # cells, contour points, diagonal
   expect_equal(nrow(b$data[[1]]), 11L * 61L)
   expect_equal(nrow(b$data[[2]]), nrow(pip$contours))
-  expect_equal(length(built(plot(pip, contours = FALSE))$data), 2L)
-  expect_equal(length(built(plot(pip, fill = "fitness"))$data), 3L)
-  b <- built(plot(pip, type = "mip"))
+  expect_equal(length(built(plot(pip, smooth = FALSE, contours = FALSE))$data), 2L)
+  expect_equal(length(built(plot(pip, smooth = FALSE, fill = "fitness"))$data), 3L)
+  b <- built(plot(pip, type = "mip", smooth = FALSE))
   expect_equal(nrow(b$data[[1]]), 11L * 11L)
 
   tep <- community_tep(dd99(), pip)
@@ -206,7 +206,7 @@ test_that("the invasibility plots build, on linear and log axes", {
   lp <- community_start(bounds(lma = c(0.05, 2)), trait_scale = "log",
                         harness = harness_dd99(x0 = 0.5, trait_name = "lma")) |>
     community_pip(control = pip_control(list(n_resident = 7, n_mutant = 21, refine = 0)))
-  expect_equal(nrow(built(plot(lp))$data[[1]]), 7L * 21L)
+  expect_equal(nrow(built(plot(lp, smooth = FALSE))$data[[1]]), 7L * 21L)
 })
 
 test_that("GM99 non-viable mutants are shaded as unable to invade", {
@@ -214,7 +214,7 @@ test_that("GM99 non-viable mutants are shaded as unable to invade", {
                          harness = harness_gm99(alpha = 7, beta = 15)) |>
     community_pip(control = pip_control(list(n_resident = 5, n_mutant = 21, refine = 0)))
   expect_true(any(is.infinite(pip$surface$fitness)))
-  expect_equal(nrow(built(plot(pip, fill = "fitness"))$data[[1]]), 5L * 21L)
+  expect_equal(nrow(built(plot(pip, smooth = FALSE, fill = "fitness"))$data[[1]]), 5L * 21L)
   expect_true(all(is.finite(pip$contours$mutant)))
 })
 
@@ -341,4 +341,54 @@ test_that("an iterated GK98 gives the same surface and contours as the closed fo
   expect_equal(iterated$surface$fitness, closed$surface$fitness, tolerance = 1e-6)
   expect_equal(iterated$contours$mutant, closed$contours$mutant, tolerance = 1e-6)
   expect_true(all(iterated$residents$n_evals >= closed$residents$n_evals))
+})
+
+# ---- smooth boundaries from the branches -------------------------------------
+
+test_that("crossings link into branches and the derived sign matches the DD99 oracle away from the contours", {
+  pip <- community_pip(dd99(), control = pip_control(list(n_resident = 13, n_mutant = 61, refine = 2)))
+  br <- pip_branches(pip)
+  expect_equal(names(br), c("branch", "resident", "mutant", "z_resident", "z_mutant"))
+  # every crossing belongs to a branch; the one at the singular strategy to two
+  expect_gte(nrow(br), nrow(pip$contours))
+  # the diagonal is one branch spanning every resident, the second contour one
+  # more, both passing through the intersection at x* = 0
+  on_diag <- abs(br$resident - br$mutant) < 1e-8
+  diag_branch <- names(which.max(table(br$branch[on_diag])))
+  expect_equal(sum(br$branch == as.integer(diag_branch)), nrow(pip$residents))
+  expect_equal(length(unique(br$branch)), 2L)
+  other <- br[br$branch != as.integer(diag_branch), ]
+  expect_equal(other$mutant, dd99_y2(other$resident), tolerance = 1e-7)
+
+  sgn <- pip_sign_function(pip)
+  g <- expand.grid(x = seq(-1.9, 1.9, length.out = 41), y = seq(-1.9, 1.9, length.out = 41))
+  truth <- dd99_s(g$y, g$x)
+  away <- abs(g$y - g$x) > 0.08 & abs(g$y - dd99_y2(g$x)) > 0.08
+  expect_equal(sgn(g$x[away], g$y[away]), sign(truth[away]))
+})
+
+test_that("the smooth views build and agree with the raw cells on the residents", {
+  pip <- community_pip(dd99(), control = pip_control(list(n_resident = 9, n_mutant = 41, refine = 1)))
+  b <- built(plot(pip, n_display = 40))
+  expect_equal(length(b$data), 3L)                      # smooth cells, branch lines, diagonal
+  expect_equal(nrow(b$data[[1]]), 40L * 40L)
+  expect_gt(nrow(b$data[[2]]), 0L)
+  b <- built(plot(pip, type = "mip", n_display = 30))
+  expect_equal(nrow(b$data[[1]]), 30L * 30L)
+  # raw cells are still available
+  expect_equal(nrow(built(plot(pip, smooth = FALSE))$data[[1]]), nrow(pip$surface))
+
+  sgn <- pip_sign_function(pip)
+  at <- pip$surface[abs(pip$surface$fitness) > 1e-3, ]
+  expect_equal(sgn(at$resident, at$mutant), sign(at$fitness))
+})
+
+test_that("GK98's folded contour links into branches that the smooth view can draw", {
+  pip <- community_pip(community_start(bounds(x = c(-3, 3)), trait_scale = "linear",
+                                       harness = harness_gk98(d = 1.5)),
+                       control = pip_control(list(n_resident = 25, n_mutant = 121, refine = 2)))
+  br <- pip_branches(pip)
+  expect_gte(nrow(br), nrow(pip$contours))
+  expect_gte(length(unique(br$branch)), 2L)
+  expect_equal(length(built(plot(pip, n_display = 60))$data), 3L)
 })

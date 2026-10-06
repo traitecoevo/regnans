@@ -7,8 +7,10 @@
 \method{plot}{pip}(
   x,
   type = c("pip", "mip"),
+  smooth = TRUE,
   fill = c("sign", "fitness"),
   contours = TRUE,
+  n_display = 300L,
   ...
 )
 }
@@ -17,9 +19,16 @@
 
 \item{type}{\code{"pip"} or \code{"mip"}.}
 
-\item{fill}{For \code{"pip"}: \code{"sign"} (default) or \code{"fitness"}.}
+\item{smooth}{Shade from the interpolated contour branches (default) or
+from the raw cells.}
 
-\item{contours}{Draw the zero contours (\code{"pip"} only).}
+\item{fill}{For the raw \code{"pip"} view: \code{"sign"} (default) or
+\code{"fitness"}.}
+
+\item{contours}{Draw the zero contours (\code{"pip"} only): as lines when
+smooth, as the located points otherwise.}
+
+\item{n_display}{Resolution of the smooth display grid.}
 
 \item{...}{Ignored.}
 }
@@ -30,14 +39,20 @@ A \code{ggplot} object.
 Plot a pairwise or mutual invasibility surface.
 }
 \details{
-\code{type = "pip"} shades the (resident, mutant) cells where the mutant
-can invade and overlays the exactly located zero contours;
-\code{type = "mip"} shades the resident pairs that invade each other (see
-\code{\link{pip_mutual}}). With \code{fill = "fitness"} the PIP shows the
-fitness value on a diverging scale centred on zero instead of its sign.
-Cells follow the (possibly refined) resident grid, so they are not all the
-same width. The diagonal, where the mutant is the resident, is drawn
-through.
+\code{type = "pip"} shades the (resident, mutant) region where the mutant
+can invade; \code{type = "mip"} shades the resident pairs that invade each
+other (see \code{\link{pip_mutual}}). The diagonal, where the mutant is
+the resident, is drawn through.
+
+By default (\code{smooth = TRUE}) the exactly located zero crossings are
+linked across residents into contour branches, each interpolated along the
+trait axis, and the shading is derived from them on a fine display grid ---
+between consecutive contours in a column the sign of fitness is constant, so
+this adds no model evaluations and the boundaries follow the contours
+rather than the resident cells. \code{smooth = FALSE} shows the data as
+computed: one cell per (resident, mutant), following the possibly refined
+resident grid, with \code{fill = "fitness"} available to show the value on
+a diverging scale instead of its sign.
 }
 \author{
 Daniel Falster
