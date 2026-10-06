@@ -13,6 +13,8 @@
 ##' how invasion-fitness landscapes are generated. See
 ##' \code{\link{fitness_landscape_control}}. Values given here override the
 ##' defaults; \code{NULL} uses them all.
+##' @param derivative_control List controlling how derivatives of fitness are
+##' computed. See \code{\link{derivative_control}}.
 ##' @param model_support Model support data passed to the harness (e.g. the
 ##' \code{plant} parameters and control objects).
 ##' @param harness A model harness wiring the community to a demographic
@@ -29,6 +31,7 @@ community_start <- function(bounds,
                             birth_rate_initial = 1e-3,
                             demography_control = demographic_step_control(),
                             fitness_control = NULL,
+                            derivative_control = NULL,
                             model_support = NULL,
                             harness = NULL,
                             trait_scale = c("log", "linear")
@@ -44,6 +47,8 @@ community_start <- function(bounds,
   if (is.null(harness)) {
     harness <- harness_plant()
   }
+  ## Any derivative the model does not supply is computed by finite differences.
+  harness <- harness_fd(harness)
 
   ## How trait space is spaced/searched during assembly. "log" suits strictly
   ## positive biological traits (plant: lma, height, seed mass); "linear" suits
@@ -56,12 +61,14 @@ community_start <- function(bounds,
   ## caller knew to supply one; now always a complete control list, with any
   ## user-supplied values overriding the defaults (method = "grid").
   fitness_control <- fitness_landscape_control(fitness_control)
+  derivative_control <- derivative_control(derivative_control)
 
   ret <- list(
     bounds = check_bounds(bounds),
     birth_rate_initial = birth_rate_initial,
     demography_control = demography_control,
     fitness_control = fitness_control,
+    derivative_control = derivative_control,
     model_support = model_support,
     harness = harness,
     trait_scale = trait_scale
@@ -148,7 +155,8 @@ community_reset <- function(community) {
   community$resident_fitness <- NULL
   community$fitness_points <- NULL
   community$fitness_function <- NULL
-  
+  community$fitness_derivatives <- NULL
+
   community$model_support$node_schedule_times <- NULL
 
   community

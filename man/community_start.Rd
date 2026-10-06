@@ -9,6 +9,7 @@ community_start(
   birth_rate_initial = 0.001,
   demography_control = demographic_step_control(),
   fitness_control = NULL,
+  derivative_control = NULL,
   model_support = NULL,
   harness = NULL,
   trait_scale = c("log", "linear")
@@ -26,6 +27,9 @@ solver. See \code{\link{demographic_step_control}}.}
 how invasion-fitness landscapes are generated. See
 \code{\link{fitness_landscape_control}}. Values given here override the
 defaults; \code{NULL} uses them all.}
+
+\item{derivative_control}{List controlling how derivatives of fitness are
+computed. See \code{\link{derivative_control}}.}
 
 \item{model_support}{Model support data passed to the harness (e.g. the
 \code{plant} parameters and control objects).}

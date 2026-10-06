@@ -1,8 +1,9 @@
-# Internal finite-difference gradient helpers.
+# Internal finite-difference helpers.
 #
 # Vendored from richfitz/grader (gradient_points / gradient_extrapolate) so the
-# package does not depend on that tiny, non-CRAN package. Used by
-# community_selection_gradient() in solve_attractors.R.
+# package does not depend on that tiny, non-CRAN package. Reached only through
+# R/derivatives.R, which decides whether a derivative comes from here or from
+# the model.
 #
 # gradient_points() builds the set of evaluation points (a sequence of
 # successively halved step sizes per dimension) needed for a central-difference

@@ -119,3 +119,79 @@ NumericVector jj12_equilibrium(NumericVector x_res, List pars,
   }
   return n;
 }
+
+// --- derivatives in the mutant direction -------------------------------------
+// Against residents, w(y) = q(y) + p with q = K R(y) C(y) / denom, and
+//   q' = q g,  g = -(y - x_opt)/sigma^2 - a,   q'' = q (g^2 - 1/sigma^2)
+// so for S = log w:  S' = q g / w,  S'' = q (g^2 - 1/sigma^2) / w - S'^2.
+// For a lone strategy S = log(K R(y)/(1-p)):  S' = -(y - x_opt)/sigma^2,
+// S'' = -1/sigma^2.
+
+namespace jj12 {
+
+static void derivs(double y, double denom, bool lone, double a, double x_opt,
+                   double sigma, double R0, double K, double p,
+                   double& d1, double& d2) {
+  double s2 = sigma * sigma;
+  if (lone) {
+    d1 = -(y - x_opt) / s2;
+    d2 = -1.0 / s2;
+    return;
+  }
+  double q = K * R_of(y, R0, x_opt, sigma) * C_of(y, a) / denom;
+  double w = q + p;
+  double g = -(y - x_opt) / s2 - a;
+  d1 = q * g / w;
+  d2 = q * (g * g - 1.0 / s2) / w - d1 * d1;
+}
+
+static double denominator(const NumericVector& x_res, const NumericVector& n_res,
+                          double a) {
+  double denom = 0.0;
+  for (int j = 0; j < x_res.size(); j++) denom += n_res[j] * C_of(x_res[j], a);
+  return denom;
+}
+
+} // namespace jj12
+
+//' JJ12 bird model: gradient of log invasion fitness with respect to the mutant trait
+//'
+//' @inheritParams jj12_fitness
+//' @return numeric matrix, one row per mutant and one column
+//' @keywords internal
+// [[Rcpp::export]]
+NumericMatrix jj12_fitness_gradient(NumericVector x_mut, NumericVector x_res,
+                                    NumericVector n_res, List pars) {
+  double a = pars["a"], x_opt = pars["x_opt"], sigma = pars["sigma"],
+         R0 = pars["R0"], K = pars["K"], p = pars["p"];
+  bool lone = x_res.size() == 0;
+  double denom = lone ? 0.0 : jj12::denominator(x_res, n_res, a);
+  NumericMatrix out(x_mut.size(), 1);
+  for (int i = 0; i < x_mut.size(); i++) {
+    double d1, d2;
+    jj12::derivs(x_mut[i], denom, lone, a, x_opt, sigma, R0, K, p, d1, d2);
+    out(i, 0) = d1;
+  }
+  return out;
+}
+
+//' JJ12 bird model: second derivative of log invasion fitness with respect to the mutant trait
+//'
+//' @param x_mut a single mutant trait value
+//' @inheritParams jj12_fitness
+//' @return a 1 x 1 numeric matrix
+//' @keywords internal
+// [[Rcpp::export]]
+NumericMatrix jj12_fitness_hessian(NumericVector x_mut, NumericVector x_res,
+                                   NumericVector n_res, List pars) {
+  if (x_mut.size() != 1) stop("jj12_fitness_hessian takes a single mutant");
+  double a = pars["a"], x_opt = pars["x_opt"], sigma = pars["sigma"],
+         R0 = pars["R0"], K = pars["K"], p = pars["p"];
+  bool lone = x_res.size() == 0;
+  double denom = lone ? 0.0 : jj12::denominator(x_res, n_res, a);
+  double d1, d2;
+  jj12::derivs(x_mut[0], denom, lone, a, x_opt, sigma, R0, K, p, d1, d2);
+  NumericMatrix out(1, 1);
+  out(0, 0) = d2;
+  return out;
+}

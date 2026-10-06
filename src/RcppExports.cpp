@@ -62,6 +62,62 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// dd99_fitness_gradient
+NumericMatrix dd99_fitness_gradient(NumericVector x_mut, NumericVector x_res, NumericVector n_res, List pars);
+RcppExport SEXP _regnans_dd99_fitness_gradient(SEXP x_mutSEXP, SEXP x_resSEXP, SEXP n_resSEXP, SEXP parsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< NumericVector >::type x_mut(x_mutSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type x_res(x_resSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type n_res(n_resSEXP);
+    Rcpp::traits::input_parameter< List >::type pars(parsSEXP);
+    rcpp_result_gen = Rcpp::wrap(dd99_fitness_gradient(x_mut, x_res, n_res, pars));
+    return rcpp_result_gen;
+END_RCPP
+}
+// dd99_fitness_hessian
+NumericMatrix dd99_fitness_hessian(NumericVector x_mut, NumericVector x_res, NumericVector n_res, List pars);
+RcppExport SEXP _regnans_dd99_fitness_hessian(SEXP x_mutSEXP, SEXP x_resSEXP, SEXP n_resSEXP, SEXP parsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< NumericVector >::type x_mut(x_mutSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type x_res(x_resSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type n_res(n_resSEXP);
+    Rcpp::traits::input_parameter< List >::type pars(parsSEXP);
+    rcpp_result_gen = Rcpp::wrap(dd99_fitness_hessian(x_mut, x_res, n_res, pars));
+    return rcpp_result_gen;
+END_RCPP
+}
+// dd99_nd_fitness_gradient
+NumericMatrix dd99_nd_fitness_gradient(NumericMatrix x_mut, NumericMatrix x_res, NumericVector n_res, List pars);
+RcppExport SEXP _regnans_dd99_nd_fitness_gradient(SEXP x_mutSEXP, SEXP x_resSEXP, SEXP n_resSEXP, SEXP parsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< NumericMatrix >::type x_mut(x_mutSEXP);
+    Rcpp::traits::input_parameter< NumericMatrix >::type x_res(x_resSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type n_res(n_resSEXP);
+    Rcpp::traits::input_parameter< List >::type pars(parsSEXP);
+    rcpp_result_gen = Rcpp::wrap(dd99_nd_fitness_gradient(x_mut, x_res, n_res, pars));
+    return rcpp_result_gen;
+END_RCPP
+}
+// dd99_nd_fitness_hessian
+NumericMatrix dd99_nd_fitness_hessian(NumericMatrix x_mut, NumericMatrix x_res, NumericVector n_res, List pars);
+RcppExport SEXP _regnans_dd99_nd_fitness_hessian(SEXP x_mutSEXP, SEXP x_resSEXP, SEXP n_resSEXP, SEXP parsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< NumericMatrix >::type x_mut(x_mutSEXP);
+    Rcpp::traits::input_parameter< NumericMatrix >::type x_res(x_resSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type n_res(n_resSEXP);
+    Rcpp::traits::input_parameter< List >::type pars(parsSEXP);
+    rcpp_result_gen = Rcpp::wrap(dd99_nd_fitness_hessian(x_mut, x_res, n_res, pars));
+    return rcpp_result_gen;
+END_RCPP
+}
 // gk98_fitness
 NumericVector gk98_fitness(NumericVector x_mut, NumericVector x_res, NumericVector n_res, List pars);
 RcppExport SEXP _regnans_gk98_fitness(SEXP x_mutSEXP, SEXP x_resSEXP, SEXP n_resSEXP, SEXP parsSEXP) {
@@ -87,6 +143,34 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< int >::type max_iter(max_iterSEXP);
     Rcpp::traits::input_parameter< double >::type eps(epsSEXP);
     rcpp_result_gen = Rcpp::wrap(gk98_equilibrium(x_res, pars, max_iter, eps));
+    return rcpp_result_gen;
+END_RCPP
+}
+// gk98_fitness_gradient
+NumericMatrix gk98_fitness_gradient(NumericVector x_mut, NumericVector x_res, NumericVector n_res, List pars);
+RcppExport SEXP _regnans_gk98_fitness_gradient(SEXP x_mutSEXP, SEXP x_resSEXP, SEXP n_resSEXP, SEXP parsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< NumericVector >::type x_mut(x_mutSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type x_res(x_resSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type n_res(n_resSEXP);
+    Rcpp::traits::input_parameter< List >::type pars(parsSEXP);
+    rcpp_result_gen = Rcpp::wrap(gk98_fitness_gradient(x_mut, x_res, n_res, pars));
+    return rcpp_result_gen;
+END_RCPP
+}
+// gk98_fitness_hessian
+NumericMatrix gk98_fitness_hessian(NumericVector x_mut, NumericVector x_res, NumericVector n_res, List pars);
+RcppExport SEXP _regnans_gk98_fitness_hessian(SEXP x_mutSEXP, SEXP x_resSEXP, SEXP n_resSEXP, SEXP parsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< NumericVector >::type x_mut(x_mutSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type x_res(x_resSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type n_res(n_resSEXP);
+    Rcpp::traits::input_parameter< List >::type pars(parsSEXP);
+    rcpp_result_gen = Rcpp::wrap(gk98_fitness_hessian(x_mut, x_res, n_res, pars));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -118,6 +202,34 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// gm99_fitness_gradient
+NumericMatrix gm99_fitness_gradient(NumericVector x_mut, NumericVector x_res, NumericVector n_res, List pars);
+RcppExport SEXP _regnans_gm99_fitness_gradient(SEXP x_mutSEXP, SEXP x_resSEXP, SEXP n_resSEXP, SEXP parsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< NumericVector >::type x_mut(x_mutSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type x_res(x_resSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type n_res(n_resSEXP);
+    Rcpp::traits::input_parameter< List >::type pars(parsSEXP);
+    rcpp_result_gen = Rcpp::wrap(gm99_fitness_gradient(x_mut, x_res, n_res, pars));
+    return rcpp_result_gen;
+END_RCPP
+}
+// gm99_fitness_hessian
+NumericMatrix gm99_fitness_hessian(NumericVector x_mut, NumericVector x_res, NumericVector n_res, List pars);
+RcppExport SEXP _regnans_gm99_fitness_hessian(SEXP x_mutSEXP, SEXP x_resSEXP, SEXP n_resSEXP, SEXP parsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< NumericVector >::type x_mut(x_mutSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type x_res(x_resSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type n_res(n_resSEXP);
+    Rcpp::traits::input_parameter< List >::type pars(parsSEXP);
+    rcpp_result_gen = Rcpp::wrap(gm99_fitness_hessian(x_mut, x_res, n_res, pars));
+    return rcpp_result_gen;
+END_RCPP
+}
 // jj12_fitness
 NumericVector jj12_fitness(NumericVector x_mut, NumericVector x_res, NumericVector n_res, List pars);
 RcppExport SEXP _regnans_jj12_fitness(SEXP x_mutSEXP, SEXP x_resSEXP, SEXP n_resSEXP, SEXP parsSEXP) {
@@ -146,18 +258,56 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// jj12_fitness_gradient
+NumericMatrix jj12_fitness_gradient(NumericVector x_mut, NumericVector x_res, NumericVector n_res, List pars);
+RcppExport SEXP _regnans_jj12_fitness_gradient(SEXP x_mutSEXP, SEXP x_resSEXP, SEXP n_resSEXP, SEXP parsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< NumericVector >::type x_mut(x_mutSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type x_res(x_resSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type n_res(n_resSEXP);
+    Rcpp::traits::input_parameter< List >::type pars(parsSEXP);
+    rcpp_result_gen = Rcpp::wrap(jj12_fitness_gradient(x_mut, x_res, n_res, pars));
+    return rcpp_result_gen;
+END_RCPP
+}
+// jj12_fitness_hessian
+NumericMatrix jj12_fitness_hessian(NumericVector x_mut, NumericVector x_res, NumericVector n_res, List pars);
+RcppExport SEXP _regnans_jj12_fitness_hessian(SEXP x_mutSEXP, SEXP x_resSEXP, SEXP n_resSEXP, SEXP parsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< NumericVector >::type x_mut(x_mutSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type x_res(x_resSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type n_res(n_resSEXP);
+    Rcpp::traits::input_parameter< List >::type pars(parsSEXP);
+    rcpp_result_gen = Rcpp::wrap(jj12_fitness_hessian(x_mut, x_res, n_res, pars));
+    return rcpp_result_gen;
+END_RCPP
+}
 
 static const R_CallMethodDef CallEntries[] = {
     {"_regnans_dd99_fitness", (DL_FUNC) &_regnans_dd99_fitness, 4},
     {"_regnans_dd99_equilibrium", (DL_FUNC) &_regnans_dd99_equilibrium, 2},
     {"_regnans_dd99_nd_fitness", (DL_FUNC) &_regnans_dd99_nd_fitness, 4},
     {"_regnans_dd99_nd_equilibrium", (DL_FUNC) &_regnans_dd99_nd_equilibrium, 2},
+    {"_regnans_dd99_fitness_gradient", (DL_FUNC) &_regnans_dd99_fitness_gradient, 4},
+    {"_regnans_dd99_fitness_hessian", (DL_FUNC) &_regnans_dd99_fitness_hessian, 4},
+    {"_regnans_dd99_nd_fitness_gradient", (DL_FUNC) &_regnans_dd99_nd_fitness_gradient, 4},
+    {"_regnans_dd99_nd_fitness_hessian", (DL_FUNC) &_regnans_dd99_nd_fitness_hessian, 4},
     {"_regnans_gk98_fitness", (DL_FUNC) &_regnans_gk98_fitness, 4},
     {"_regnans_gk98_equilibrium", (DL_FUNC) &_regnans_gk98_equilibrium, 4},
+    {"_regnans_gk98_fitness_gradient", (DL_FUNC) &_regnans_gk98_fitness_gradient, 4},
+    {"_regnans_gk98_fitness_hessian", (DL_FUNC) &_regnans_gk98_fitness_hessian, 4},
     {"_regnans_gm99_fitness", (DL_FUNC) &_regnans_gm99_fitness, 4},
     {"_regnans_gm99_equilibrium", (DL_FUNC) &_regnans_gm99_equilibrium, 4},
+    {"_regnans_gm99_fitness_gradient", (DL_FUNC) &_regnans_gm99_fitness_gradient, 4},
+    {"_regnans_gm99_fitness_hessian", (DL_FUNC) &_regnans_gm99_fitness_hessian, 4},
     {"_regnans_jj12_fitness", (DL_FUNC) &_regnans_jj12_fitness, 4},
     {"_regnans_jj12_equilibrium", (DL_FUNC) &_regnans_jj12_equilibrium, 4},
+    {"_regnans_jj12_fitness_gradient", (DL_FUNC) &_regnans_jj12_fitness_gradient, 4},
+    {"_regnans_jj12_fitness_hessian", (DL_FUNC) &_regnans_jj12_fitness_hessian, 4},
     {NULL, NULL, 0}
 };
 

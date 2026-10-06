@@ -49,6 +49,44 @@ dd99_nd_equilibrium <- function(x_res, pars) {
     .Call(`_regnans_dd99_nd_equilibrium`, x_res, pars)
 }
 
+#' DD99 model: gradient of invasion fitness with respect to the mutant trait
+#'
+#' @inheritParams dd99_fitness
+#' @return numeric matrix, one row per mutant and one column (the trait)
+#' @keywords internal
+dd99_fitness_gradient <- function(x_mut, x_res, n_res, pars) {
+    .Call(`_regnans_dd99_fitness_gradient`, x_mut, x_res, n_res, pars)
+}
+
+#' DD99 model: Hessian of invasion fitness with respect to the mutant trait
+#'
+#' @param x_mut a single mutant trait value
+#' @inheritParams dd99_fitness
+#' @return a 1 x 1 numeric matrix
+#' @keywords internal
+dd99_fitness_hessian <- function(x_mut, x_res, n_res, pars) {
+    .Call(`_regnans_dd99_fitness_hessian`, x_mut, x_res, n_res, pars)
+}
+
+#' DD99 model (nD): gradient of invasion fitness with respect to the mutant traits
+#'
+#' @inheritParams dd99_nd_fitness
+#' @return numeric matrix, one row per mutant and one column per trait
+#' @keywords internal
+dd99_nd_fitness_gradient <- function(x_mut, x_res, n_res, pars) {
+    .Call(`_regnans_dd99_nd_fitness_gradient`, x_mut, x_res, n_res, pars)
+}
+
+#' DD99 model (nD): Hessian of invasion fitness with respect to the mutant traits
+#'
+#' @param x_mut a one-row numeric matrix: the mutant trait values
+#' @inheritParams dd99_nd_fitness
+#' @return a k x k numeric matrix
+#' @keywords internal
+dd99_nd_fitness_hessian <- function(x_mut, x_res, n_res, pars) {
+    .Call(`_regnans_dd99_nd_fitness_hessian`, x_mut, x_res, n_res, pars)
+}
+
 #' GK98 soft-selection model: log invasion fitness of mutants
 #'
 #' @param x_mut numeric vector of mutant trait values
@@ -74,6 +112,25 @@ gk98_fitness <- function(x_mut, x_res, n_res, pars) {
 #' @keywords internal
 gk98_equilibrium <- function(x_res, pars, max_iter = 5000L, eps = 1e-12) {
     .Call(`_regnans_gk98_equilibrium`, x_res, pars, max_iter, eps)
+}
+
+#' GK98 soft-selection model: gradient of log invasion fitness with respect to the mutant trait
+#'
+#' @inheritParams gk98_fitness
+#' @return numeric matrix, one row per mutant and one column
+#' @keywords internal
+gk98_fitness_gradient <- function(x_mut, x_res, n_res, pars) {
+    .Call(`_regnans_gk98_fitness_gradient`, x_mut, x_res, n_res, pars)
+}
+
+#' GK98 soft-selection model: second derivative of log invasion fitness with respect to the mutant trait
+#'
+#' @param x_mut a single mutant trait value
+#' @inheritParams gk98_fitness
+#' @return a 1 x 1 numeric matrix
+#' @keywords internal
+gk98_fitness_hessian <- function(x_mut, x_res, n_res, pars) {
+    .Call(`_regnans_gk98_fitness_hessian`, x_mut, x_res, n_res, pars)
 }
 
 #' GM99 seed-size model: log invasion fitness of mutants
@@ -107,6 +164,25 @@ gm99_equilibrium <- function(x_res, pars, max_iter = 200L, eps = 1e-10) {
     .Call(`_regnans_gm99_equilibrium`, x_res, pars, max_iter, eps)
 }
 
+#' GM99 seed-size model: gradient of log invasion fitness with respect to the mutant seed size
+#'
+#' @inheritParams gm99_fitness
+#' @return numeric matrix, one row per mutant and one column (NaN for non-viable mutants)
+#' @keywords internal
+gm99_fitness_gradient <- function(x_mut, x_res, n_res, pars) {
+    .Call(`_regnans_gm99_fitness_gradient`, x_mut, x_res, n_res, pars)
+}
+
+#' GM99 seed-size model: second derivative of log invasion fitness with respect to the mutant seed size
+#'
+#' @param x_mut a single mutant seed size
+#' @inheritParams gm99_fitness
+#' @return a 1 x 1 numeric matrix (NaN for a non-viable mutant)
+#' @keywords internal
+gm99_fitness_hessian <- function(x_mut, x_res, n_res, pars) {
+    .Call(`_regnans_gm99_fitness_hessian`, x_mut, x_res, n_res, pars)
+}
+
 #' JJ12 bird model: log invasion fitness of mutants
 #'
 #' @param x_mut numeric vector of mutant trait values (arrival times)
@@ -134,5 +210,24 @@ jj12_fitness <- function(x_mut, x_res, n_res, pars) {
 #' @keywords internal
 jj12_equilibrium <- function(x_res, pars, max_iter = 5000L, eps = 1e-12) {
     .Call(`_regnans_jj12_equilibrium`, x_res, pars, max_iter, eps)
+}
+
+#' JJ12 bird model: gradient of log invasion fitness with respect to the mutant trait
+#'
+#' @inheritParams jj12_fitness
+#' @return numeric matrix, one row per mutant and one column
+#' @keywords internal
+jj12_fitness_gradient <- function(x_mut, x_res, n_res, pars) {
+    .Call(`_regnans_jj12_fitness_gradient`, x_mut, x_res, n_res, pars)
+}
+
+#' JJ12 bird model: second derivative of log invasion fitness with respect to the mutant trait
+#'
+#' @param x_mut a single mutant trait value
+#' @inheritParams jj12_fitness
+#' @return a 1 x 1 numeric matrix
+#' @keywords internal
+jj12_fitness_hessian <- function(x_mut, x_res, n_res, pars) {
+    .Call(`_regnans_jj12_fitness_hessian`, x_mut, x_res, n_res, pars)
 }
 

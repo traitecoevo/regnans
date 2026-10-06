@@ -4,7 +4,15 @@
 \alias{harness_explicit}
 \title{Explicit (toy-model) harness}
 \usage{
-harness_explicit(fitness, equilibrium, pars, trait_names, label = "explicit")
+harness_explicit(
+  fitness,
+  equilibrium,
+  pars,
+  trait_names,
+  label = "explicit",
+  fitness_gradient = NULL,
+  fitness_hessian = NULL
+)
 }
 \arguments{
 \item{fitness}{function(x_mut, x_res, n_res, pars) -> numeric vector of
@@ -18,6 +26,14 @@ equilibrium densities, one per resident.}
 \item{trait_names}{character vector naming the evolving trait(s).}
 
 \item{label}{short model label (used in the harness class).}
+
+\item{fitness_gradient}{optional function(x_mut, x_res, n_res, pars) -> the
+gradient of invasion fitness with respect to the mutant trait(s), one row
+per mutant and one column per trait.}
+
+\item{fitness_hessian}{optional function(x_mut, x_res, n_res, pars) -> the
+k by k Hessian of invasion fitness with respect to the mutant trait(s)
+for a single mutant.}
 }
 \value{
 a `harness` object
@@ -28,9 +44,10 @@ A harness for fast toy models with explicitly-supplied fitness/equilibrium.
 \details{
 Implements all six connectors generically in terms of two model primitives:
 a vectorised invasion-fitness function and a resident-equilibrium solver
-(both typically backed by C++). Concrete instances --- \code{harness_dd99},
+(both typically backed by C++), plus optional derivatives of fitness in the
+mutant direction. Concrete instances --- \code{harness_dd99},
 \code{harness_gk98}, \code{harness_gm99}, \code{harness_jj12} --- supply
-these. "Explicit" refers to the mechanism (the fitness/equilibrium are
+all of them. "Explicit" refers to the mechanism (the fitness/equilibrium are
 computed directly, not by running the plant SCM), NOT a claim that every
 quantity is closed-form.
 

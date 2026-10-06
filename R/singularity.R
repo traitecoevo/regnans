@@ -45,7 +45,7 @@ singularity_seed_birth_rate <- function(community, birth_rate = NULL) {
 ## demographic equilibrium, and differentiates invasion fitness in the mutant
 ## direction. The community behind the most recent call is kept so callers can
 ## return it rather than re-solving.
-singularity_gradient_fn <- function(community, dx = 1e-4, birth_rate = NULL) {
+singularity_gradient_fn <- function(community, birth_rate = NULL) {
   base <- community_clear_residents(community)
   trait_names <- community$trait_names
   last_community <- NULL
@@ -56,7 +56,7 @@ singularity_gradient_fn <- function(community, dx = 1e-4, birth_rate = NULL) {
       community_add(trait_matrix(x, trait_names),
                     birth_rate = seed_birth_rate) |>
       community_demography() |>
-      community_selection_gradient(dx = dx)
+      community_selection_gradient()
     last_community <<- out
 
     ## carry this equilibrium forward as the next candidate's starting point
@@ -125,7 +125,6 @@ singularity_bounds <- function(bounds, trait_names) {
 ##' @param solver Root finder: \code{"nleqslv"} (default) or \code{"dfsane"}.
 ##' @param tol Convergence tolerance passed to the solver.
 ##' @param maxit Maximum solver iterations.
-##' @param dx Step size for the selection-gradient finite differences.
 ##' @param birth_rate Birth rate to start each candidate's equilibrium solve
 ##' from. Defaults to the resident's own birth rate if the community has one,
 ##' otherwise \code{birth_rate_initial}; thereafter each solve warm-starts from
@@ -143,7 +142,7 @@ singularity_bounds <- function(bounds, trait_names) {
 ##' @export
 community_solve_singularity <- function(community, x0 = NULL, bounds = NULL,
                                         solver = c("nleqslv", "dfsane"),
-                                        tol = 1e-6, maxit = 100, dx = 1e-4,
+                                        tol = 1e-6, maxit = 100,
                                         birth_rate = NULL, edge_ok = TRUE) {
   solver <- match.arg(solver)
   trait_names <- community$trait_names
@@ -178,8 +177,7 @@ community_solve_singularity <- function(community, x0 = NULL, bounds = NULL,
     k, paste(trait_names, collapse = ", "),
     paste(signif(x0, 5), collapse = ", "), solver))
 
-  gradient <- singularity_gradient_fn(community, dx = dx,
-                                      birth_rate = birth_rate)
+  gradient <- singularity_gradient_fn(community, birth_rate = birth_rate)
 
   ## Residual in search coordinates z: dS/dz = dS/dx * dx/dz. For a log trait
   ## scale dx/dz = x, so the residual is the gradient with respect to log(x) --
@@ -267,24 +265,19 @@ community_solve_singularity <- function(community, x0 = NULL, bounds = NULL,
 ##' trait space along which the population disruptively splits, which is itself
 ##' the scientific result in a multi-trait problem.
 ##'
-##' Cost: the Hessian needs \code{1 + 4k^2} invasion-fitness evaluations, all
-##' made in a single vectorised call against the cached resident environment, so
-##' it is cheap. The Jacobian needs \code{2k} \emph{resident} evaluations, each a
-##' full demographic equilibrium solve, so it dominates.
+##' Cost: the Hessian (\code{\link{community_fitness_hessian}}) needs
+##' \code{1 + 4k^2} invasion-fitness evaluations, all made in a single
+##' vectorised call against the cached resident environment, so it is cheap. The
+##' Jacobian (\code{\link{community_selection_gradient_jacobian}}) needs
+##' \code{2k} \emph{resident} evaluations, each a full demographic equilibrium
+##' solve, so it dominates. Derivative settings come from
+##' \code{\link{derivative_control}}.
 ##'
 ##' @title Classify a singular strategy (1-D and N-D)
 ##' @param community A \code{community} with a single resident at (or very near)
 ##' a singular strategy --- typically the output of
 ##' \code{\link{community_solve_singularity}} or
 ##' \code{\link{community_solve_singularity_1D}}.
-##' @param dx Step size for the selection-gradient finite differences.
-##' @param d Relative finite-difference step for the Hessian and Jacobian.
-##' @param eps Absolute finite-difference step, used for traits that are ~0
-##' (the usual case for the toy harnesses, whose singular strategies sit at 0).
-##' @param r_hessian Number of halved step sizes to Richardson-extrapolate the
-##' Hessian over. Cheap, so 2 by default.
-##' @param r_jacobian As \code{r_hessian} for the Jacobian. Each level costs
-##' \code{2k} demographic solves, so 1 by default.
 ##' @param birth_rate Birth rate to start each resident equilibrium solve from;
 ##' see \code{\link{community_solve_singularity}}. Defaults to the singular
 ##' resident's own equilibrium birth rate, which is normally what you want.
@@ -300,10 +293,8 @@ community_solve_singularity <- function(community, x0 = NULL, bounds = NULL,
 ##' \code{classification}.
 ##' @author Daniel Falster
 ##' @export
-community_classify_singularity <- function(community, dx = 1e-4,
-                                           d = 1e-3, eps = 1e-3,
-                                           r_hessian = 2L, r_jacobian = 1L,
-                                           birth_rate = NULL, tol = 1e-8) {
+community_classify_singularity <- function(community, birth_rate = NULL,
+                                           tol = 1e-8) {
 
   trait_names <- community$trait_names
   k <- length(trait_names)
@@ -324,20 +315,14 @@ community_classify_singularity <- function(community, dx = 1e-4,
     paste(signif(x, 6), collapse = ", ")))
 
   ## --- evolutionary stability: curvature in the mutant direction ------------
-  ## community$fitness_function holds the resident fixed at x, so this is the
-  ## Hessian of s(y; x) with respect to the mutant trait y, evaluated at y = x.
-  H <- util_hessian(community$fitness_function, x, d = d, eps = eps,
-                    r = r_hessian)
-  dimnames(H) <- list(trait_names, trait_names)
+  H <- community_fitness_hessian(community)
   H_sym <- (H + t(H)) / 2
   H_eigen <- eigen(H_sym, symmetric = TRUE)
 
   ## --- convergence stability: how the gradient responds to the resident -----
-  gradient <- singularity_gradient_fn(community, dx = dx,
-                                      birth_rate = birth_rate)
-  g0 <- gradient(x)
-  J <- util_jacobian(gradient, x, d = d, eps = eps, r = r_jacobian)
-  dimnames(J) <- list(trait_names, trait_names)
+  J <- community_selection_gradient_jacobian(community, birth_rate = birth_rate)
+  g0 <- as.numeric(attr(J, "selection_gradient"))
+  attr(J, "selection_gradient") <- NULL
   J_eigen <- eigen(J)
   J_sym <- (J + t(J)) / 2
   J_sym_eigen <- eigen(J_sym, symmetric = TRUE)

@@ -107,10 +107,10 @@ Tier letters refer to the section above. Tests are in `tests/testthat/`; docs ar
 | Method | Functions | Status | Tier | Tests / docs | Tracking |
 |---|---|---|---|---|---|
 | Harness contract, six connectors | `harness_plant()`, `harness_explicit()`, `R/harness.R` | done | — | `test-harness-*.R` | [#33](https://github.com/traitecoevo/regnans/issues/33) |
-| Reference models with analytic oracles | `harness_dd99()`, `harness_dd99_nd()`, `harness_gk98()`, `harness_gm99()`, `harness_jj12()` | done | — | `test-harness-{dd99,gk98,gm99,jj12}.R`, `test-singularity.R`; `DD99.qmd`, `GK98.qmd`, `GM99.qmd`, `JJ12.qmd` | — |
+| Reference models with analytic oracles | `harness_dd99()`, `harness_dd99_nd()`, `harness_gk98()`, `harness_gm99()`, `harness_jj12()` | done; every reference model supplies its fitness gradient and Hessian in closed form (GM99's from the same Poisson sum as its fitness) | — | `test-harness-{dd99,gk98,gm99,jj12}.R`, `test-singularity.R`; `DD99.qmd`, `GK98.qmd`, `GM99.qmd`, `JJ12.qmd` | — |
 | Reference models run as numerical models (`mode = "numerical"`, scalar-templated C++) | `harness_explicit()` | planned | — | — | [#55](https://github.com/traitecoevo/regnans/issues/55) |
-| Derivative connectors, `harness_fd()`, dispatch layer | `R/derivatives.R`, `h$provides` | planned | A enabler | — | [#50](https://github.com/traitecoevo/regnans/issues/50) |
-| Derivative verification contract | `harness_check_derivatives()` | planned | — | `test-derivatives-contract.R` | [#50](https://github.com/traitecoevo/regnans/issues/50) |
+| Derivative connectors, `harness_fd()`, dispatch layer | `R/derivatives.R`, `derivative_control()`, `community_fitness_gradient()`, `community_fitness_hessian()`, `community_selection_gradient_jacobian()`, `harness_provides()`, `harness_fd()` | done for the mutant direction (gradient, Hessian); resident Jacobian is finite-differenced over the gradient until plant E3/E4; demography Jacobians arrive with the Newton solver | A enabler | `test-derivatives.R` | [#50](https://github.com/traitecoevo/regnans/issues/50) |
+| Derivative verification contract | `harness_check_derivatives()` | done | — | `test-derivatives-contract.R` | [#50](https://github.com/traitecoevo/regnans/issues/50) |
 | Warm-started resident solve (initial guess including environment) | runner / `model_support` | blocked | B | — | [plant#650](https://github.com/traitecoevo/plant/issues/650) (E5) |
 
 ### Resident demographic equilibrium
@@ -224,7 +224,6 @@ Known defects and dead ends, to clear in Phase 0:
 
 - A live `browser()` at `R/births_maximum.R:15`, reached when a community has no `bounds` ([#57](https://github.com/traitecoevo/regnans/issues/57)).
 - The Bayesian-optimisation landscape uses `DiceKriging` and `nloptr` without declaring them, ignores `trait_scale` and the `bounds` argument, and calls `set.seed(1)` internally ([#57](https://github.com/traitecoevo/regnans/issues/57)); it has no tests ([#27](https://github.com/traitecoevo/regnans/issues/27)).
-- `community_selection_gradient(log_scale = )` does nothing; it goes when the dispatch layer lands.
 - `plant_community_check_for_inviable_strategies()` reaches plant directly and hard-codes `eps_test`; `community_viable_fitness_1D()` takes its default start from `model_support$p`.
 - `equilibrium_extinct_birth_rate` is an absolute threshold whose meaning depends on the model's units.
 - Dead code in `R/util.R` (`maximize_logspace`, `closest_log`, `rescale`, `unrescale`, `norm2`) and commented-out surrogate plotting in `R/community_fitness_landscape.R`.

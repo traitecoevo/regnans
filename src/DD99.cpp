@@ -197,3 +197,125 @@ NumericVector dd99_nd_equilibrium(NumericMatrix x_res, List pars) {
   for (int i = 0; i < nr; i++) n[i] = std::max(0.0, A[i][nr]);
   return n;
 }
+
+// --- derivatives in the mutant direction -------------------------------------
+// With E_j(y) = n_j C(y - x_j) / K(y) the fitness is s(y) = r (1 - sum_j E_j),
+// and for product Gaussian kernels
+//   dE_j/dy_d       = E_j a_jd,   a_jd = (y_d - x0_d)/sK_d^2 - (y_d - x_jd)/sC_d^2
+//   d2E_j/dy_d dy_e = E_j (a_jd a_je + delta_de (1/sK_d^2 - 1/sC_d^2))
+// so grad s = -r sum_j E_j a_j and hess s = -r sum_j E_j (a_j a_j^T + diag(1/sK^2 - 1/sC^2)).
+// The 1D model is the k = 1 case and shares the code.
+
+namespace dd99 {
+
+static NumericMatrix nd_gradient(const NumericMatrix& x_mut, const NumericMatrix& x_res,
+                                 const NumericVector& n_res, double r, double K0,
+                                 const NumericVector& x0, const NumericVector& sK,
+                                 const NumericVector& sC) {
+  int nm = x_mut.nrow(), nr = x_res.nrow(), k = x_mut.ncol();
+  NumericMatrix out(nm, k);
+  for (int i = 0; i < nm; i++) {
+    double Ky = K_nd(x_mut, i, K0, x0, sK);
+    for (int j = 0; j < nr; j++) {
+      double E = n_res[j] * C_nd(x_mut, i, x_res, j, sC) / Ky;
+      for (int d = 0; d < k; d++) {
+        double a = (x_mut(i, d) - x0[d]) / (sK[d] * sK[d])
+                 - (x_mut(i, d) - x_res(j, d)) / (sC[d] * sC[d]);
+        out(i, d) -= r * E * a;
+      }
+    }
+  }
+  return out;
+}
+
+static NumericMatrix nd_hessian(const NumericMatrix& x_mut, const NumericMatrix& x_res,
+                                const NumericVector& n_res, double r, double K0,
+                                const NumericVector& x0, const NumericVector& sK,
+                                const NumericVector& sC) {
+  int nr = x_res.nrow(), k = x_mut.ncol();
+  NumericMatrix H(k, k);
+  double Ky = K_nd(x_mut, 0, K0, x0, sK);
+  std::vector<double> a(k);
+  for (int j = 0; j < nr; j++) {
+    double E = n_res[j] * C_nd(x_mut, 0, x_res, j, sC) / Ky;
+    for (int d = 0; d < k; d++)
+      a[d] = (x_mut(0, d) - x0[d]) / (sK[d] * sK[d])
+           - (x_mut(0, d) - x_res(j, d)) / (sC[d] * sC[d]);
+    for (int d = 0; d < k; d++)
+      for (int e = 0; e < k; e++) {
+        double curv = (d == e) ? 1.0 / (sK[d] * sK[d]) - 1.0 / (sC[d] * sC[d]) : 0.0;
+        H(d, e) -= r * E * (a[d] * a[e] + curv);
+      }
+  }
+  return H;
+}
+
+static NumericMatrix as_column(const NumericVector& v) {
+  NumericMatrix m(v.size(), 1);
+  for (int i = 0; i < v.size(); i++) m(i, 0) = v[i];
+  return m;
+}
+
+} // namespace dd99
+
+//' DD99 model: gradient of invasion fitness with respect to the mutant trait
+//'
+//' @inheritParams dd99_fitness
+//' @return numeric matrix, one row per mutant and one column (the trait)
+//' @keywords internal
+// [[Rcpp::export]]
+NumericMatrix dd99_fitness_gradient(NumericVector x_mut, NumericVector x_res,
+                                    NumericVector n_res, List pars) {
+  double r = pars["r"], K0 = pars["K0"];
+  NumericVector x0 = NumericVector::create(pars["x0"]),
+                sK = NumericVector::create(pars["sigma_K"]),
+                sC = NumericVector::create(pars["sigma_C"]);
+  return dd99::nd_gradient(dd99::as_column(x_mut), dd99::as_column(x_res),
+                           n_res, r, K0, x0, sK, sC);
+}
+
+//' DD99 model: Hessian of invasion fitness with respect to the mutant trait
+//'
+//' @param x_mut a single mutant trait value
+//' @inheritParams dd99_fitness
+//' @return a 1 x 1 numeric matrix
+//' @keywords internal
+// [[Rcpp::export]]
+NumericMatrix dd99_fitness_hessian(NumericVector x_mut, NumericVector x_res,
+                                   NumericVector n_res, List pars) {
+  if (x_mut.size() != 1) stop("dd99_fitness_hessian takes a single mutant");
+  double r = pars["r"], K0 = pars["K0"];
+  NumericVector x0 = NumericVector::create(pars["x0"]),
+                sK = NumericVector::create(pars["sigma_K"]),
+                sC = NumericVector::create(pars["sigma_C"]);
+  return dd99::nd_hessian(dd99::as_column(x_mut), dd99::as_column(x_res),
+                          n_res, r, K0, x0, sK, sC);
+}
+
+//' DD99 model (nD): gradient of invasion fitness with respect to the mutant traits
+//'
+//' @inheritParams dd99_nd_fitness
+//' @return numeric matrix, one row per mutant and one column per trait
+//' @keywords internal
+// [[Rcpp::export]]
+NumericMatrix dd99_nd_fitness_gradient(NumericMatrix x_mut, NumericMatrix x_res,
+                                       NumericVector n_res, List pars) {
+  double r = pars["r"], K0 = pars["K0"];
+  NumericVector x0 = pars["x0"], sK = pars["sigma_K"], sC = pars["sigma_C"];
+  return dd99::nd_gradient(x_mut, x_res, n_res, r, K0, x0, sK, sC);
+}
+
+//' DD99 model (nD): Hessian of invasion fitness with respect to the mutant traits
+//'
+//' @param x_mut a one-row numeric matrix: the mutant trait values
+//' @inheritParams dd99_nd_fitness
+//' @return a k x k numeric matrix
+//' @keywords internal
+// [[Rcpp::export]]
+NumericMatrix dd99_nd_fitness_hessian(NumericMatrix x_mut, NumericMatrix x_res,
+                                      NumericVector n_res, List pars) {
+  if (x_mut.nrow() != 1) stop("dd99_nd_fitness_hessian takes a single mutant");
+  double r = pars["r"], K0 = pars["K0"];
+  NumericVector x0 = pars["x0"], sK = pars["sigma_K"], sC = pars["sigma_C"];
+  return dd99::nd_hessian(x_mut, x_res, n_res, r, K0, x0, sK, sC);
+}
