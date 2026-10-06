@@ -308,7 +308,10 @@ community_selection_gradient_jacobian <- function(community, birth_rate = NULL) 
 ##' Call it from a package's own tests with a tolerance suited to the model:
 ##' the reference models agree to machine precision; a model whose fitness
 ##' comes from an adaptive ODE integration needs something like
-##' \code{tol_rel = 1e-2}.
+##' \code{tol_rel = 1e-2}. The absolute tolerance exists for entries that are
+##' close to zero, where the finite-difference reference itself is only good to
+##' its roundoff floor --- about \code{1e-7} for a second difference of an
+##' order-one fitness with the default steps.
 ##'
 ##' @title Verify model-supplied derivatives
 ##' @param community A \code{community}; solved to demographic equilibrium if it
@@ -323,7 +326,7 @@ community_selection_gradient_jacobian <- function(community, birth_rate = NULL) 
 ##' @author Daniel Falster
 ##' @export
 harness_check_derivatives <- function(community, n_points = 5, tol_rel = 1e-4,
-                                      tol_abs = 1e-8) {
+                                      tol_abs = 1e-6) {
   provides <- community$harness$provides
   trait_names <- community$trait_names
   k <- length(trait_names)

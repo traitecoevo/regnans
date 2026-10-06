@@ -8,7 +8,7 @@ harness_check_derivatives(
   community,
   n_points = 5,
   tol_rel = 1e-04,
-  tol_abs = 1e-08
+  tol_abs = 1e-06
 )
 }
 \arguments{
@@ -41,7 +41,10 @@ has nothing to check and returns an empty table.
 Call it from a package's own tests with a tolerance suited to the model:
 the reference models agree to machine precision; a model whose fitness
 comes from an adaptive ODE integration needs something like
-\code{tol_rel = 1e-2}.
+\code{tol_rel = 1e-2}. The absolute tolerance exists for entries that are
+close to zero, where the finite-difference reference itself is only good to
+its roundoff floor --- about \code{1e-7} for a second difference of an
+order-one fitness with the default steps.
 }
 \author{
 Daniel Falster

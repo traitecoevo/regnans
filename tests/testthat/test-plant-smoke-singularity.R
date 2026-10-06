@@ -47,8 +47,12 @@ test_that("community_solve_singularity and the classifier run on the SCM", {
   # A bracket wide enough to hold the lma attractor under any current FF16
   # parameterisation; the assertions below are on the solution's own
   # properties, not on where it lands.
+  # Coarser second-derivative steps than the default: the SCM's fitness is only
+  # as smooth as its cohort schedule, so a 1e-3 relative step sits in the noise.
   out <- community_start(bounds(lma = c(0.02, 0.6)),
-                         model_support = assembly_model_support()) |>
+                         model_support = assembly_model_support(),
+                         derivative_control = list(d_second = 1e-2,
+                                                   eps_second = 1e-2)) |>
     community_solve_singularity(x0 = 0.08, tol = 1e-3)
 
   expect_true(attr(out, "converged"))
@@ -57,7 +61,7 @@ test_that("community_solve_singularity and the classifier run on the SCM", {
   expect_lt(root, 0.6)                  # is a real root, not a clamped edge
   expect_equal(as.numeric(out$traits), root, tolerance = 1e-8)
 
-  cl <- community_classify_singularity(out, d = 1e-2, eps = 1e-2)
+  cl <- community_classify_singularity(out)
   expect_s3_class(cl, "singularity_classification")
   expect_equal(dim(cl$hessian), c(1L, 1L))
   expect_equal(dim(cl$jacobian), c(1L, 1L))
