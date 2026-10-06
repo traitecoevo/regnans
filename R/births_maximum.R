@@ -11,9 +11,7 @@ community_new_types_maximum_fitness <- function(sys, control) {
   }
 
   if (is.null(sys$bounds)) {
-    ## TODO : can we delete `empty` function above
-    browser()
-    return(empty(sys))
+    stop("Maximum-fitness births need trait bounds on the community to search within")
   }
 
   ret <- find_max_fitness(sys, control)

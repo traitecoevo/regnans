@@ -110,7 +110,7 @@ community_fitness_landscape_grid <- function(community, bounds = community$bound
 # Uses the mlr3mbo package. Internal helper (not exported, no Rd).
 
 community_fitness_landscape_bayesopt <- function(community, bounds = community$bounds, n_evals = community$fitness_control$n_evals, n_init = community$fitness_control$n_init) {
- 
+  bayesopt_requires()
   set.seed(1)
   
   obfun <- bbotk::ObjectiveRFun$new(
@@ -183,8 +183,22 @@ community_fitness_landscape_bayesopt <- function(community, bounds = community$b
   community
 }
 
-fitness_surrogate_start <- function(archive = NULL) {
+## The Gaussian-process landscape reaches two packages only through strings --
+## the "regr.km" learner needs DiceKriging, the acquisition optimiser needs
+## nloptr -- so they are Suggests, checked here rather than failing deep inside
+## mlr3 with an unhelpful message.
+bayesopt_requires <- function() {
+  for (pkg in c("DiceKriging", "nloptr")) {
+    if (!requireNamespace(pkg, quietly = TRUE)) {
+      stop("The bayesopt fitness landscape needs the ", pkg, " package; install it or use method = \"grid\"")
+    }
+  }
   requireNamespace("mlr3learners", quietly = TRUE) # registers the "regr.km" learner
+  invisible(TRUE)
+}
+
+fitness_surrogate_start <- function(archive = NULL) {
+  bayesopt_requires()
   mlr3mbo::srlrn(mlr3::lrn("regr.km", covtype = "matern3_2", control = list(trace = FALSE)), archive = archive)
 }
 
