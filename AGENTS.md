@@ -134,6 +134,8 @@ several, and the connectors dispatch through `community$harness`.
 - `equilibrium_hybrid` — iterate then root-find, alternating solvers, rejecting
   any solution that drove a still-viable species extinct.
 
+In `util_nlsolve()`, `converged` means every residual component is within `tol` (for `dfsane`, its root-mean-square residual). A step shorter than `xtol` (default `tol * 1e-3`; relative for `nleqslv`, absolute for `newton`) ends the search but is not convergence: before #74 it was, and steep residuals (a step-length stop one iteration early) and backtracked `newton` steps (a stall far from the root) were reported converged with residuals well above `tol` (44× for a backtracked stall in the test suite, ~2000× on plant).
+
 After solving, `plant_community_update_fitness_function()` builds the mutant
 invasion-fitness closure on the community.
 
@@ -211,12 +213,12 @@ here follow current plant terminology.
 
 ## Test baseline
 
-`devtools::test()` is **green: 1174 pass, 0 fail, 0 skip, 0 warn**. Tests run in
+`devtools::test()` is **green: 1186 pass, 0 fail, 0 skip, 0 warn**. Tests run in
 parallel (`Config/testthat/parallel: true`); the `test-plant-smoke*.R` files
 dominate the wall-clock as they are the only ones that run the real SCM. The
 `test-harness-*.R` and `test-singularity.R` files run no SCM and are fast.
 
-(The count has grown as the toy-harness tier has: 197 → 256 → 401 → 537 → 979 → 1002 → 1052 → 1072 → 1174.
+(The count has grown as the toy-harness tier has: 197 → 256 → 401 → 537 → 979 → 1002 → 1052 → 1072 → 1174 → 1186.
 What matters is that a change moves it up and moves nothing to FAIL.)
 
 Note: the testthat parallel workers may fail to find `plant` on startup in some

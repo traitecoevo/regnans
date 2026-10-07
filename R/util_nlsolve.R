@@ -15,8 +15,14 @@
 ##' @title Solve a nonlinear system
 ##' @param x Starting point.
 ##' @param fn Function to solve: returns a residual vector of the same length.
-##' @param tol Tolerance on both the residual and the step (for
-##' \code{nleqslv} this is \code{xtol} and \code{ftol}).
+##' @param tol Tolerance on the residual: a solve has converged when every
+##' component of the residual is within \code{tol} of zero (for \code{dfsane},
+##' when its root-mean-square residual is).
+##' @param xtol A search whose steps fall below this (relative to the point
+##' for \code{nleqslv}, absolute for \code{newton}) stops, so a problem whose
+##' residual cannot reach \code{tol} does not run to \code{maxit}; it has
+##' converged only if the residual is within \code{tol}. Far smaller than
+##' \code{tol} by default, so that a steep residual is not stopped short of it.
 ##' @param maxit Maximum number of iterations. The number of function
 ##' evaluations will likely exceed this.
 ##' @param solver \code{"nleqslv"}, \code{"dfsane"} or \code{"newton"}.
@@ -42,14 +48,15 @@
 ##' @export
 util_nlsolve <- function(x, fn, tol=1e-6, maxit=100, solver="nleqslv",
                          require_converged=TRUE, jac = NULL, J0 = NULL,
-                         refresh = 10L, max_step = Inf) {
+                         refresh = 10L, max_step = Inf, xtol = tol * 1e-3) {
   solver <- match.arg(solver, c("nleqslv", "dfsane", "newton"))
 
   res <- switch(solver,
-                nleqslv=util_nlsolve_nleqslv(x, fn, tol, maxit, jac = jac),
+                nleqslv=util_nlsolve_nleqslv(x, fn, tol, maxit, jac = jac, xtol = xtol),
                 dfsane=util_nlsolve_dfsane(x, fn, tol, maxit),
                 newton=util_nlsolve_newton(x, fn, tol, maxit, jac = jac, J0 = J0,
-                                           refresh = refresh, max_step = max_step),
+                                           refresh = refresh, max_step = max_step,
+                                           xtol = xtol),
                 stop("Unknown solver ", solver))
 
   if (require_converged && !attr(res, "converged")) {
@@ -61,22 +68,30 @@ util_nlsolve <- function(x, fn, tol=1e-6, maxit=100, solver="nleqslv",
   res
 }
 
-util_nlsolve_nleqslv <- function(x, fn, tol=1e-6, maxit=100, jac = NULL) {
-  control <- list(xtol=tol, ftol=tol, maxit=maxit)
+util_nlsolve_nleqslv <- function(x, fn, tol=1e-6, maxit=100, jac = NULL,
+                                 xtol = tol * 1e-3) {
+  control <- list(xtol=xtol, ftol=tol, maxit=maxit)
   sol <- nleqslv::nleqslv(x, fn, jac = jac, global="none", control=control)
-  code <- sol$termcd
   res <- sol$x
-  attributes(res) <- util_nlsolve_nleqslv_attr(sol)
+  attributes(res) <- util_nlsolve_nleqslv_attr(sol, tol)
   res
 }
 
-util_nlsolve_nleqslv_attr <- function(sol) {
+## nleqslv's code 2 (steps within xtol) says the search has stopped moving,
+## not that the residual is small: converged means the residual is within tol.
+util_nlsolve_nleqslv_attr <- function(sol, tol) {
+  resid <- max(abs(sol$fvec))
+  converged <- sol$termcd %in% c(1L, 2L) && is.finite(resid) && resid <= tol
+  message <- sol$message
+  if (sol$termcd == 2L && !converged) {
+    message <- sprintf("%s, with the residual %.3g above tol %.3g", message, resid, tol)
+  }
   list(y=sol$fvec, # different to dfsane
        iter=sol$iter,
        feval=sol$nfcnt, # does not include jacobian evals
        code=sol$termcd,
-       message=sol$message,
-       converged=!(sol$termcd > 2 || sol$termcd < 0),
+       message=message,
+       converged=converged,
        solver="nleqslv")
 }
 
@@ -119,7 +134,8 @@ util_fd_jacobian <- function(fn, x, fx = fn(x), h = 1e-6 * pmax(abs(x), 1)) {
 }
 
 util_nlsolve_newton <- function(x, fn, tol = 1e-6, maxit = 100, jac = NULL,
-                                J0 = NULL, refresh = 10L, max_step = Inf) {
+                                J0 = NULL, refresh = 10L, max_step = Inf,
+                                xtol = tol * 1e-3) {
   x <- as.numeric(x)
   n <- length(x)
   feval <- 0L
@@ -189,7 +205,14 @@ util_nlsolve_newton <- function(x, fn, tol = 1e-6, maxit = 100, jac = NULL,
     x <- x_new
     fx <- f_new
     since_refresh <- since_refresh + 1L
-    if (max(abs(fx)) <= tol || max(abs(dx)) <= tol) { converged <- TRUE; break }
+    if (max(abs(fx)) <= tol) { converged <- TRUE; break }
+    ## a step this short has stopped the search, but only the residual says
+    ## whether it found the root (a backtracked step can be short far from it)
+    if (max(abs(dx)) <= xtol) {
+      code <- 6L
+      message <- sprintf("step below xtol with the residual %.3g above tol %.3g", max(abs(fx)), tol)
+      break
+    }
     if (since_refresh >= refresh) {
       J <- jacobian(x, fx); fresh <- TRUE; since_refresh <- 0L
     } else {

@@ -24,6 +24,23 @@ test_that("util_nlsolve respects the requested tolerance", {
   expect_lte(max(abs(sys(tight))), max(abs(sys(loose))) + 1e-12)
 })
 
+test_that("converged means the residual is within tol, not that the steps got short (#74)", {
+  # a steep residual: with the step tolerance equal to tol, the search stops
+  # on a short step with the residual at 0.06, sixty times tol
+  steep <- function(x) 1e4 * (x^2 - 2)
+  for (s in c("nleqslv", "newton")) {
+    short <- util_nlsolve(1, steep, tol = 1e-3, xtol = 1e-3, solver = s, require_converged = FALSE)
+    expect_gt(abs(steep(short)), 1e-3)
+    expect_false(attr(short, "converged"), info = s)
+    expect_match(attr(short, "message"), "residual .* above tol", info = s)
+    expect_error(util_nlsolve(1, steep, tol = 1e-3, xtol = 1e-3, solver = s), "Solver has likely failed")
+    # the default step tolerance is far below tol, so the search carries on to it
+    r <- util_nlsolve(1, steep, tol = 1e-3, solver = s)
+    expect_true(attr(r, "converged"), info = s)
+    expect_lte(abs(steep(r)), 1e-3)
+  }
+})
+
 test_that("util_nlsolve rejects an unknown solver", {
   expect_error(util_nlsolve(c(1, 1), sys, solver = "secant"), "should be one of")
 })
