@@ -14,7 +14,8 @@ util_nlsolve(
   jac = NULL,
   J0 = NULL,
   refresh = 10L,
-  max_step = Inf
+  max_step = Inf,
+  xtol = tol * 0.001
 )
 }
 \arguments{
@@ -22,8 +23,9 @@ util_nlsolve(
 
 \item{fn}{Function to solve: returns a residual vector of the same length.}
 
-\item{tol}{Tolerance on both the residual and the step (for
-\code{nleqslv} this is \code{xtol} and \code{ftol}).}
+\item{tol}{Tolerance on the residual: a solve has converged when every
+component of the residual is within \code{tol} of zero (for \code{dfsane},
+when its root-mean-square residual is).}
 
 \item{maxit}{Maximum number of iterations. The number of function
 evaluations will likely exceed this.}
@@ -50,6 +52,12 @@ differences every this many steps (Broyden updates in between).}
 single step may make, before the line search. Far from the root a Newton
 step can be huge (in log density, a factor of \eqn{e^{1000}}); capping it
 keeps the iterates where the residual is well behaved.}
+
+\item{xtol}{A search whose steps fall below this (relative to the point
+for \code{nleqslv}, absolute for \code{newton}) stops, so a problem whose
+residual cannot reach \code{tol} does not run to \code{maxit}; it has
+converged only if the residual is within \code{tol}. Far smaller than
+\code{tol} by default, so that a steep residual is not stopped short of it.}
 }
 \value{
 The solution with attributes \code{y} (residual), \code{iter},

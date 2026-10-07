@@ -49,11 +49,17 @@ test_that("community_solve_singularity and the classifier run on the SCM", {
   # properties, not on where it lands.
   # Coarser second-derivative steps than the default: the SCM's fitness is only
   # as smooth as its cohort schedule, so a 1e-3 relative step sits in the noise.
+  # The selection gradient itself jumps: on the log scale it falls at about
+  # -740 per unit log(lma) near the root, but steps up by ~0.23 every ~2e-5 in
+  # relative lma (reproduced from cold solves, so the model's, not the warm
+  # starts'). A residual tolerance below the jumps can leave the search on one
+  # of them, which #74 rightly reports as not converged; 0.3 sits above them
+  # and still places the root to ~4e-4 of log(lma).
   out <- community_start(bounds(lma = c(0.02, 0.6)),
                          model_support = assembly_model_support(),
                          derivative_control = list(d_second = 1e-2,
                                                    eps_second = 1e-2)) |>
-    community_solve_singularity(x0 = 0.08, tol = 1e-3)
+    community_solve_singularity(x0 = 0.08, tol = 0.3)
 
   expect_true(attr(out, "converged"))
   root <- as.numeric(attr(out, "singularity"))
