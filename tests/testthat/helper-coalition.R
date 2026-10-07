@@ -24,6 +24,10 @@
 #   s(y) = 1 - 2 exp(-beta y),  c(y) = exp(alpha y),
 # with the densities solving W_i = 1 for every resident and the gradient
 #   d log W / dy = -1/y + s'(y)/s(y) + alpha E[c Z / (c + Z)^2] / E[c / (c + Z)].
+#
+# Lotka-Volterra (below the GM99 functions) is the oracle for protected
+# coexistence: invasion fitness when rare is closed form, and an infeasible
+# equilibrium (negative densities) is easy to make.
 
 dd99_kernels <- function(sigma_C, sigma_K, x0, K0) {
   list(C = function(d) exp(-d^2 / (2 * sigma_C^2)),
@@ -108,18 +112,62 @@ gm99_coalition_density <- function(x, alpha, beta, R = 1, N0 = rep(1, length(x))
   stopifnot(max(abs(f(lN))) < 1e-12)
   exp(lN)
 }
-## each resident's selection gradient d log W / dy at y = x_i
+## a mutant's gradient d log W / dy, residents x held at densities N
+gm99_mutant_gradient <- function(y, x, N, alpha, beta) {
+  g <- gm99_estab(y, x, N, alpha)
+  -1 / y + 2 * beta * exp(-beta * y) / (1 - 2 * exp(-beta * y)) + alpha * g[["g1"]] / g[["g0"]]
+}
+## each resident's selection gradient: the mutant gradient at y = x_i
 gm99_coalition_gradient <- function(x, alpha, beta, R = 1) {
   N <- gm99_coalition_density(x, alpha, beta, R)
+  vapply(x, gm99_mutant_gradient, 0, x = x, N = N, alpha = alpha, beta = beta)
+}
+## each resident's curvature d2 log W / dy2 at y = x_i, the residents held
+gm99_coalition_curvature <- function(x, alpha, beta, R = 1, h = 1e-5) {
+  N <- gm99_coalition_density(x, alpha, beta, R)
   vapply(x, function(y) {
-    g <- gm99_estab(y, x, N, alpha)
-    -1 / y + 2 * beta * exp(-beta * y) / (1 - 2 * exp(-beta * y)) + alpha * g[["g1"]] / g[["g0"]]
+    (gm99_mutant_gradient(y + h, x, N, alpha, beta) -
+       gm99_mutant_gradient(y - h, x, N, alpha, beta)) / (2 * h)
   }, 0)
 }
 gm99_pair_root <- function(alpha = 7, beta = 15, R = 1, x0 = c(0.2, 0.7)) {
   sol <- nleqslv::nleqslv(x0, gm99_coalition_gradient, alpha = alpha, beta = beta, R = R,
                           control = list(ftol = 1e-11, xtol = 1e-13))
   sol$x
+}
+
+## Lotka-Volterra for protected coexistence.
+##
+## lv_gauss_harness: a continuous trait, K(y) = exp(-y^2/2), competition
+## A(y, x) = 1 + gamma (1 - exp(-(y - x)^2 / 2s^2)), stronger between residents
+## than within them for gamma > 0 (priority effects), weaker for gamma < 0.
+lv_gauss_harness <- function(gamma, s = 0.3) {
+  A <- function(y, x) 1 + gamma * (1 - exp(-outer(y, x, "-")^2 / (2 * s^2)))
+  K <- function(y) exp(-y^2 / 2)
+  harness_explicit(
+    fitness = function(x_mut, x_res, n_res, pars) 1 - as.numeric(A(x_mut, x_res) %*% n_res) / K(x_mut),
+    equilibrium = function(x_res, pars) as.numeric(solve(A(x_res, x_res), K(x_res))),
+    pars = list(), trait_names = "x", label = "lv")
+}
+## lv_matrix_harness: residents are the species 1, 2, ... of a fixed
+## competition matrix A, the trait being the species' index (so only invasion
+## at a resident's own trait is defined) and K = 1, so that a resident rare in
+## a monoculture of j (n_j = 1) has fitness 1 - A_ij; the "model" equilibrium
+## is solve(A, 1), negative densities and all.
+lv_matrix_harness <- function(A) {
+  idx <- function(x) as.integer(round(x))
+  harness_explicit(
+    fitness = function(x_mut, x_res, n_res, pars)
+      1 - as.numeric(A[idx(x_mut), idx(x_res), drop = FALSE] %*% n_res),
+    equilibrium = function(x_res, pars)
+      as.numeric(solve(A[idx(x_res), idx(x_res), drop = FALSE], rep(1, length(x_res)))),
+    pars = list(), trait_names = "x", label = "lv_matrix")
+}
+lv_matrix_community <- function(A) {
+  m <- nrow(A)
+  community_start(bounds(x = c(0, m + 1)), trait_scale = "linear", harness = lv_matrix_harness(A)) |>
+    community_add(trait_matrix(seq_len(m), "x"), birth_rate = rep(1, m)) |>
+    community_demography()
 }
 
 ## Central-difference Jacobian of a vector function, for oracles built on

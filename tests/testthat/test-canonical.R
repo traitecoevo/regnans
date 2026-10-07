@@ -177,6 +177,8 @@ test_that("the branching rate matches its small-kernel oracle and the exact inte
   for (sd in c(0.02, 0.1, 0.3)) {
     br <- regnans:::canonical_branch_rate(base, comm, tf, ctrl, matrix(0, 1, 1), 1L, 1, sd, 1)
     expect_equal(br$failed, 0L)
+    # one equilibrium solve per node that can invade, all of which coexist here
+    expect_equal(br$evaluations, sum(br$mass > 0))
     # the exact integrand: kernel x min(1, 2 s); every mutant of a fitness
     # minimum coexists with the resident here
     exact <- stats::integrate(function(d) stats::dnorm(d, 0, sd) * pmin(1, 2 * comm$fitness_function(d)),

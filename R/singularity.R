@@ -486,14 +486,27 @@ coalition_lost <- function(community, x, m, k, ctrl) {
 ##' (\code{resident_evolutionarily_stable} says which).
 ##'
 ##' A coalition is first checked for protected coexistence: each resident,
-##' made rare, must be able to invade the community of the others at their
-##' own equilibrium. Positive densities alone do not make a coalition: an
-##' equilibrium the residents cannot return to after one of them is lost
-##' (for two Lotka--Volterra residents, exactly an unstable one, as under
-##' priority effects) is not an evolutionary outcome, and is classified
-##' \code{"unprotected"} whatever its second-order conditions. The test is
-##' made on invasion fitness, so it means the same whatever the model's time
-##' step.
+##' made rare, must be able to invade the community the others settle at
+##' without it. Positive densities alone do not make a coalition, and one a
+##' resident lost by chance cannot return to is not an evolutionary outcome:
+##' it is classified \code{"unprotected"} whatever its second-order
+##' conditions. For two Lotka--Volterra residents with positive densities,
+##' protection is exactly the stability of their equilibrium (priority
+##' effects give positive densities at an unstable one). For three or more it
+##' is a stronger condition than stability: a stable coalition can have a
+##' resident that, once lost, stays lost, the others settling where it cannot
+##' invade. The test is made on invasion fitness, so it means the same
+##' whatever the model's time step.
+##'
+##' The community the others settle at is their equilibrium with any of them
+##' that has no positive density there removed and the rest re-solved (a
+##' model's own equilibrium can be infeasible, with negative densities, once a
+##' resident is left out). Where that is not determined --- an equilibrium
+##' solve fails, no resident persists, or a removed resident could invade the
+##' rest back --- that resident's \code{invasion_fitness} is \code{NA};
+##' \code{protected_coexistence} is then \code{NA} unless another resident
+##' already fails, with a warning, and the classification is decided by the
+##' second-order conditions.
 ##'
 ##' The full eigen-decompositions are returned, not just the verdict: when a
 ##' resident is not an ESS the leading eigenvector of its \eqn{H} is the
@@ -506,12 +519,18 @@ coalition_lost <- function(community, x, m, k, ctrl) {
 ##' Jacobian (\code{\link{community_selection_gradient_jacobian}}) needs
 ##' \code{2mk} \emph{resident} evaluations, each a full demographic equilibrium
 ##' solve, so it dominates. Protected coexistence costs \code{m} more, one
-##' per resident left out. Derivative settings come from
+##' per resident left out (and one more for each re-solve after removing a
+##' resident without a positive density). Derivative settings come from
 ##' \code{\link{derivative_control}}.
 ##'
-##' A community whose solve did not converge (\code{attr(., "converged")}
-##' \code{FALSE}) is classified with a warning: the verdicts then describe the
-##' point the solve stopped at.
+##' A community marked as not converged (\code{attr(., "converged")}
+##' \code{FALSE}, set by \code{community_solve_singularity} or by the
+##' equilibrium solve) is classified with a warning: the verdicts then describe
+##' the point the solve stopped at. So is one whose residents are visibly away
+##' from a singularity, a Newton step on their selection gradients moving some
+##' trait by more than a thousandth of the bounds' width on the trait scale
+##' (\code{newton_reach}): the second-order conditions describe a singularity,
+##' and away from one they describe nothing in particular.
 ##'
 ##' @title Classify a singular strategy or coalition (1-D and N-D)
 ##' @param community A \code{community} whose residents are at (or very near) a
@@ -521,13 +540,17 @@ coalition_lost <- function(community, x, m, k, ctrl) {
 ##' see \code{\link{community_solve_singularity}}. Defaults to the residents'
 ##' own equilibrium birth rates, which is normally what you want.
 ##' @param tol Magnitude below which an eigenvalue counts as zero, making the
-##' classification degenerate rather than forcing a verdict; a resident's
-##' invasion fitness when rare must exceed it for protected coexistence.
+##' classification degenerate rather than forcing a verdict.
 ##' @param speeds The residents' relative speeds of evolution, which decide
 ##' convergence stability for a coalition: \code{"density"} (default) their
 ##' equilibrium densities, as in \code{\link{community_canonical_equation}}
 ##' with \code{canonical_control(density = TRUE)}; \code{"equal"}; or a
 ##' positive vector with one value per resident. Ignored for one resident.
+##' @param invasion_tol The invasion fitness when rare each resident of a
+##' coalition must exceed for protected coexistence. It is in units of
+##' invasion fitness, not of an eigenvalue, so worth setting apart from
+##' \code{tol} when the model's fitness carries numerical noise (on plant,
+##' its SCM's error).
 ##' @return An object of class \code{singularity_classification}: a list with
 ##' the traits and selection gradient at the point, \code{hessian} and
 ##' \code{jacobian} with their eigen-decompositions
@@ -537,7 +560,9 @@ coalition_lost <- function(community, x, m, k, ctrl) {
 ##' decided (the same as \code{jacobian_eigen} for one resident or equal
 ##' speeds), \code{invasion_fitness} (each resident's when rare against the
 ##' others; \code{NULL} for one resident) with the verdict
-##' \code{protected_coexistence}, the logical verdicts
+##' \code{protected_coexistence} (\code{NA} where undetermined),
+##' \code{newton_reach} (how far the point is from a singularity, as a
+##' fraction of the bounds' width), the logical verdicts
 ##' \code{evolutionarily_stable} (with \code{resident_evolutionarily_stable},
 ##' one per resident), \code{convergence_stable} and
 ##' \code{strongly_convergence_stable}, the \code{branching_direction} where
@@ -553,7 +578,8 @@ coalition_lost <- function(community, x, m, k, ctrl) {
 ##' @author Daniel Falster
 ##' @export
 community_classify_singularity <- function(community, birth_rate = NULL,
-                                           tol = 1e-8, speeds = "density") {
+                                           tol = 1e-8, speeds = "density",
+                                           invasion_tol = tol) {
 
   trait_names <- community$trait_names
   k <- length(trait_names)
@@ -564,9 +590,11 @@ community_classify_singularity <- function(community, birth_rate = NULL,
          "singular strategy or coalition)")
   }
   x <- community$traits
-  if (isFALSE(attr(community, "converged"))) {
-    warning("community_classify_singularity: the community's solve did not converge, ",
-            "so this classifies the point it stopped at, which need not be a singularity")
+  unconverged <- isFALSE(attr(community, "converged"))
+  if (unconverged) {
+    warning("community_classify_singularity: the community is marked as not converged ",
+            "(its singularity or its equilibrium solve), so this classifies the point ",
+            "it stopped at, which need not be a singularity")
   }
 
   if (is.null(community$fitness_function)) {
@@ -597,14 +625,36 @@ community_classify_singularity <- function(community, birth_rate = NULL,
   w <- classification_speeds(speeds, community, m)
   J_w_eigen <- if (all(w == 1)) J_eigen else eigen(rep(w, times = k) * J)
 
+  ## a community not marked as unconverged can still be away from a
+  ## singularity (built by hand, or solved to a loose tolerance)
+  reach <- singularity_newton_reach(community, x, g0, J)
+  if (!unconverged && isTRUE(reach > singularity_reach_tol)) {
+    warning(sprintf(paste0(
+      "community_classify_singularity: the residents are not at a singular point; ",
+      "a Newton step on the selection gradients moves a trait by %s of the bounds' width"),
+      signif(reach, 2)))
+  }
+
   ## --- protected coexistence: can each resident invade the others? ---------
   invasion <- NULL
+  protected <- TRUE
   if (m > 1L) {
-    invasion <- coalition_invasion_fitness(community)
+    invasion <- coalition_invasion_fitness(community, birth_rate = birth_rate)
     evaluations <- evaluations + attr(invasion, "evaluations")
+    reasons <- attr(invasion, "reasons")
     attr(invasion, "evaluations") <- NULL
+    attr(invasion, "reasons") <- NULL
+    known <- !is.na(invasion)
+    protected <- if (any(known & invasion <= invasion_tol)) FALSE else if (all(known)) TRUE else NA
+    if (is.na(protected)) {
+      i <- which(!known)
+      warning(sprintf(paste0(
+        "community_classify_singularity: protected coexistence is undetermined; ",
+        "the invasion fitness of %s could not be found (%s)"),
+        paste("resident", i, collapse = ", "),
+        paste(unique(unlist(reasons[i])), collapse = "; ")))
+    }
   }
-  protected <- is.null(invasion) || all(invasion > tol)
 
   ## --- verdicts -------------------------------------------------------------
   ev_H <- lapply(H_eigen, `[[`, "values")
@@ -619,7 +669,7 @@ community_classify_singularity <- function(community, birth_rate = NULL,
   degenerate <- any(abs(unlist(ev_H)) <= tol) || any(abs(ev_J) <= tol)
 
   classification <-
-    if (!protected) {
+    if (isFALSE(protected)) {
       "unprotected"
     } else if (degenerate) {
       "degenerate"
@@ -672,6 +722,7 @@ community_classify_singularity <- function(community, birth_rate = NULL,
     jacobian_weighted_eigen = J_w_eigen,
     invasion_fitness = invasion,
     protected_coexistence = protected,
+    newton_reach = reach,
     evolutionarily_stable = ess,
     resident_evolutionarily_stable = ess_i,
     convergence_stable = cs,
@@ -691,22 +742,89 @@ community_classify_singularity <- function(community, birth_rate = NULL,
   ret
 }
 
-## Each resident's invasion fitness when rare in the community of the others at
-## their own equilibrium, with the equilibrium solves it cost. Every one
+## The invasion fitness of `invader` (a 1 x k trait matrix), rare, in the
+## community the `residents` settle at: their equilibrium, solved from
+## `birth_rate`, with any resident that has no positive density there removed
+## and the rest re-solved. A model's own equilibrium (the "model" solver) can
+## return negative densities, which describe no community at all, and an
+## invader's fitness against them can have either sign. The community left must
+## be one the removed residents cannot invade back, or it is not where the
+## residents settle; that, an equilibrium solve that fails, or no resident
+## persisting, leaves the answer undetermined: NA, with the reason. The
+## equilibrium solves are counted. `base` is a community without residents.
+community_invasion_when_rare <- function(base, residents, birth_rate, invader) {
+  trait_names <- base$trait_names
+  evaluations <- 0L
+  removed <- residents[0, , drop = FALSE]
+  undetermined <- function(why) structure(NA_real_, evaluations = evaluations, reason = why)
+  repeat {
+    comm <- tryCatch(
+      base |>
+        community_add(trait_matrix(residents, trait_names), birth_rate = birth_rate) |>
+        community_demography(),
+      error = function(e) NULL)
+    evaluations <- evaluations + 1L
+    if (is.null(comm) || !isTRUE(attr(comm, "converged"))) {
+      return(undetermined("an equilibrium solve failed"))
+    }
+    n <- as.numeric(comm$birth_rate)
+    dead <- !is.finite(n) | n <= 0
+    if (!any(dead)) break
+    if (all(dead)) {
+      return(undetermined("no resident persists"))
+    }
+    removed <- rbind(removed, residents[dead, , drop = FALSE])
+    residents <- residents[!dead, , drop = FALSE]
+    birth_rate <- n[!dead]
+  }
+  f <- community_fitness_function(comm)
+  if (nrow(removed) > 0L && any(as.numeric(f(removed)) > 0)) {
+    return(undetermined("a resident removed for want of a positive density could invade back"))
+  }
+  structure(as.numeric(f(invader)), evaluations = evaluations, reason = NULL)
+}
+
+## Each resident's invasion fitness when rare in the community the others
+## settle at without it (community_invasion_when_rare), with the equilibrium
+## solves it cost and, for an undetermined one (NA), the reason. Every one
 ## positive is protected coexistence: no resident lost by chance stays lost.
-coalition_invasion_fitness <- function(community) {
+coalition_invasion_fitness <- function(community, birth_rate = NULL) {
   m <- nrow(community$traits)
   base <- community_clear_residents(community)
-  n <- as.numeric(community$birth_rate)
-  s <- vapply(seq_len(m), function(i) {
-    others <- base |>
-      community_add(trait_matrix(community$traits[-i, , drop = FALSE], community$trait_names),
-                    birth_rate = n[-i]) |>
-      community_demography()
-    as.numeric(others$fitness_function(community$traits[i, , drop = FALSE]))
-  }, numeric(1))
-  attr(s, "evaluations") <- m
+  n <- if (is.null(birth_rate)) as.numeric(community$birth_rate) else as.numeric(birth_rate)
+  x <- community$traits
+  out <- lapply(seq_len(m), function(i) {
+    community_invasion_when_rare(base, x[-i, , drop = FALSE], n[-i], x[i, , drop = FALSE])
+  })
+  s <- vapply(out, as.numeric, numeric(1))
+  reasons <- lapply(out, function(o) {
+    if (is.null(attr(o, "reason")) && is.na(o)) "the model's invasion fitness is not a number" else attr(o, "reason")
+  })
+  attr(s, "evaluations") <- sum(vapply(out, attr, integer(1), "evaluations"))
+  attr(s, "reasons") <- reasons
   s
+}
+
+## A Newton step from a singularity found to the solver's tolerance is many
+## orders of magnitude below this fraction of the bounds' width; one above it
+## means the point classified is not a singularity.
+singularity_reach_tol <- 1e-3
+
+## The largest move, as a fraction of the bounds' width on the trait scale, of
+## any resident's trait under one Newton step on the selection gradients from
+## here: how far the point is from a singularity, by the Jacobian's own measure
+## (NA where the Jacobian is singular or the bounds infinite).
+singularity_newton_reach <- function(community, x, g, J) {
+  dx <- tryCatch(solve(J, g), error = function(e) NULL)
+  if (is.null(dx)) return(NA_real_)
+  tf <- community_trait_transform(community)
+  bounds <- singularity_bounds(community$bounds, community$trait_names)
+  width <- rep(tf$fwd(bounds[, 2]) - tf$fwd(bounds[, 1]), each = nrow(x))
+  xs <- as.numeric(x)
+  dz <- if (identical(tf$scale, "log")) dx / xs else dx
+  r <- abs(dz) / width
+  if (!all(is.finite(r))) return(NA_real_)
+  max(r)
 }
 
 ## The residents' relative speeds for the convergence-stability verdict,
