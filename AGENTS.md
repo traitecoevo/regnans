@@ -211,12 +211,12 @@ here follow current plant terminology.
 
 ## Test baseline
 
-`devtools::test()` is **green: 1141 pass, 0 fail, 0 skip, 0 warn**. Tests run in
+`devtools::test()` is **green: 1170 pass, 0 fail, 0 skip, 0 warn**. Tests run in
 parallel (`Config/testthat/parallel: true`); the `test-plant-smoke*.R` files
 dominate the wall-clock as they are the only ones that run the real SCM. The
 `test-harness-*.R` and `test-singularity.R` files run no SCM and are fast.
 
-(The count has grown as the toy-harness tier has: 197 → 256 → 401 → 537 → 979 → 1002 → 1052 → 1072 → 1141.
+(The count has grown as the toy-harness tier has: 197 → 256 → 401 → 537 → 979 → 1002 → 1052 → 1072 → 1170.
 What matters is that a change moves it up and moves nothing to FAIL.)
 
 Note: the testthat parallel workers may fail to find `plant` on startup in some
@@ -235,13 +235,7 @@ shells; run `TESTTHAT_PARALLEL=FALSE Rscript -e 'devtools::test()'` if so.
   `tidy_assembly` output shape.
 - `helper-assembly.R` (new) — shared `assembly_model_support(max_patch_lifetime
   = 30)` used by the integration tests (previously inlined in test-community.R).
-- `test-singularity.R` — `community_solve_singularity` (1-D, 2-trait, every
-  solver, trait scales, edge/validation branches; coalitions: the DD99 pair in
-  closed form, the DD99 triple and GK98 pair from their closed-form gradients,
-  GM99 on a log scale, a pair that cannot coexist reported lost) and
-  `community_classify_singularity` (one resident and coalitions), against the
-  analytic oracles tabulated under **Singular strategies** below and in
-  `helper-coalition.R`.
+- `test-singularity.R` — `community_solve_singularity` (1-D, 2-trait, every solver, trait scales, edge/validation branches; coalitions: the DD99 pair in closed form, the DD99 triple and GK98 pair from their closed-form gradients, a two-trait DD99 pair checking the trait-by-trait stacking, GM99 on a log scale, a pair that cannot coexist reported lost) and `community_classify_singularity` (one resident and coalitions, speed-weighted convergence stability on the DD99 triple's unequal densities), against the analytic oracles tabulated under **Singular strategies** below and in `helper-coalition.R`.
 - `test-demography-solvers.R` — all five equilibrium solvers on DD99, plus the
   genuine fixed-point tests and the `equilibrium_hybrid` extinct-species
   accept/reject branches built on `helper-harness-map.R`.
@@ -339,11 +333,7 @@ Two dimension-agnostic functions; both go through the harness connectors only, s
     the resident held fixed. Negative definite = ESS. Computed by
     `util_hessian()` in one vectorised call to `fitness_function`
     (`1 + 4k^2` mutant evaluations, cheap).
-  - `jacobian` — derivative of the selection gradients w.r.t. the *residents*.
-    Eigenvalues with negative real parts = convergence stability; a negative
-    definite symmetric part = *strong* convergence stability (any mutational
-    covariance). Computed by `util_jacobian()`, `2mk` full equilibrium solves —
-    this dominates the cost.
+  - `jacobian` — derivative of the selection gradients w.r.t. the *residents*. Convergence stability is decided on `diag(speeds) J` (`jacobian_weighted_eigen`): for a coalition the residents evolve at different speeds, by default their equilibrium densities as in the canonical equation (`speeds = "density"`, or `"equal"`, or a vector), and a coalition stable at equal speeds can be unstable at the speeds its densities give; for one resident the speed only rescales `J`. A negative definite symmetric part = *strong* convergence stability (any mutational covariance, any speeds). Computed by `util_jacobian()`, `2mk` full equilibrium solves — this dominates the cost. `community_selection_gradient_jacobian()` errors when two residents are within the finite-difference step of each other (the stencil cannot tell them apart).
   - the four-way `classification`: CSS / branching point / repeller / Garden of
     Eden, plus `degenerate` when an eigenvalue is within `tol` of zero.
   - the full eigen-decompositions and, where the point is invadable,

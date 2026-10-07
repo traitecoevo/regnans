@@ -276,7 +276,9 @@ fd_fitness_hessian <- function(f, y, ctrl) {
 ##' residents until the model supplies equilibrium sensitivities.
 ##'
 ##' @title Resident Jacobian of the selection gradient
-##' @param community A \code{community} with one or more residents.
+##' @param community A \code{community} with one or more residents, no two of
+##' them within the finite-difference step of each other (an error: the
+##' stencil cannot tell them apart).
 ##' @param birth_rate Birth rates to start each equilibrium solve from, one per
 ##' resident; defaults to the residents' own, with each solve then
 ##' warm-starting from the last.
@@ -296,7 +298,20 @@ community_selection_gradient_jacobian <- function(community, birth_rate = NULL) 
   x <- as.numeric(community$traits)
   gradient <- singularity_gradient_fn(community, m, birth_rate = birth_rate)
   g0 <- gradient(x)
-  J <- resident_jacobian(gradient, x, community_derivative_control(community))
+  ctrl <- community_derivative_control(community)
+  J <- resident_jacobian(gradient, x, ctrl)
+  ## a stencil point that merged two residents was refused, leaving the
+  ## Jacobian across them undefined (the solvers back off from such a point;
+  ## a caller asking for the Jacobian there has residents too close to tell
+  ## apart)
+  if (attr(gradient, "refused")() > 0L) {
+    near <- residents_merged(x, m, length(trait_names), ctrl, reach = 2)
+    stop("community_selection_gradient_jacobian: ",
+         if (nrow(near) > 0L)
+           paste(sprintf("residents %d and %d", near[, 1], near[, 2]), collapse = "; ")
+         else "two residents",
+         " are within the finite-difference step of each other, so the Jacobian across them is undefined")
+  }
   labels <- resident_labels(trait_names, m)
   dimnames(J) <- list(labels, labels)
   names(g0) <- labels

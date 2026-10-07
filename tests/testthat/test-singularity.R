@@ -402,12 +402,70 @@ test_that("the GK98 pair classifies as an evolutionarily stable coalition", {
 
 test_that("the DD99 trimorphic coalition classifies as a branching coalition", {
   b <- dd99_triple_root(sigma_C = 0.3)
-  cl <- community_solve_singularity(dd99_1d(sigma_C = 0.3), x0 = c(-0.5, 0.05, 0.8), tol = 1e-10) |>
-    community_classify_singularity()
+  sol <- community_solve_singularity(dd99_1d(sigma_C = 0.3), x0 = c(-0.5, 0.05, 0.8), tol = 1e-10)
+  cl <- community_classify_singularity(sol)
   expect_equal(cl$classification, "branching point")
   expect_equal(vapply(cl$hessian, as.numeric, numeric(1)),
                dd99_coalition_curvature(c(-b, 0, b), sigma_C = 0.3), tolerance = 1e-5)
   J <- oracle_jacobian(function(x) dd99_coalition_gradient(x, sigma_C = 0.3), c(-b, 0, b))
   expect_equal(sort(Re(cl$jacobian_eigen$values)), sort(Re(eigen(J)$values)), tolerance = 1e-5)
   expect_true(cl$convergence_stable)
+
+  # the middle resident is denser than the outer two, so it evolves faster:
+  # convergence stability is decided on diag(speeds) J, speeds the densities
+  n <- dd99_coalition_density(c(-b, 0, b), sigma_C = 0.3)
+  w <- n / mean(n)
+  expect_equal(cl$speeds, w, tolerance = 1e-6)
+  expect_gt(max(abs(w - 1)), 0.1)
+  expect_equal(sort(Re(cl$jacobian_weighted_eigen$values)), sort(Re(eigen(w * J)$values)),
+               tolerance = 1e-5)
+  expect_match(paste(utils::capture.output(print(cl)), collapse = "\n"), "speed-weighted")
+  # equal speeds, or any given ones
+  eq <- community_classify_singularity(sol, speeds = "equal")
+  expect_equal(eq$speeds, rep(1, 3))
+  expect_equal(eq$jacobian_weighted_eigen$values, eq$jacobian_eigen$values)
+  given <- community_classify_singularity(sol, speeds = c(1, 4, 1))
+  expect_equal(given$speeds, c(0.5, 2, 0.5))
+  expect_equal(sort(Re(given$jacobian_weighted_eigen$values)),
+               sort(Re(eigen(c(0.5, 2, 0.5) * given$jacobian)$values)), tolerance = 1e-10)
+  expect_error(community_classify_singularity(sol, speeds = c(1, 1)), "3 positive numbers")
+  expect_error(community_classify_singularity(sol, speeds = c(1, -1, 1)), "3 positive numbers")
+})
+
+test_that("a two-trait coalition is solved and classified with residents stacked trait by trait", {
+  # sigma_C = (0.4, 1.5): the DD99 pair splits along x1 only, at the 1-D
+  # closed-form root, with both residents at x2 = 0; across x2 each sits at a
+  # fitness maximum of curvature r (1/sigma_C2^2 - 1/sigma_K2^2)
+  a <- dd99_pair_root(sigma_C = 0.4)
+  out <- community_solve_singularity(dd99_2d(), x0 = rbind(c(-0.3, 0.1), c(0.6, -0.1)), tol = 1e-10)
+  expect_true(attr(out, "converged"))
+  expect_equal(unname(out$traits), cbind(c(-a, a), c(0, 0)), tolerance = 1e-8)
+  root <- attr(out, "singularity")
+  expect_equal(dim(root), c(2L, 2L))
+  expect_equal(colnames(root), c("x1", "x2"))
+
+  cl <- community_classify_singularity(out)
+  expect_equal(cl$classification, "branching point")
+  expect_equal(dim(cl$traits), c(2L, 2L))
+  expect_equal(rownames(cl$jacobian), c("x1[1]", "x1[2]", "x2[1]", "x2[2]"))
+  # the x1 block is the 1-D coalition Jacobian; x1 and x2 decouple at x2 = 0
+  J1 <- oracle_jacobian(dd99_coalition_gradient, c(-a, a))
+  expect_equal(unname(cl$jacobian[1:2, 1:2]), J1, tolerance = 1e-5)
+  expect_equal(unname(cl$jacobian[1:2, 3:4]), matrix(0, 2, 2), tolerance = 1e-6)
+  expect_equal(unname(cl$jacobian[3:4, 1:2]), matrix(0, 2, 2), tolerance = 1e-6)
+  curv <- dd99_coalition_curvature(c(-a, a))
+  for (i in 1:2) {
+    expect_equal(unname(diag(cl$hessian[[i]])), c(curv[i], 1 / 1.5^2 - 1), tolerance = 1e-5)
+  }
+  expect_equal(unname(abs(cl$branching_direction)), cbind(c(1, 1), c(0, 0)), tolerance = 1e-6)
+})
+
+test_that("the resident Jacobian refuses residents too close to tell apart", {
+  # 8e-4 apart at x ~ 0.5, inside two finite-difference steps (1e-3 |x| each)
+  close <- dd99_1d() |>
+    community_add(trait_matrix(c(0.5, 0.5008), "x"), birth_rate = c(100, 100)) |>
+    community_demography()
+  expect_error(community_selection_gradient_jacobian(close),
+               "residents 1 and 2 are within the finite-difference step")
+  expect_error(community_classify_singularity(close), "within the finite-difference step")
 })

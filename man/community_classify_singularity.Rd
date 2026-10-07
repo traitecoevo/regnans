@@ -5,7 +5,12 @@
 \alias{print.singularity_classification}
 \title{Classify a singular strategy or coalition (1-D and N-D)}
 \usage{
-community_classify_singularity(community, birth_rate = NULL, tol = 1e-08)
+community_classify_singularity(
+  community,
+  birth_rate = NULL,
+  tol = 1e-08,
+  speeds = "density"
+)
 
 \method{print}{singularity_classification}(x, ...)
 }
@@ -21,6 +26,12 @@ own equilibrium birth rates, which is normally what you want.}
 \item{tol}{Magnitude below which an eigenvalue counts as zero, making the
 classification degenerate rather than forcing a verdict.}
 
+\item{speeds}{The residents' relative speeds of evolution, which decide
+convergence stability for a coalition: \code{"density"} (default) their
+equilibrium densities, as in \code{\link{community_canonical_equation}}
+with \code{canonical_control(density = TRUE)}; \code{"equal"}; or a
+positive vector with one value per resident. Ignored for one resident.}
+
 \item{x}{A \code{singularity_classification} object.}
 
 \item{...}{Ignored.}
@@ -30,7 +41,10 @@ An object of class \code{singularity_classification}: a list with
 the traits and selection gradient at the point, \code{hessian} and
 \code{jacobian} with their eigen-decompositions
 (\code{hessian_eigen}, \code{jacobian_eigen}, \code{jacobian_symmetric_eigen}),
-the logical verdicts \code{evolutionarily_stable} (with
+\code{speeds} (normalised to mean one) with \code{jacobian_weighted_eigen},
+the eigen-decomposition of \eqn{D J} on which convergence stability is
+decided (the same as \code{jacobian_eigen} for one resident or equal
+speeds), the logical verdicts \code{evolutionarily_stable} (with
 \code{resident_evolutionarily_stable}, one per resident),
 \code{convergence_stable} and \code{strongly_convergence_stable}, the
 \code{branching_direction} where the point is invadable, the four-way
@@ -63,13 +77,18 @@ that (Geritz et al. 1998; Leimar 2009):
     with respect to the \emph{resident} traits: the scalar \eqn{dG/dx} in
     one trait, the Jacobian \eqn{J} in \code{k}, and for \code{m} residents
     the \code{mk x mk} Jacobian of every resident's gradient with respect to
-    every resident's traits, through the environment they share.
-    Eigenvalues of \eqn{J} with negative real parts give convergence
-    stability under the canonical equation with an isotropic mutational
-    covariance and equal speeds; a negative-definite symmetric part
-    \eqn{(J + J^T)/2} gives \emph{strong} convergence stability, which holds
-    for any mutational covariance matrix and any (positive) speeds of the
-    residents.}
+    every resident's traits, through the environment they share. Under
+    the canonical equation with an isotropic mutational covariance each
+    resident moves at its own speed \eqn{w_i} along its gradient, so the
+    point is convergence stable when the eigenvalues of \eqn{D J}, with
+    \eqn{D} the speeds on the diagonal, have negative real parts. For one
+    resident the speed only rescales \eqn{J}; for a coalition it does not,
+    and a coalition stable at equal speeds can be unstable at the speeds
+    its densities give (the canonical equation's speed is proportional to
+    the resident's equilibrium density). A negative-definite symmetric
+    part \eqn{(J + J^T)/2} gives \emph{strong} convergence stability,
+    which holds for any mutational covariance matrix and any (positive)
+    speeds of the residents.}
 }
 
 Crossing the two gives the standard four-way classification:

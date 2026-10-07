@@ -121,6 +121,23 @@ test_that("without polishing the explicit stepper jitters at its stability limit
   expect_lt(rodas$evaluations, 300L)
 })
 
+test_that("polishing finishes locally and refuses a root far from the residents", {
+  # from (-0.1, 1.2) the solver reaches the DD99 pair (+-0.442), a move of 0.76
+  # on a trait range of 4: not a local finish, so polishing declines it, but
+  # still counts the solves it spent
+  comm <- dd99(sigma_C = 0.4)
+  base <- community_clear_residents(comm)
+  tf <- community_trait_transform(comm)
+  a <- dd99_pair_root(sigma_C = 0.4)
+  far <- canonical_polish(base, c(-0.1, 1.2), c(100, 100), tf, 1L, 4, canonical_control())
+  expect_null(far$z)
+  expect_gt(far$evaluations, 0L)
+  anywhere <- canonical_polish(base, c(-0.1, 1.2), c(100, 100), tf, 1L, 4, canonical_control(), reach = Inf)
+  expect_equal(anywhere$z, c(-a, a), tolerance = 1e-4)
+  near <- canonical_polish(base, c(-0.4, 0.45), c(100, 100), tf, 1L, 4, canonical_control())
+  expect_equal(near$z, c(-a, a), tolerance = 1e-4)
+})
+
 test_that("GK98 branches to the dimorphic coalition the trait-evolution plot shows", {
   comm <- gk98(d = 1.5)
   ce <- community_canonical_equation(comm, x0 = 1.2,

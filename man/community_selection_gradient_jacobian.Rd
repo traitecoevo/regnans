@@ -7,7 +7,9 @@
 community_selection_gradient_jacobian(community, birth_rate = NULL)
 }
 \arguments{
-\item{community}{A \code{community} with one or more residents.}
+\item{community}{A \code{community} with one or more residents, no two of
+them within the finite-difference step of each other (an error: the
+stencil cannot tell them apart).}
 
 \item{birth_rate}{Birth rates to start each equilibrium solve from, one per
 resident; defaults to the residents' own, with each solve then

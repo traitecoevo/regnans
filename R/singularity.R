@@ -283,11 +283,16 @@ community_solve_singularity <- function(community, x0 = NULL, bounds = NULL,
   ## Residual in search coordinates z: dS/dz = dS/dx * dx/dz. For a log trait
   ## scale dx/dz = x, so the residual is the gradient with respect to log(x) --
   ## the natural scale on which to ask whether selection has stopped.
+  ## `refused_before` is the closure's count of refused (merged) probes as of
+  ## the last finite residual, so an error can be traced to a refusal since.
+  refused_before <- 0L
   residual <- function(z) {
     z <- pmin(pmax(z, z_lo), z_hi)
     x <- tf$inv(z)
     dxdz <- if (log_scale) x else rep(1, m * k)
-    gradient(x) * dxdz
+    r <- gradient(x) * dxdz
+    if (all(is.finite(r))) refused_before <<- attr(gradient, "refused")()
+    r
   }
   ## Its Jacobian, the resident Jacobian carried onto the trait scale: on a
   ## log scale d(g_i x_i)/dz_j = x_i J_ij x_j + [i = j] g_i x_i. The solvers
@@ -305,13 +310,17 @@ community_solve_singularity <- function(community, x0 = NULL, bounds = NULL,
     singularity_bracket(residual, z_lo, z_hi, tol = tol, maxit = maxit)
   } else {
     ## a solver that cannot step back from a refused (merged) probe errors
-    ## out of it; that is the coalition being lost, not a failure of the solve
+    ## out of it; that is the coalition being lost, not a failure of the solve.
+    ## Any other error is re-raised, carrying the equilibrium solves spent.
     tryCatch(
       util_nlsolve(as.numeric(tf$fwd(x0)), residual, tol = tol, maxit = maxit,
                    solver = solver, require_converged = FALSE,
                    jac = if (solver == "dfsane") NULL else jacobian),
       error = function(e) {
-        if (attr(gradient, "refused")() == 0L) stop(e)
+        if (attr(gradient, "refused")() == refused_before) {
+          e$evaluations <- attr(gradient, "evaluations")()
+          stop(e)
+        }
         structure(as.numeric(tf$fwd(attr(gradient, "last")()$traits)), converged = FALSE,
                   merged = TRUE, message = conditionMessage(e))
       })
@@ -375,12 +384,14 @@ community_solve_singularity <- function(community, x0 = NULL, bounds = NULL,
 ## than the resident Jacobian's finite-difference step, so that no derivative
 ## across the residents can tell them apart. At coincidence the community is
 ## degenerate -- two copies of one strategy, its split between them undefined
-## -- and a model's equilibrium may not even be finite there.
-residents_merged <- function(x, m, k, ctrl) {
+## -- and a model's equilibrium may not even be finite there. `reach` widens
+## the test to that many steps (2: a stencil point of one resident can land
+## within a step of the other).
+residents_merged <- function(x, m, k, ctrl, reach = 1) {
   none <- matrix(integer(0), 0L, 2L)
   if (m < 2L) return(none)
   xm <- matrix(x, m, k)
-  h <- matrix(util_fd_step(x, ctrl$d_second, ctrl$eps_second), m, k)
+  h <- reach * matrix(util_fd_step(x, ctrl$d_second, ctrl$eps_second), m, k)
   pairs <- which(upper.tri(diag(m)), arr.ind = TRUE)
   close <- apply(pairs, 1, function(p) all(abs(xm[p[1], ] - xm[p[2], ]) < pmax(h[p[1], ], h[p[2], ])))
   pairs[close, , drop = FALSE]
@@ -423,13 +434,18 @@ coalition_lost <- function(community, x, m, k, ctrl) {
 ##'     with respect to the \emph{resident} traits: the scalar \eqn{dG/dx} in
 ##'     one trait, the Jacobian \eqn{J} in \code{k}, and for \code{m} residents
 ##'     the \code{mk x mk} Jacobian of every resident's gradient with respect to
-##'     every resident's traits, through the environment they share.
-##'     Eigenvalues of \eqn{J} with negative real parts give convergence
-##'     stability under the canonical equation with an isotropic mutational
-##'     covariance and equal speeds; a negative-definite symmetric part
-##'     \eqn{(J + J^T)/2} gives \emph{strong} convergence stability, which holds
-##'     for any mutational covariance matrix and any (positive) speeds of the
-##'     residents.}
+##'     every resident's traits, through the environment they share. Under
+##'     the canonical equation with an isotropic mutational covariance each
+##'     resident moves at its own speed \eqn{w_i} along its gradient, so the
+##'     point is convergence stable when the eigenvalues of \eqn{D J}, with
+##'     \eqn{D} the speeds on the diagonal, have negative real parts. For one
+##'     resident the speed only rescales \eqn{J}; for a coalition it does not,
+##'     and a coalition stable at equal speeds can be unstable at the speeds
+##'     its densities give (the canonical equation's speed is proportional to
+##'     the resident's equilibrium density). A negative-definite symmetric
+##'     part \eqn{(J + J^T)/2} gives \emph{strong} convergence stability,
+##'     which holds for any mutational covariance matrix and any (positive)
+##'     speeds of the residents.}
 ##' }
 ##'
 ##' Crossing the two gives the standard four-way classification:
@@ -467,11 +483,19 @@ coalition_lost <- function(community, x, m, k, ctrl) {
 ##' own equilibrium birth rates, which is normally what you want.
 ##' @param tol Magnitude below which an eigenvalue counts as zero, making the
 ##' classification degenerate rather than forcing a verdict.
+##' @param speeds The residents' relative speeds of evolution, which decide
+##' convergence stability for a coalition: \code{"density"} (default) their
+##' equilibrium densities, as in \code{\link{community_canonical_equation}}
+##' with \code{canonical_control(density = TRUE)}; \code{"equal"}; or a
+##' positive vector with one value per resident. Ignored for one resident.
 ##' @return An object of class \code{singularity_classification}: a list with
 ##' the traits and selection gradient at the point, \code{hessian} and
 ##' \code{jacobian} with their eigen-decompositions
 ##' (\code{hessian_eigen}, \code{jacobian_eigen}, \code{jacobian_symmetric_eigen}),
-##' the logical verdicts \code{evolutionarily_stable} (with
+##' \code{speeds} (normalised to mean one) with \code{jacobian_weighted_eigen},
+##' the eigen-decomposition of \eqn{D J} on which convergence stability is
+##' decided (the same as \code{jacobian_eigen} for one resident or equal
+##' speeds), the logical verdicts \code{evolutionarily_stable} (with
 ##' \code{resident_evolutionarily_stable}, one per resident),
 ##' \code{convergence_stable} and \code{strongly_convergence_stable}, the
 ##' \code{branching_direction} where the point is invadable, the four-way
@@ -485,7 +509,7 @@ coalition_lost <- function(community, x, m, k, ctrl) {
 ##' @author Daniel Falster
 ##' @export
 community_classify_singularity <- function(community, birth_rate = NULL,
-                                           tol = 1e-8) {
+                                           tol = 1e-8, speeds = "density") {
 
   trait_names <- community$trait_names
   k <- length(trait_names)
@@ -520,10 +544,14 @@ community_classify_singularity <- function(community, birth_rate = NULL,
   J_eigen <- eigen(J)
   J_sym <- (J + t(J)) / 2
   J_sym_eigen <- eigen(J_sym, symmetric = TRUE)
+  ## each resident's rows scaled by its speed (stacked trait by trait,
+  ## residents within each)
+  w <- classification_speeds(speeds, community, m)
+  J_w_eigen <- if (all(w == 1)) J_eigen else eigen(rep(w, times = k) * J)
 
   ## --- verdicts -------------------------------------------------------------
   ev_H <- lapply(H_eigen, `[[`, "values")
-  ev_J <- Re(J_eigen$values)
+  ev_J <- Re(J_w_eigen$values)
   ev_Js <- J_sym_eigen$values
 
   ess_i <- vapply(ev_H, function(v) all(v < -tol), logical(1))
@@ -581,6 +609,8 @@ community_classify_singularity <- function(community, birth_rate = NULL,
     jacobian = J,
     jacobian_eigen = J_eigen,
     jacobian_symmetric_eigen = J_sym_eigen,
+    speeds = w,
+    jacobian_weighted_eigen = J_w_eigen,
     evolutionarily_stable = ess,
     resident_evolutionarily_stable = ess_i,
     convergence_stable = cs,
@@ -598,6 +628,24 @@ community_classify_singularity <- function(community, birth_rate = NULL,
                               classification))
 
   ret
+}
+
+## The residents' relative speeds for the convergence-stability verdict,
+## normalised to mean one (so one resident, or equal speeds, is all ones).
+classification_speeds <- function(speeds, community, m) {
+  if (is.character(speeds)) {
+    speeds <- match.arg(speeds, c("density", "equal"))
+    if (m == 1L || speeds == "equal") return(rep(1, m))
+    speeds <- as.numeric(community$birth_rate)
+    if (length(speeds) != m || any(!is.finite(speeds) | speeds <= 0)) {
+      stop("speeds = \"density\" needs a positive equilibrium density for every resident")
+    }
+  }
+  if (!is.numeric(speeds) || length(speeds) != m || any(!is.finite(speeds) | speeds <= 0)) {
+    stop("speeds must be \"density\", \"equal\" or ", m, " positive numbers")
+  }
+  if (m == 1L) return(1)
+  speeds / mean(speeds)
 }
 
 ##' @param x A \code{singularity_classification} object.
@@ -625,9 +673,14 @@ print.singularity_classification <- function(x, ...) {
     cat(sprintf("  largest selection gradient: %s\n",
                 signif(max(abs(x$selection_gradient)), 3)))
   }
-  cat(sprintf("  convergence stable:    %s (Jacobian eigenvalues %s)\n",
+  weighted <- max(abs(x$speeds - 1)) > 1e-6
+  cat(sprintf("  convergence stable:    %s (%s eigenvalues %s)\n",
               x$convergence_stable,
-              paste(signif(Re(x$jacobian_eigen$values), 4), collapse = ", ")))
+              if (weighted) "speed-weighted Jacobian" else "Jacobian",
+              paste(signif(Re(x$jacobian_weighted_eigen$values), 4), collapse = ", ")))
+  if (weighted) {
+    cat(sprintf("  resident speeds:       %s\n", paste(signif(x$speeds, 4), collapse = ", ")))
+  }
   cat(sprintf("  strongly conv. stable: %s\n", x$strongly_convergence_stable))
   if (!is.null(x$branching_direction)) {
     if (m == 1L) {

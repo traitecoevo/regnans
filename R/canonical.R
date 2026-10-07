@@ -64,7 +64,9 @@
 ##'     solving for it (\code{\link{community_solve_singularity}}) instead of
 ##'     integrating it: near a stable coalition the dynamics are
 ##'     stiff, and an explicit stepper held at its stability limit jitters
-##'     about the point without reaching \code{gradient_tol}.}
+##'     about the point without reaching \code{gradient_tol}. A solution more
+##'     than a tenth of the trait range from the current residents is not a
+##'     local finish and is refused; the integration carries on.}
 ##'   \item{\code{branch}}{what happens to a stationary resident at a fitness
 ##'     minimum. \code{"expected"} (default): a mutant that can invade and
 ##'     coexist arises at the rate
@@ -292,15 +294,26 @@ immigrant_phenotype <- function(control, tf, bounds_z, k) {
 ## the Jacobian across the residents from the derivative layer. Returns the
 ## new z and the equilibrium solves it cost, with z NULL if the solve did not
 ## converge or lost the coalition, in which case the integration simply
-## carries on.
-canonical_polish <- function(base, z, n, tf, k, control) {
+## carries on. Polishing is a local finish: a small gradient does not mean the
+## root is near (a flat landscape, residents close to merging), and the
+## solver's full steps can carry it to a different singular coalition, so a
+## root more than `reach` of the trait range from z on any trait is refused.
+canonical_polish <- function(base, z, n, tf, k, range_z, control, reach = 0.1) {
   sol <- tryCatch(
     suppressWarnings(community_solve_singularity(
       base, x0 = tf$inv(matrix(z, ncol = k)), tol = control$gradient_tol / 10, maxit = 50, birth_rate = n)),
-    error = function(e) NULL)
-  if (is.null(sol)) return(list(z = NULL, evaluations = 0L))
-  list(z = if (isTRUE(attr(sol, "converged"))) as.numeric(tf$fwd(sol$traits)),
-       evaluations = attr(sol, "evaluations"))
+    error = function(e) e)
+  if (inherits(sol, "error")) {
+    return(list(z = NULL, evaluations = if (is.null(sol$evaluations)) 0L else sol$evaluations))
+  }
+  evaluations <- attr(sol, "evaluations")
+  z_new <- as.numeric(tf$fwd(sol$traits))
+  m <- length(z) / k
+  if (!isTRUE(attr(sol, "converged")) ||
+      any(abs(z_new - z) > rep(reach * range_z, each = m))) {
+    return(list(z = NULL, evaluations = evaluations))
+  }
+  list(z = z_new, evaluations = evaluations)
 }
 
 ## odelia's step-size control in the canonical equation's terms: the error
@@ -506,7 +519,7 @@ canonical_integrate <- function(community, x0, control, tf, range_z, mutation_sd
     ## follow the approach, which Newton skips
     if (control$polish && max(abs(k1$g_z)) < control$polish_tol &&
         max(abs(k1$g_z)) >= control$gradient_tol) {
-      polished <- canonical_polish(base, z, k1$n, tf, k, control)
+      polished <- canonical_polish(base, z, k1$n, tf, k, range_z, control)
       polish_evaluations <- polish_evaluations + polished$evaluations
       if (!is.null(polished$z)) {
         z <- polished$z
