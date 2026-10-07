@@ -34,8 +34,7 @@ Imports:
 LinkingTo:
     Rcpp
 Remotes:
-    traitecoevo/plant@develop,
-    traitecoevo/odelia@815a54f
+    traitecoevo/plant@develop
 Suggests:
     testthat (>= 3.0.0),
     parallel,

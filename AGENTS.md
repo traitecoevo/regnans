@@ -210,6 +210,7 @@ here follow current plant terminology.
 - After future plant updates, re-run the `plant-update-interface` skill (in
   `../plant-dev1/.claude/skills/`) — it reads plant's NEWS and updates
   `.plant-interface-version`.
+- ⚠️ **Do not pin odelia in `Remotes:`.** regnans calls odelia's R solver but does not compile against it, so it takes odelia from plant's `Remotes:`; the `Imports` floor is the only constraint it needs. A pin of its own has to equal plant's exactly (pak refuses two refs to one package, with a "dependency conflict" error that never names it), and since regnans tracks `plant@develop`, every odelia bump in plant would break regnans' install until this file caught up (traitecoevo/plant#656).
 
 ## Test baseline
 
