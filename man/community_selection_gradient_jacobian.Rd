@@ -7,25 +7,36 @@
 community_selection_gradient_jacobian(community, birth_rate = NULL)
 }
 \arguments{
-\item{community}{A \code{community} with exactly one resident.}
+\item{community}{A \code{community} with one or more residents.}
 
-\item{birth_rate}{Birth rate to start each equilibrium solve from; defaults
-to the resident's own, with each solve then warm-starting from the last.}
+\item{birth_rate}{Birth rates to start each equilibrium solve from, one per
+resident; defaults to the residents' own, with each solve then
+warm-starting from the last.}
 }
 \value{
-A \code{k} by \code{k} matrix with the selection gradient at the
-resident in \code{attr(., "selection_gradient")}.
+An \code{mk} by \code{mk} matrix, rows and columns named by trait
+(and \code{[i]} for resident \code{i} when there are several), with the
+stacked selection gradient at the residents in
+\code{attr(., "selection_gradient")} and the equilibrium solves it cost in
+\code{attr(., "evaluations")}.
 }
 \description{
-Jacobian of the selection gradient with respect to the resident trait.
+Jacobian of the selection gradient with respect to the resident traits.
 }
 \details{
-How the selection gradient changes as the (single) resident moves: the
-matrix \eqn{J_{ij} = d g_i / d x_j}. Eigenvalues with negative real parts
-mean selection carries a nearby resident towards the point --- convergence
-stability. Each stencil point introduces the perturbed trait as the sole
-resident and solves the community to demographic equilibrium, so this is
-the expensive derivative: \code{2k} equilibrium solves per Richardson level.
+How the selection gradients of the residents change as the residents move,
+each re-solved to demographic equilibrium: for one resident the \code{k}
+by \code{k} matrix \eqn{J_{ij} = d g_i / d x_j}; for \code{m} residents the
+\code{mk} by \code{mk} matrix of every resident's gradient with respect to
+every resident's traits, its gradients and traits stacked as the trait
+matrix is stored (trait by trait, residents within each). The
+off-diagonal blocks are how a resident's selection responds to the others
+through the environment they make. Eigenvalues with negative real parts
+mean selection carries nearby residents towards the point ---
+convergence stability. Each stencil point solves the perturbed community to
+demographic equilibrium, so this is the expensive derivative: \code{2mk}
+equilibrium solves per Richardson level, finite differences across the
+residents until the model supplies equilibrium sensitivities.
 }
 \author{
 Daniel Falster

@@ -100,7 +100,7 @@ test_that("an immediate split at x0 gives mirror-image daughters, finished by Ne
   fin <- final(ce)
   expect_equal(nrow(fin), 2L)
   expect_equal(fin$x[1], -fin$x[2], tolerance = 1e-3)
-  expect_gt(abs(fin$x[1] - fin$x[2]), 0.1)
+  expect_equal(abs(fin$x), rep(dd99_pair_root(sigma_C = 0.4), 2), tolerance = 1e-5)
   expect_equal(fin$density[1], fin$density[2], tolerance = 1e-3)
   expect_true(ce$outcome %in% c("stable", "max_residents"))
   expect_lt(max(abs(fin$gradient_x)), canonical_control()$gradient_tol)

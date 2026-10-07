@@ -135,12 +135,41 @@ test_that("community_selection_gradient_jacobian matches the DD99 resident deriv
   expect_equal(names(g0), "x")
   expect_equal(as.numeric(g0), -0.4 / 1.5^2, tolerance = 1e-6)
 
-  two <- community_start(bounds(x = c(-2, 2)), trait_scale = "linear",
-                         harness = harness_dd99()) |>
-    community_add(trait_matrix(c(-1, 1), "x"), birth_rate = c(100, 100)) |>
+  empty <- community_start(bounds(x = c(-2, 2)), trait_scale = "linear",
+                           harness = harness_dd99())
+  expect_error(community_selection_gradient_jacobian(empty), "at least one resident")
+})
+
+test_that("the resident Jacobian of a coalition matches the closed-form Lotka-Volterra gradients", {
+  # every resident's gradient with respect to every resident's trait, through
+  # the equilibrium they share; the oracle differentiates the explicit
+  # equilibrium-and-gradient formula (helper-coalition.R), not the harness
+  x <- c(-0.5, 0.1, 0.7)
+  comm <- community_start(bounds(x = c(-2, 2)), trait_scale = "linear",
+                          harness = harness_dd99(sigma_C = 0.4)) |>
+    community_add(trait_matrix(x, "x"), birth_rate = c(100, 100, 100)) |>
     community_demography()
-  expect_error(community_selection_gradient_jacobian(two),
-               "needs exactly one resident")
+  J <- community_selection_gradient_jacobian(comm)
+  expect_equal(dim(J), c(3L, 3L))
+  expect_equal(rownames(J), c("x[1]", "x[2]", "x[3]"))
+  expect_equal(as.numeric(attr(J, "selection_gradient")), dd99_coalition_gradient(x), tolerance = 1e-8)
+  # one equilibrium solve at the centre and two per resident
+  expect_equal(attr(J, "evaluations"), 1L + 2L * 3L)
+  # central differences with the default step: second-order error ~ 1e-6
+  expect_equal(unname(J[, ]), oracle_jacobian(dd99_coalition_gradient, x), tolerance = 1e-5)
+  # the off-diagonal blocks are the residents' effect on each other's selection
+  expect_true(all(abs(J[row(J) != col(J)]) > 1e-3))
+
+  # two traits: stacked trait by trait, residents within each
+  two <- community_start(bounds(x1 = c(-2, 2), x2 = c(-2, 2)), trait_scale = "linear",
+                         harness = harness_dd99_nd(sigma_C = c(0.4, 0.5))) |>
+    community_add(trait_matrix(rbind(c(-0.4, 0.2), c(0.5, -0.3)), c("x1", "x2")),
+                  birth_rate = c(100, 100)) |>
+    community_demography()
+  J2 <- community_selection_gradient_jacobian(two)
+  expect_equal(rownames(J2), c("x1[1]", "x1[2]", "x2[1]", "x2[2]"))
+  g <- community_fitness_gradient(two)
+  expect_equal(as.numeric(attr(J2, "selection_gradient")), as.numeric(g), tolerance = 1e-10)
 })
 
 test_that("community_selection_gradient returns one row per resident", {

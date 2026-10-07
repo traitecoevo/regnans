@@ -2,13 +2,13 @@
 % Please edit documentation in R/singularity.R
 \name{community_solve_singularity}
 \alias{community_solve_singularity}
-\title{Solve for a singular strategy (N-dimensional)}
+\title{Solve for a singular strategy or coalition (N-dimensional)}
 \usage{
 community_solve_singularity(
   community,
   x0 = NULL,
   bounds = NULL,
-  solver = c("nleqslv", "dfsane", "bracket"),
+  solver = c("nleqslv", "newton", "dfsane", "bracket"),
   tol = 1e-06,
   maxit = 100,
   birth_rate = NULL,
@@ -18,57 +18,71 @@ community_solve_singularity(
 \arguments{
 \item{community}{A \code{community} object to search within.}
 
-\item{x0}{Starting trait combination. Defaults to the traits of a single
-resident if the community has one, otherwise the midpoint of \code{bounds}
-on the community's trait scale.}
+\item{x0}{Starting traits, one row per resident (a bare vector is one
+resident with one value per trait, or, for a single trait, one resident per
+element). Defaults to the community's residents, or, if it has none, the
+midpoint of \code{bounds} on the community's trait scale.}
 
 \item{bounds}{A \code{k} by 2 matrix of lower/upper bounds (a length-2
 vector is accepted when there is a single trait). Defaults to the
 community's bounds.}
 
-\item{solver}{Root finder: \code{"nleqslv"} (default), \code{"dfsane"},
-or \code{"bracket"} (one trait only).}
+\item{solver}{Root finder: \code{"nleqslv"} (default), \code{"newton"},
+\code{"dfsane"}, or \code{"bracket"} (one resident, one trait).}
 
 \item{tol}{Convergence tolerance passed to the solver: on the residual for
-\code{"nleqslv"} and \code{"dfsane"}, on the root (on the trait scale) for
-\code{"bracket"}.}
+\code{"nleqslv"}, \code{"newton"} and \code{"dfsane"}, on the root (on the
+trait scale) for \code{"bracket"}.}
 
 \item{maxit}{Maximum solver iterations.}
 
-\item{birth_rate}{Birth rate to start each candidate's equilibrium solve
-from. Defaults to the resident's own birth rate if the community has one,
-otherwise \code{birth_rate_initial}; thereafter each solve warm-starts from
-the previous one. Worth setting when the model's equilibrium birth rates are
-far from \code{birth_rate_initial}.}
+\item{birth_rate}{Birth rates to start the first equilibrium solve from,
+one per resident. Defaults to the residents' own if the community's
+residents are being searched, otherwise \code{birth_rate_initial};
+thereafter each solve warm-starts from the previous one. Worth setting when
+the model's equilibrium birth rates are far from \code{birth_rate_initial}.}
 
 \item{edge_ok}{Is it (not) an error if the solution lands on the edge of
 \code{bounds}?}
 }
 \value{
-The \code{community} at the singular strategy: one resident, solved
+The \code{community} at the singular strategy or coalition, solved
 to demographic equilibrium, with \code{selection_gradient} set. Attributes
-\code{converged}, \code{solver} and \code{singularity} (the root, named by
-trait) record the solve.
+record the solve: \code{converged}, \code{solver}, \code{evaluations} (the
+equilibrium solves it cost) and \code{singularity} (the root: named by
+trait for one resident, a residents-by-traits matrix for several).
 }
 \description{
-Find a singular strategy in any number of trait dimensions.
+Find a singular strategy or a singular coalition.
 }
 \details{
 A singular strategy is a resident trait combination at which the selection
-gradient vanishes. The vector-valued selection gradient is handed to a root
-finder: \code{nleqslv} or \code{dfsane} (via \code{\link{util_nlsolve}})
-in any number of traits, or, for a single trait, \code{"bracket"}, which
-brackets the scalar gradient between the bounds with \code{uniroot}. The
-bracket needs a sign change of the gradient across the bounds but then
-cannot miss the root inside them; the other two are local searches from
-\code{x0}.
+gradient vanishes; a singular coalition is a set of coexisting residents at
+each of which its own selection gradient vanishes, in the environment they
+make together (the residents a population reaches after evolutionary
+branching). The solver finds either: the stacked selection gradients of
+all residents are handed to a root finder, the community being re-solved
+to demographic equilibrium at every evaluation. One resident is the
+monomorphic singular strategy.
 
-Each residual evaluation introduces the candidate trait combination as the
-sole resident, solves the community to demographic equilibrium, and
-differentiates invasion fitness in the mutant direction --- so it costs one
-full demographic solve plus a gradient stencil. Any residents on the
-incoming community are discarded (the singular point is monomorphic); if
-there is exactly one, its traits are used as the starting point.
+Root finders: \code{nleqslv} (Broyden with Newton restarts), \code{newton}
+(the package's Newton--Broyden iteration with a backtracking line search,
+see \code{\link{util_nlsolve}}) and \code{dfsane} (derivative-free), all
+local searches from \code{x0}; or, for one resident with a single trait,
+\code{"bracket"}, which brackets the scalar gradient between the bounds with
+\code{uniroot} and so needs a sign change across them but then cannot miss
+the root inside. \code{nleqslv} and \code{newton} take the Jacobian of the
+gradients with respect to the residents from
+\code{\link{community_selection_gradient_jacobian}} (finite differences
+across the residents, \code{2mk} equilibrium solves, until the model
+supplies equilibrium sensitivities), refreshing it only when their
+rank-one updates fail.
+
+Each residual evaluation costs one demographic equilibrium solve, warm
+started from the last, plus a gradient of invasion fitness at each
+resident. The residents searched are those of \code{x0}, by default the
+community's own; a community without residents is searched from the
+midpoint of \code{bounds} for a monomorphic singular strategy.
 
 The search runs on the community's trait scale (see
 \code{community_start(trait_scale = )}): for \code{"log"} traits the root is
@@ -78,7 +92,20 @@ biological traits. The root is the same either way. Candidate points are
 clamped to \code{bounds}, and hitting a bound produces a warning: the search
 region did not contain a singularity. With \code{"bracket"} the same happens
 when the gradient has one sign across the bounds, and the returned point is
-the bound selection pushes towards.
+the bound selection pushes towards. A coalition that loses a resident on
+the way --- one whose equilibrium density is no longer positive, or two that
+merge --- is not a coalition of that size: the solve is reported as not
+converged, with a warning naming the residents.
+}
+\examples{
+comm <- community_start(bounds(x = c(-2, 2)), trait_scale = "linear",
+                        harness = harness_dd99(sigma_C = 0.4))
+# the monomorphic singular strategy, then the dimorphic coalition it
+# branches into
+one <- community_solve_singularity(comm, x0 = 0.5)
+pair <- community_solve_singularity(comm, x0 = c(-0.3, 0.6))
+pair$traits
+community_classify_singularity(pair)
 }
 \seealso{
 \code{\link{community_classify_singularity}} to determine whether

@@ -38,10 +38,10 @@ canonical_control(control = NULL)
     gradient on the trait scale is below this.}
   \item{\code{polish}, \code{polish_tol}}{once every gradient is below
     \code{polish_tol}, finish the approach to the stationary coalition by
-    Newton on the residents' gradients instead of integrating it: near a
-    stable coalition the dynamics are stiff, and an explicit stepper held at
-    its stability limit jitters about the point without reaching
-    \code{gradient_tol}.}
+    solving for it (\code{\link{community_solve_singularity}}) instead of
+    integrating it: near a stable coalition the dynamics are
+    stiff, and an explicit stepper held at its stability limit jitters
+    about the point without reaching \code{gradient_tol}.}
   \item{\code{branch}}{what happens to a stationary resident at a fitness
     minimum. \code{"expected"} (default): a mutant that can invade and
     coexist arises at the rate
