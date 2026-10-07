@@ -24,7 +24,8 @@ see \code{\link{community_solve_singularity}}. Defaults to the residents'
 own equilibrium birth rates, which is normally what you want.}
 
 \item{tol}{Magnitude below which an eigenvalue counts as zero, making the
-classification degenerate rather than forcing a verdict.}
+classification degenerate rather than forcing a verdict; a resident's
+invasion fitness when rare must exceed it for protected coexistence.}
 
 \item{speeds}{The residents' relative speeds of evolution, which decide
 convergence stability for a coalition: \code{"density"} (default) their
@@ -44,12 +45,16 @@ the traits and selection gradient at the point, \code{hessian} and
 \code{speeds} (normalised to mean one) with \code{jacobian_weighted_eigen},
 the eigen-decomposition of \eqn{D J} on which convergence stability is
 decided (the same as \code{jacobian_eigen} for one resident or equal
-speeds), the logical verdicts \code{evolutionarily_stable} (with
-\code{resident_evolutionarily_stable}, one per resident),
-\code{convergence_stable} and \code{strongly_convergence_stable}, the
-\code{branching_direction} where the point is invadable, the four-way
-\code{classification}, and \code{evaluations} (the equilibrium solves of the
-Jacobian). For one resident \code{traits}, \code{selection_gradient} and
+speeds), \code{invasion_fitness} (each resident's when rare against the
+others; \code{NULL} for one resident) with the verdict
+\code{protected_coexistence}, the logical verdicts
+\code{evolutionarily_stable} (with \code{resident_evolutionarily_stable},
+one per resident), \code{convergence_stable} and
+\code{strongly_convergence_stable}, the \code{branching_direction} where
+the point is invadable, the \code{classification} (the four-way verdict,
+\code{"degenerate"}, or \code{"unprotected"} for a coalition without
+protected coexistence), and \code{evaluations} (the equilibrium solves of
+the Jacobian and the coexistence test). For one resident \code{traits}, \code{selection_gradient} and
 \code{branching_direction} are vectors named by trait and \code{hessian} a
 matrix; for a coalition they are residents-by-traits matrices (a row of
 \code{NA} in \code{branching_direction} for a resident that is not at a
@@ -104,6 +109,16 @@ reaches, and "branching point" one that selection reaches but where at
 least one resident sits at a fitness minimum and will branch again
 (\code{resident_evolutionarily_stable} says which).
 
+A coalition is first checked for protected coexistence: each resident,
+made rare, must be able to invade the community of the others at their
+own equilibrium. Positive densities alone do not make a coalition: an
+equilibrium the residents cannot return to after one of them is lost
+(for two Lotka--Volterra residents, exactly an unstable one, as under
+priority effects) is not an evolutionary outcome, and is classified
+\code{"unprotected"} whatever its second-order conditions. The test is
+made on invasion fitness, so it means the same whatever the model's time
+step.
+
 The full eigen-decompositions are returned, not just the verdict: when a
 resident is not an ESS the leading eigenvector of its \eqn{H} is the
 direction in trait space along which it disruptively splits, which is itself
@@ -114,8 +129,13 @@ Cost: each Hessian (\code{\link{community_fitness_hessian}}) needs
 vectorised call against the cached resident environment, so it is cheap. The
 Jacobian (\code{\link{community_selection_gradient_jacobian}}) needs
 \code{2mk} \emph{resident} evaluations, each a full demographic equilibrium
-solve, so it dominates. Derivative settings come from
+solve, so it dominates. Protected coexistence costs \code{m} more, one
+per resident left out. Derivative settings come from
 \code{\link{derivative_control}}.
+
+A community whose solve did not converge (\code{attr(., "converged")}
+\code{FALSE}) is classified with a warning: the verdicts then describe the
+point the solve stopped at.
 }
 \author{
 Daniel Falster

@@ -338,19 +338,31 @@ test_that("community_solve_singularity finds the GK98 dimorphic coalition", {
   expect_equal(as.numeric(out$traits), c(-a, a), tolerance = 1e-8)
 })
 
-test_that("community_solve_singularity searches a coalition on a log trait scale", {
-  # GM99 at alpha R = 7 branches at m* ~ 0.645; its daughters settle at a
-  # dimorphism no closed form gives, so the oracle is internal: every
-  # resident's gradient vanishes, every resident has invasion fitness zero, and
-  # a Newton solve with a correct trait-scale Jacobian gets there in few solves
+test_that("community_solve_singularity finds the asymmetric GM99 coalition on a log trait scale", {
+  # GM99 at alpha R = 7 branches at m* ~ 0.645 into a dimorphism with no
+  # symmetry: residents at ~0.206 and ~0.700, densities ~3.4 : 1. The oracle
+  # (helper-coalition.R) roots the model's own gradients, coded independently;
+  # unlike the mirror-image pairs, swapping or misstacking the residents would
+  # show here
+  a <- gm99_pair_root(alpha = 7, beta = 15)
   gm <- community_start(bounds(x = c(0.1, 0.95)), harness = harness_gm99(alpha = 7, beta = 15))
-  out <- community_solve_singularity(gm, x0 = residents_x0(0.5, 0.8), tol = 1e-8)
+  out <- community_solve_singularity(gm, x0 = residents_x0(0.5, 0.8), tol = 1e-10)
   expect_true(attr(out, "converged"))
-  x <- as.numeric(out$traits)
-  expect_lt(max(abs(out$selection_gradient * x)), 1e-7)
+  expect_equal(as.numeric(out$traits), a, tolerance = 1e-8)
+  expect_equal(out$birth_rate, gm99_coalition_density(a, alpha = 7, beta = 15), tolerance = 1e-8)
   expect_lt(max(abs(out$resident_fitness)), 1e-8)
-  expect_true(all(out$birth_rate > 0))
   expect_lte(attr(out, "evaluations"), 20L)
+
+  # the coalition Jacobian, block by block, and the speed-weighted verdict on
+  # the oracle's own (unequal) densities
+  cl <- community_classify_singularity(out)
+  J <- oracle_jacobian(function(x) gm99_coalition_gradient(x, alpha = 7, beta = 15), a, h = 1e-5)
+  expect_equal(unname(cl$jacobian[, ]), J, tolerance = 1e-5)
+  n <- gm99_coalition_density(a, alpha = 7, beta = 15)
+  expect_equal(cl$speeds, n / mean(n), tolerance = 1e-8)
+  expect_equal(sort(Re(cl$jacobian_weighted_eigen$values)), sort(Re(eigen(n / mean(n) * J)$values)),
+               tolerance = 1e-5)
+  expect_equal(cl$classification, "CSS")
 })
 
 test_that("a coalition that cannot coexist is reported lost, not returned as converged", {
@@ -389,10 +401,57 @@ test_that("the DD99 pair classifies as a convergence-stable branching coalition"
   expect_equal(dim(cl$branching_direction), c(2L, 1L))
   expect_equal(abs(as.numeric(cl$branching_direction)), c(1, 1))
   expect_equal(dim(cl$traits), c(2L, 1L))
-  expect_equal(cl$evaluations, 2L * 2L)
+  # protected coexistence: rare in the other's monoculture (n = K), each
+  # resident's fitness is 1 - C(2a), K being symmetric about x0
+  expect_true(cl$protected_coexistence)
+  expect_equal(cl$invasion_fitness, rep(1 - exp(-(2 * a)^2 / (2 * 0.4^2)), 2), tolerance = 1e-8)
+  # two Jacobian solves per resident, and one per resident left out
+  expect_equal(cl$evaluations, 2L * 2L + 2L)
   out <- paste(utils::capture.output(print(cl)), collapse = "\n")
   expect_match(out, "coalition of 2")
+  expect_match(out, "protected coexistence: TRUE")
   expect_match(out, "branching direction of resident 2")
+})
+
+test_that("a coalition the residents cannot return to is classified unprotected", {
+  # Lotka-Volterra with competition stronger between residents than within
+  # them (priority effects): A(y, x) = 1 + gamma (1 - exp(-(y - x)^2 / 2s^2)).
+  # A symmetric pair has positive densities K / (1 + a), but rare in the
+  # other's monoculture each resident's fitness is 1 - a < 0: an unstable
+  # equilibrium, not a coalition. With gamma < 0 the same pair is protected.
+  lv <- function(gamma) {
+    A <- function(y, x) 1 + gamma * (1 - exp(-outer(y, x, "-")^2 / (2 * 0.3^2)))
+    K <- function(y) exp(-y^2 / 2)
+    harness_explicit(
+      fitness = function(x_mut, x_res, n_res, pars) 1 - as.numeric(A(x_mut, x_res) %*% n_res) / K(x_mut),
+      equilibrium = function(x_res, pars) as.numeric(solve(A(x_res, x_res), K(x_res))),
+      pars = list(), trait_names = "x", label = "lv")
+  }
+  pair <- function(gamma) {
+    community_start(bounds(x = c(-2, 2)), trait_scale = "linear", harness = lv(gamma)) |>
+      community_add(trait_matrix(c(-0.3, 0.3), "x"), birth_rate = c(1, 1)) |>
+      community_demography()
+  }
+  a_of <- function(gamma) 1 + gamma * (1 - exp(-0.6^2 / (2 * 0.3^2)))
+
+  strong <- pair(0.5)
+  expect_true(all(strong$birth_rate > 0))
+  cl <- community_classify_singularity(strong)
+  expect_false(cl$protected_coexistence)
+  expect_equal(cl$invasion_fitness, rep(1 - a_of(0.5), 2), tolerance = 1e-8)
+  expect_equal(cl$classification, "unprotected")
+
+  weak <- community_classify_singularity(pair(-0.5))
+  expect_true(weak$protected_coexistence)
+  expect_equal(weak$invasion_fitness, rep(1 - a_of(-0.5), 2), tolerance = 1e-8)
+  expect_false(weak$classification == "unprotected")
+})
+
+test_that("classifying a solve that did not converge warns", {
+  gm <- community_start(bounds(x = c(0.1, 0.95)), harness = harness_gm99(alpha = 7, beta = 15))
+  stopped <- suppressWarnings(community_solve_singularity(gm, x0 = 0.3, maxit = 1))
+  expect_false(attr(stopped, "converged"))
+  expect_warning(community_classify_singularity(stopped), "did not converge")
 })
 
 test_that("the GK98 pair classifies as an evolutionarily stable coalition", {

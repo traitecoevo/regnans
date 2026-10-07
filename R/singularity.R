@@ -485,6 +485,16 @@ coalition_lost <- function(community, x, m, k, ctrl) {
 ##' least one resident sits at a fitness minimum and will branch again
 ##' (\code{resident_evolutionarily_stable} says which).
 ##'
+##' A coalition is first checked for protected coexistence: each resident,
+##' made rare, must be able to invade the community of the others at their
+##' own equilibrium. Positive densities alone do not make a coalition: an
+##' equilibrium the residents cannot return to after one of them is lost
+##' (for two Lotka--Volterra residents, exactly an unstable one, as under
+##' priority effects) is not an evolutionary outcome, and is classified
+##' \code{"unprotected"} whatever its second-order conditions. The test is
+##' made on invasion fitness, so it means the same whatever the model's time
+##' step.
+##'
 ##' The full eigen-decompositions are returned, not just the verdict: when a
 ##' resident is not an ESS the leading eigenvector of its \eqn{H} is the
 ##' direction in trait space along which it disruptively splits, which is itself
@@ -495,8 +505,13 @@ coalition_lost <- function(community, x, m, k, ctrl) {
 ##' vectorised call against the cached resident environment, so it is cheap. The
 ##' Jacobian (\code{\link{community_selection_gradient_jacobian}}) needs
 ##' \code{2mk} \emph{resident} evaluations, each a full demographic equilibrium
-##' solve, so it dominates. Derivative settings come from
+##' solve, so it dominates. Protected coexistence costs \code{m} more, one
+##' per resident left out. Derivative settings come from
 ##' \code{\link{derivative_control}}.
+##'
+##' A community whose solve did not converge (\code{attr(., "converged")}
+##' \code{FALSE}) is classified with a warning: the verdicts then describe the
+##' point the solve stopped at.
 ##'
 ##' @title Classify a singular strategy or coalition (1-D and N-D)
 ##' @param community A \code{community} whose residents are at (or very near) a
@@ -506,7 +521,8 @@ coalition_lost <- function(community, x, m, k, ctrl) {
 ##' see \code{\link{community_solve_singularity}}. Defaults to the residents'
 ##' own equilibrium birth rates, which is normally what you want.
 ##' @param tol Magnitude below which an eigenvalue counts as zero, making the
-##' classification degenerate rather than forcing a verdict.
+##' classification degenerate rather than forcing a verdict; a resident's
+##' invasion fitness when rare must exceed it for protected coexistence.
 ##' @param speeds The residents' relative speeds of evolution, which decide
 ##' convergence stability for a coalition: \code{"density"} (default) their
 ##' equilibrium densities, as in \code{\link{community_canonical_equation}}
@@ -519,12 +535,16 @@ coalition_lost <- function(community, x, m, k, ctrl) {
 ##' \code{speeds} (normalised to mean one) with \code{jacobian_weighted_eigen},
 ##' the eigen-decomposition of \eqn{D J} on which convergence stability is
 ##' decided (the same as \code{jacobian_eigen} for one resident or equal
-##' speeds), the logical verdicts \code{evolutionarily_stable} (with
-##' \code{resident_evolutionarily_stable}, one per resident),
-##' \code{convergence_stable} and \code{strongly_convergence_stable}, the
-##' \code{branching_direction} where the point is invadable, the four-way
-##' \code{classification}, and \code{evaluations} (the equilibrium solves of the
-##' Jacobian). For one resident \code{traits}, \code{selection_gradient} and
+##' speeds), \code{invasion_fitness} (each resident's when rare against the
+##' others; \code{NULL} for one resident) with the verdict
+##' \code{protected_coexistence}, the logical verdicts
+##' \code{evolutionarily_stable} (with \code{resident_evolutionarily_stable},
+##' one per resident), \code{convergence_stable} and
+##' \code{strongly_convergence_stable}, the \code{branching_direction} where
+##' the point is invadable, the \code{classification} (the four-way verdict,
+##' \code{"degenerate"}, or \code{"unprotected"} for a coalition without
+##' protected coexistence), and \code{evaluations} (the equilibrium solves of
+##' the Jacobian and the coexistence test). For one resident \code{traits}, \code{selection_gradient} and
 ##' \code{branching_direction} are vectors named by trait and \code{hessian} a
 ##' matrix; for a coalition they are residents-by-traits matrices (a row of
 ##' \code{NA} in \code{branching_direction} for a resident that is not at a
@@ -544,6 +564,10 @@ community_classify_singularity <- function(community, birth_rate = NULL,
          "singular strategy or coalition)")
   }
   x <- community$traits
+  if (isFALSE(attr(community, "converged"))) {
+    warning("community_classify_singularity: the community's solve did not converge, ",
+            "so this classifies the point it stopped at, which need not be a singularity")
+  }
 
   if (is.null(community$fitness_function)) {
     community <- community_demography(community)
@@ -573,6 +597,15 @@ community_classify_singularity <- function(community, birth_rate = NULL,
   w <- classification_speeds(speeds, community, m)
   J_w_eigen <- if (all(w == 1)) J_eigen else eigen(rep(w, times = k) * J)
 
+  ## --- protected coexistence: can each resident invade the others? ---------
+  invasion <- NULL
+  if (m > 1L) {
+    invasion <- coalition_invasion_fitness(community)
+    evaluations <- evaluations + attr(invasion, "evaluations")
+    attr(invasion, "evaluations") <- NULL
+  }
+  protected <- is.null(invasion) || all(invasion > tol)
+
   ## --- verdicts -------------------------------------------------------------
   ev_H <- lapply(H_eigen, `[[`, "values")
   ev_J <- Re(J_w_eigen$values)
@@ -586,7 +619,9 @@ community_classify_singularity <- function(community, birth_rate = NULL,
   degenerate <- any(abs(unlist(ev_H)) <= tol) || any(abs(ev_J) <= tol)
 
   classification <-
-    if (degenerate) {
+    if (!protected) {
+      "unprotected"
+    } else if (degenerate) {
       "degenerate"
     } else if (ess && cs) {
       "CSS"
@@ -635,6 +670,8 @@ community_classify_singularity <- function(community, birth_rate = NULL,
     jacobian_symmetric_eigen = J_sym_eigen,
     speeds = w,
     jacobian_weighted_eigen = J_w_eigen,
+    invasion_fitness = invasion,
+    protected_coexistence = protected,
     evolutionarily_stable = ess,
     resident_evolutionarily_stable = ess_i,
     convergence_stable = cs,
@@ -652,6 +689,24 @@ community_classify_singularity <- function(community, birth_rate = NULL,
                               classification))
 
   ret
+}
+
+## Each resident's invasion fitness when rare in the community of the others at
+## their own equilibrium, with the equilibrium solves it cost. Every one
+## positive is protected coexistence: no resident lost by chance stays lost.
+coalition_invasion_fitness <- function(community) {
+  m <- nrow(community$traits)
+  base <- community_clear_residents(community)
+  n <- as.numeric(community$birth_rate)
+  s <- vapply(seq_len(m), function(i) {
+    others <- base |>
+      community_add(trait_matrix(community$traits[-i, , drop = FALSE], community$trait_names),
+                    birth_rate = n[-i]) |>
+      community_demography()
+    as.numeric(others$fitness_function(community$traits[i, , drop = FALSE]))
+  }, numeric(1))
+  attr(s, "evaluations") <- m
+  s
 }
 
 ## The residents' relative speeds for the convergence-stability verdict,
@@ -696,6 +751,8 @@ print.singularity_classification <- function(x, ...) {
     }
     cat(sprintf("  largest selection gradient: %s\n",
                 signif(max(abs(x$selection_gradient)), 3)))
+    cat(sprintf("  protected coexistence: %s (invasion fitness when rare %s)\n",
+                x$protected_coexistence, paste(signif(x$invasion_fitness, 4), collapse = ", ")))
   }
   weighted <- max(abs(x$speeds - 1)) > 1e-6
   cat(sprintf("  convergence stable:    %s (%s eigenvalues %s)\n",

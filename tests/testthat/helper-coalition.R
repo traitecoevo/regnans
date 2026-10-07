@@ -16,6 +16,14 @@
 # GK98 (Levene soft selection, patches -d, 0, d, equal capacities): a
 # mirror-image pair +-a holds equal shares, and resident a's gradient is
 # proportional to sum_j (mu_j - a) f_j(a) / D_j with D_j = f_j(a) + f_j(-a).
+#
+# GM99 (seed size, safe-site lottery) has no symmetry, so its dimorphism is the
+# asymmetric oracle: residents at different distances from anything, at
+# densities ~3.4 : 1. Coded here from the model's definition,
+#   W(y) = (R/y) s(y) E[c(y) / (c(y) + Z)],  Z = sum_j k_j c(x_j),  k_j ~ Poisson(N_j),
+#   s(y) = 1 - 2 exp(-beta y),  c(y) = exp(alpha y),
+# with the densities solving W_i = 1 for every resident and the gradient
+#   d log W / dy = -1/y + s'(y)/s(y) + alpha E[c Z / (c + Z)^2] / E[c / (c + Z)].
 
 dd99_kernels <- function(sigma_C, sigma_K, x0, K0) {
   list(C = function(d) exp(-d^2 / (2 * sigma_C^2)),
@@ -72,6 +80,46 @@ gk98_pair_curvature <- function(a, d = 1.5, sigma = 1) {
   f <- function(x) exp(-(x - mu)^2 / (2 * sigma^2))
   w <- 1 / (f(a) + f(-a))
   sum(w * ((a - mu)^2 / sigma^4 - 1 / sigma^2) * f(a)) / sum(w * f(a))
+}
+
+gm99_estab <- function(y, x, N, alpha) {
+  k <- lapply(N, function(n) 0:ceiling(n + 12 * sqrt(n + 1) + 30))
+  grid <- as.matrix(expand.grid(k))
+  w <- Reduce(`*`, lapply(seq_along(N), function(j) stats::dpois(grid[, j], N[j])))
+  Z <- as.numeric(grid %*% exp(alpha * x))
+  c_y <- exp(alpha * y)
+  c(g0 = sum(w * c_y / (c_y + Z)), g1 = sum(w * c_y * Z / (c_y + Z)^2))
+}
+gm99_log_fitness <- function(y, x, N, alpha, beta, R = 1) {
+  log(R / y) + log(1 - 2 * exp(-beta * y)) + log(gm99_estab(y, x, N, alpha)[["g0"]])
+}
+## residents' equilibrium densities: every resident's W = 1. Newton in log N
+## by hand, since the root below runs nleqslv and nleqslv cannot nest.
+gm99_coalition_density <- function(x, alpha, beta, R = 1, N0 = rep(1, length(x))) {
+  f <- function(lN) vapply(x, gm99_log_fitness, 0, x = x, N = exp(lN), alpha = alpha, beta = beta, R = R)
+  lN <- log(N0)
+  for (it in 1:50) {
+    f0 <- f(lN)
+    if (max(abs(f0)) < 1e-13) break
+    J <- vapply(seq_along(lN), function(j) (f(replace(lN, j, lN[j] + 1e-7)) - f0) / 1e-7, f0)
+    step <- solve(J, f0)
+    lN <- lN - step * min(1, 1 / max(abs(step)))
+  }
+  stopifnot(max(abs(f(lN))) < 1e-12)
+  exp(lN)
+}
+## each resident's selection gradient d log W / dy at y = x_i
+gm99_coalition_gradient <- function(x, alpha, beta, R = 1) {
+  N <- gm99_coalition_density(x, alpha, beta, R)
+  vapply(x, function(y) {
+    g <- gm99_estab(y, x, N, alpha)
+    -1 / y + 2 * beta * exp(-beta * y) / (1 - 2 * exp(-beta * y)) + alpha * g[["g1"]] / g[["g0"]]
+  }, 0)
+}
+gm99_pair_root <- function(alpha = 7, beta = 15, R = 1, x0 = c(0.2, 0.7)) {
+  sol <- nleqslv::nleqslv(x0, gm99_coalition_gradient, alpha = alpha, beta = beta, R = R,
+                          control = list(ftol = 1e-11, xtol = 1e-13))
+  sol$x
 }
 
 ## Central-difference Jacobian of a vector function, for oracles built on
