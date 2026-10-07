@@ -95,3 +95,31 @@ test_that("community_solve_singularity and the classifier run on the SCM", {
   expect_equal(cl$classification,
                if (cl$evolutionarily_stable) "CSS" else "branching point")
 })
+
+test_that("a singularity is followed along a plant parameter, its sensitivity matching the roots (SCM)", {
+  # hmat, the height at maturation, through a caller-written p -> community.
+  # Reference-free: the sensitivity at the middle point must agree with the
+  # central difference of the roots the corrector found either side. The
+  # parameter step is coarse for the reason the second-derivative steps are
+  # (plant#653); the sensitivity moves by 0.3% between 1e-2 and 5e-2, and the
+  # roots' difference agrees with it to ~1%.
+  by_hmat <- function(hmat) {
+    community_start(bounds(lma = c(0.02, 0.6)),
+                    model_support = list(
+                      p = plant_default_assembly_pars(hmat = hmat, max_patch_lifetime = 30),
+                      plant_control = plant_default_assembly_control()),
+                    derivative_control = list(d_second = 1e-2, eps_second = 1e-2,
+                                              d_parameter = 1e-2, eps_parameter = 1e-2))
+  }
+  start <- community_solve_singularity(by_hmat(9), x0 = 0.08, tol = 0.3)
+  path <- community_continue_singularity(start, by_hmat, c(9, 10, 11), tol = 0.3)
+
+  expect_null(path$stopped)
+  x <- as.numeric(path$traits)
+  expect_true(all(x > 0.02 & x < 0.6))
+  expect_equal(unname(path$sensitivity[2, 1]), (x[3] - x[1]) / 2, tolerance = 0.05)
+  # the predictor is first order: its miss is small beside the step it took
+  miss <- abs(path$predicted[-1, 1] - x[-1])
+  expect_true(all(miss < 0.25 * abs(diff(x))))
+  expect_true(all(path$classification %in% c("CSS", "branching point")))
+})

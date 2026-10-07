@@ -12,7 +12,8 @@ community_solve_singularity(
   tol = 1e-06,
   maxit = 100,
   birth_rate = NULL,
-  edge_ok = TRUE
+  edge_ok = TRUE,
+  jacobian = NULL
 )
 }
 \arguments{
@@ -45,6 +46,13 @@ the model's equilibrium birth rates are far from \code{birth_rate_initial}.}
 
 \item{edge_ok}{Is it (not) an error if the solution lands on the edge of
 \code{bounds}?}
+
+\item{jacobian}{A resident Jacobian of the selection gradients, \code{mk}
+by \code{mk} in raw trait units as
+\code{\link{community_selection_gradient_jacobian}} returns it, to start
+\code{"nleqslv"} or \code{"newton"} from in place of computing one at
+\code{x0}: typically that of a nearby singular point. Later Jacobians are
+computed as usual.}
 }
 \value{
 The \code{community} at the singular strategy or coalition, solved
@@ -77,7 +85,9 @@ gradients with respect to the residents from
 \code{\link{community_selection_gradient_jacobian}} (finite differences
 across the residents, \code{2mk} equilibrium solves, until the model
 supplies equilibrium sensitivities), refreshing it only when their
-rank-one updates fail.
+rank-one updates fail. A Jacobian already in hand for a nearby point
+(\code{jacobian}, as in a continuation) answers their first request instead,
+saving those solves.
 
 Each residual evaluation costs one demographic equilibrium solve, warm
 started from the last, plus a gradient of invasion fitness at each

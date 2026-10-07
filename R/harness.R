@@ -61,6 +61,8 @@ community_check_for_inviable_strategies <- function(community) {
   community$harness$fns$check_for_inviable_strategies(community)
 }
 community_update_fitness_function <- function(community) {
+  ## a selection gradient is a property of the fitness function it came from
+  community$selection_gradient <- NULL
   community$harness$fns$update_fitness_function(community)
 }
 community_model_equilibrium <- function(community) {
@@ -239,6 +241,13 @@ harness_explicit <- function(fitness, equilibrium, pars, trait_names,
                                             !is.null(fitness_hessian))],
                  "equilibrium"),
     equilibrium_solver_default = "model",
+    ## the same model at other parameter values: pars are closed into the
+    ## primitives above, so changing h$pars afterwards changes nothing
+    ## (community_parameter_map())
+    rebuild = function(pars) {
+      harness_explicit(fitness, equilibrium, pars, trait_names, label,
+                       fitness_gradient, fitness_hessian)
+    },
     fns = list(
       parameters                    = explicit_community_parameters,
       make_demography_runner        = explicit_community_make_demography_runner,

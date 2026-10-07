@@ -67,6 +67,18 @@ dd99_pair_root <- function(sigma_C = 0.4, sigma_K = 1) {
   sigma_C * sqrt(-log(c0 / (1 - c0)) / 2)
 }
 
+## da*/d(sigma_C, sigma_K) by hand: with L = log((1 - c)/c), a* = sigma_C
+## sqrt(L/2) and dL/dc = -1/(c(1 - c)), dc/dsigma_C = 2c/sigma_C and
+## dc/dsigma_K = -2c/sigma_K give
+##   da*/dsigma_C = a*/sigma_C - sigma_C / (2 (1 - c) a*)
+##   da*/dsigma_K = sigma_C^2 / (2 sigma_K (1 - c) a*)
+dd99_pair_root_gradient <- function(sigma_C = 0.4, sigma_K = 1) {
+  c0 <- sigma_C^2 / (2 * sigma_K^2)
+  a <- dd99_pair_root(sigma_C, sigma_K)
+  c(sigma_C = a / sigma_C - sigma_C / (2 * (1 - c0) * a),
+    sigma_K = sigma_C^2 / (2 * sigma_K * (1 - c0) * a))
+}
+
 dd99_triple_root <- function(sigma_C = 0.3, sigma_K = 1) {
   g_outer <- function(b) dd99_coalition_gradient(c(-b, 0, b), sigma_C, sigma_K)[3]
   stats::uniroot(g_outer, c(0.3, 1.2), tol = 1e-13)$root

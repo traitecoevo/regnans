@@ -18,7 +18,8 @@ The [{plant}](https://github.com/traitecoevo/plant) package for R is an extensib
 - **Invasion fitness and landscapes** — `community_fitness_landscape()`, `max_fitness()`, viable trait bounds in any number of traits (`community_viable_fitness()`).
 - **Fitness derivatives** — `community_fitness_gradient()`, `community_fitness_hessian()` and the selection-gradient Jacobian, exact where a model provides them and finite differences otherwise, with `harness_check_derivatives()` to verify a provider.
 - **Pairwise and mutual invasibility plots** — `community_pip()` (zero contours found by Newton, regions shaded), `plot(type = "mip")` and the trait-evolution plot `community_tep()`.
-- **Selection gradients and singular strategies** — `community_selection_gradient()`, `community_solve_singularity()` (any number of traits; Newton or a 1-D bracket), and `community_classify_singularity()` (CSS / branching point / repeller / Garden of Eden, with the branching direction).
+- **Selection gradients and singular strategies** — `community_selection_gradient()`, `community_solve_singularity()` (one resident or a coalition of several, any number of traits; Newton or a 1-D bracket), and `community_classify_singularity()` (CSS / branching point / repeller / Garden of Eden, with the branching direction and, for a coalition, protected coexistence).
+- **Parameter sensitivity and continuation** — `community_parameter_sensitivity()` (how far a singular strategy or coalition moves per unit of each parameter, `dx*/dp`) and `community_continue_singularity()` (follows it along one parameter, marking where its classification changes); the parameter enters through a function `p -> community`, which `community_parameter_map()` builds for a reference model.
 - **The canonical equation of adaptive dynamics** — `community_canonical_equation()`: every resident climbs its selection gradient at a speed set by mutation supply, stepped by [odelia](https://github.com/traitecoevo/odelia)'s RODAS; a resident at a fitness minimum branches after the waiting time for a mutant that can invade and coexist, immigrants arrive from a pool, extinctions are dropped, and the community and its fitness landscape can be rebuilt at any recorded time.
 - **Community assembly** — `assembler_run()` with maximum-fitness or stochastic births, and inviable-strategy deaths.
 - **Model harnesses** — `harness_plant()` for the `plant` SCM, plus fast reference models with analytic answers (`harness_dd99()`, `harness_gk98()`, `harness_gm99()`, `harness_jj12()`) for learning the workflow and testing the algorithms.
@@ -29,10 +30,9 @@ Worked examples are on the docs hub under [Theory → Adaptive dynamics](https:/
 
 The aim is a reasonably comprehensive toolkit of adaptive-dynamics methods for *numerically solved* models, designed around the exact derivatives that `plant` is gaining through automatic differentiation. Next up:
 
-- polymorphic singular coalitions solved and classified directly, without integrating to them;
 - the canonical equation's Jacobian from equilibrium sensitivities once `plant` exposes the Jacobians, so RODAS stops paying one equilibrium solve per unknown;
-- Newton equilibrium solves on exact `∂f/∂n`, and parameter sensitivity of attractors;
-- continuation of singular strategies and coexistence boundaries through parameter space.
+- Newton equilibrium solves on exact `∂f/∂n`, and exact parameter sensitivities of attractors;
+- coexistence boundaries and loci of branching points through parameter space.
 
 [`ROADMAP.md`](ROADMAP.md) has the full inventory with the status of every method, what the package needs from `plant`, and the order of work.
 

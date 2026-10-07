@@ -178,7 +178,9 @@ singularity_bracket <- function(residual, z_lo, z_hi, tol, maxit) {
 ##' \code{\link{community_selection_gradient_jacobian}} (finite differences
 ##' across the residents, \code{2mk} equilibrium solves, until the model
 ##' supplies equilibrium sensitivities), refreshing it only when their
-##' rank-one updates fail.
+##' rank-one updates fail. A Jacobian already in hand for a nearby point
+##' (\code{jacobian}, as in a continuation) answers their first request instead,
+##' saving those solves.
 ##'
 ##' Each residual evaluation costs one demographic equilibrium solve, warm
 ##' started from the last, plus a gradient of invasion fitness at each
@@ -222,6 +224,12 @@ singularity_bracket <- function(residual, z_lo, z_hi, tol, maxit) {
 ##' the model's equilibrium birth rates are far from \code{birth_rate_initial}.
 ##' @param edge_ok Is it (not) an error if the solution lands on the edge of
 ##' \code{bounds}?
+##' @param jacobian A resident Jacobian of the selection gradients, \code{mk}
+##' by \code{mk} in raw trait units as
+##' \code{\link{community_selection_gradient_jacobian}} returns it, to start
+##' \code{"nleqslv"} or \code{"newton"} from in place of computing one at
+##' \code{x0}: typically that of a nearby singular point. Later Jacobians are
+##' computed as usual.
 ##' @return The \code{community} at the singular strategy or coalition, solved
 ##' to demographic equilibrium, with \code{selection_gradient} set. Attributes
 ##' record the solve: \code{converged}, \code{solver}, \code{evaluations} (the
@@ -243,7 +251,8 @@ singularity_bracket <- function(residual, z_lo, z_hi, tol, maxit) {
 community_solve_singularity <- function(community, x0 = NULL, bounds = NULL,
                                         solver = c("nleqslv", "newton", "dfsane", "bracket"),
                                         tol = 1e-6, maxit = 100,
-                                        birth_rate = NULL, edge_ok = TRUE) {
+                                        birth_rate = NULL, edge_ok = TRUE,
+                                        jacobian = NULL) {
   solver <- match.arg(solver)
   trait_names <- community$trait_names
   k <- length(trait_names)
@@ -285,6 +294,16 @@ community_solve_singularity <- function(community, x0 = NULL, bounds = NULL,
     stop("solver = \"bracket\" needs a single resident; x0 has ", m)
   }
   labels <- resident_labels(trait_names, m)
+  if (!is.null(jacobian) && !solver %in% c("nleqslv", "newton")) {
+    stop("jacobian is a starting point for the \"nleqslv\" and \"newton\" solvers; ",
+         "\"", solver, "\" takes none")
+  }
+  if (!is.null(jacobian) &&
+      (!is.numeric(jacobian) || !identical(dim(jacobian), c(m * k, m * k)) ||
+       !all(is.finite(jacobian)))) {
+    stop("jacobian must be a finite ", m * k, " x ", m * k,
+         " matrix, the resident Jacobian of x0's residents")
+  }
   ## the bounds, stacked as the residents' traits are
   z_lo <- rep(z_lo, each = m)
   z_hi <- rep(z_hi, each = m)
@@ -296,10 +315,14 @@ community_solve_singularity <- function(community, x0 = NULL, bounds = NULL,
     paste(signif(x0, 5), collapse = ", "), solver))
 
   ctrl <- community_derivative_control(community)
-  merged <- residents_merged(as.numeric(x0), m, k, ctrl)
+  ## the search starts inside the bounds, as every candidate is clamped there;
+  ## residents that a start outside them puts on the same edge have merged
+  z0 <- pmin(pmax(as.numeric(tf$fwd(x0)), z_lo), z_hi)
+  merged <- residents_merged(tf$inv(z0), m, k, ctrl)
   if (nrow(merged) > 0L) {
     stop("x0 has residents ", merged[1, 1], " and ", merged[1, 2],
-         " at the same traits; a coalition needs distinct residents")
+         " at the same traits", if (!isTRUE(all.equal(tf$inv(z0), as.numeric(x0)))) " once clamped to the bounds",
+         "; a coalition needs distinct residents")
   }
   gradient <- singularity_gradient_fn(community, m, birth_rate = birth_rate)
   log_scale <- identical(tf$scale, "log")
@@ -321,11 +344,12 @@ community_solve_singularity <- function(community, x0 = NULL, bounds = NULL,
   ## Its Jacobian, the resident Jacobian carried onto the trait scale: on a
   ## log scale d(g_i x_i)/dz_j = x_i J_ij x_j + [i = j] g_i x_i. The solvers
   ## ask for it where they have just evaluated the residual, so the gradient
-  ## there is already in hand.
-  jacobian <- function(z) {
+  ## there is already in hand. A Jacobian handed in is carried onto the trait
+  ## scale at the start, as the solver's starting approximation.
+  residual_jacobian <- function(z, J = NULL) {
     x <- tf$inv(pmin(pmax(z, z_lo), z_hi))
     g <- gradient(x)
-    J <- resident_jacobian(gradient, x, ctrl)
+    if (is.null(J)) J <- resident_jacobian(gradient, x, ctrl)
     if (log_scale) J <- J * outer(x, x) + diag(g * x, length(x))
     J
   }
@@ -337,9 +361,10 @@ community_solve_singularity <- function(community, x0 = NULL, bounds = NULL,
     ## out of it; that is the coalition being lost, not a failure of the solve.
     ## Any other error is re-raised, carrying the equilibrium solves spent.
     tryCatch(
-      util_nlsolve(as.numeric(tf$fwd(x0)), residual, tol = tol, maxit = maxit,
+      util_nlsolve(z0, residual, tol = tol, maxit = maxit,
                    solver = solver, require_converged = FALSE,
-                   jac = if (solver == "dfsane") NULL else jacobian),
+                   jac = if (solver == "dfsane") NULL else residual_jacobian,
+                   J0 = if (is.null(jacobian)) NULL else residual_jacobian(z0, unname(jacobian))),
       error = function(e) {
         if (attr(gradient, "refused")() == refused_before) {
           e$evaluations <- attr(gradient, "evaluations")()
@@ -530,7 +555,10 @@ coalition_lost <- function(community, x, m, k, ctrl) {
 ##' from a singularity, a Newton step on their selection gradients moving some
 ##' trait by more than a thousandth of the bounds' width on the trait scale
 ##' (\code{newton_reach}): the second-order conditions describe a singularity,
-##' and away from one they describe nothing in particular.
+##' and away from one they describe nothing in particular. A coalition with two
+##' residents within a thousandth of the bounds' width of each other also
+##' warns: at a pitchfork the coalition shrinks to a point, and a near-merged
+##' pair can pass as a root whatever its verdict.
 ##'
 ##' @title Classify a singular strategy or coalition (1-D and N-D)
 ##' @param community A \code{community} whose residents are at (or very near) a
@@ -633,6 +661,17 @@ community_classify_singularity <- function(community, birth_rate = NULL,
       "community_classify_singularity: the residents are not at a singular point; ",
       "a Newton step on the selection gradients moves a trait by %s of the bounds' width"),
       signif(reach, 2)))
+  }
+  ## at a pitchfork a coalition shrinks to a point, and every derivative with
+  ## it, so a near-merged pair can pass as a root with any verdict
+  close <- coalition_near_merged(community, x)
+  if (nrow(close) > 0L) {
+    warning(sprintf(paste0(
+      "community_classify_singularity: %s within %s of the bounds' width of each other; ",
+      "a coalition this close to merging is at or near a bifurcation, where the verdict ",
+      "is not reliable"),
+      paste(sprintf("residents %d and %d are", close[, 1], close[, 2]), collapse = "; "),
+      singularity_reach_tol))
   }
 
   ## --- protected coexistence: can each resident invade the others? ---------
@@ -825,6 +864,22 @@ singularity_newton_reach <- function(community, x, g, J) {
   r <- abs(dz) / width
   if (!all(is.finite(r))) return(NA_real_)
   max(r)
+}
+
+## Pairs of residents (rows i < j) closer than singularity_reach_tol of the
+## bounds' width, on the trait scale, in every trait.
+coalition_near_merged <- function(community, x) {
+  m <- nrow(x)
+  none <- matrix(integer(0), 0L, 2L)
+  if (m < 2L) return(none)
+  tf <- community_trait_transform(community)
+  bounds <- singularity_bounds(community$bounds, community$trait_names)
+  width <- tf$fwd(bounds[, 2]) - tf$fwd(bounds[, 1])
+  if (!all(is.finite(width))) return(none)
+  z <- matrix(tf$fwd(as.numeric(x)), m)
+  pairs <- which(upper.tri(diag(m)), arr.ind = TRUE)
+  close <- apply(pairs, 1, function(p) all(abs(z[p[1], ] - z[p[2], ]) < singularity_reach_tol * width))
+  pairs[close, , drop = FALSE]
 }
 
 ## The residents' relative speeds for the convergence-stability verdict,

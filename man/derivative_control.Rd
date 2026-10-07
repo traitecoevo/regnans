@@ -12,7 +12,8 @@ derivative_control(control = NULL)
 \value{
 A list with elements \code{d_gradient}, \code{eps_gradient},
 \code{r_gradient}, \code{d_second}, \code{eps_second}, \code{r_hessian},
-\code{r_jacobian}.
+\code{r_jacobian}, \code{d_parameter}, \code{eps_parameter},
+\code{r_parameter}.
 }
 \description{
 Control how derivatives are computed.
@@ -29,10 +30,13 @@ Finite-difference steps are relative (\code{d_*}) with an absolute
 fallback (\code{eps_*}) for trait values that are numerically zero, as the
 singular strategies of the reference models are. First derivatives of
 fitness use the \code{*_gradient} settings; the Hessian and the resident
-Jacobian use \code{*_second}. The \code{r_*} settings are the number of
+Jacobian use \code{*_second}; the derivative of the selection gradient with
+respect to model parameters
+(\code{\link{community_selection_gradient_parameter_jacobian}}) uses
+\code{*_parameter}. The \code{r_*} settings are the number of
 successively halved steps combined by Richardson extrapolation; each level of
-the Jacobian costs \code{2k} demographic equilibrium solves, so it stays at
-one by default.
+a resident or parameter Jacobian costs two demographic equilibrium solves per
+column, so they stay at one by default.
 }
 \author{
 Daniel Falster
