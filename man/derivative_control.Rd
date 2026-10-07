@@ -13,7 +13,7 @@ derivative_control(control = NULL)
 A list with elements \code{d_gradient}, \code{eps_gradient},
 \code{r_gradient}, \code{d_second}, \code{eps_second}, \code{r_hessian},
 \code{r_jacobian}, \code{d_parameter}, \code{eps_parameter},
-\code{r_parameter} and \code{parallel}.
+\code{r_parameter}.
 }
 \description{
 Control how derivatives are computed.
@@ -38,18 +38,15 @@ successively halved steps combined by Richardson extrapolation; each level of
 a resident or parameter Jacobian costs two demographic equilibrium solves per
 column, so they stay at one by default.
 
-Those equilibrium solves are independent, and with \code{parallel = TRUE}
-(the default) a \code{future::plan()} with several workers solves them
-apart. Without a plan the points of a resident Jacobian are solved one
-after another, each warm-started from the last; solved apart, each starts
-from the densities and solver state at the centre of the stencil. A finite
-difference of a solve is only as accurate as the solve, its error the
-equilibrium tolerance divided by the step whichever the start, so this
-moves the Jacobian by up to that much; \code{parallel = FALSE} keeps the
-sequential numbers with a plan active. The points of a parameter Jacobian
-all start from the residents' densities either way. A solved community
-never goes to a worker (each point is solved there from the community
-without its residents), so any plan works, plant included.
+Every point of a resident Jacobian is solved from the densities and
+solver state at the centre of the stencil, and every point of a parameter
+Jacobian from the residents' densities, so the solves are independent: a
+\code{future::plan()} with several workers solves them in parallel, with
+the same answer as without one. A finite difference of an equilibrium
+solve is only as accurate as the solve: its error is about the equilibrium
+tolerance divided by the step, near 1e-2 relative at the default
+\code{equilibrium_eps} and \code{d_second}
+(\href{https://github.com/traitecoevo/regnans/issues/80}{#80}).
 }
 \author{
 Daniel Falster

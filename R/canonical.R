@@ -230,12 +230,10 @@ gauss_hermite <- function(n) {
 ## Run expr with a given seed, leaving the caller's random stream as it was.
 with_seed <- function(seed, expr) {
   if (is.null(seed)) return(expr)
-  had <- exists(".Random.seed", envir = globalenv(), inherits = FALSE)
-  old <- if (had) get(".Random.seed", envir = globalenv()) else NULL
-  on.exit(if (had) assign(".Random.seed", old, envir = globalenv()) else
-            if (exists(".Random.seed", envir = globalenv(), inherits = FALSE)) rm(".Random.seed", envir = globalenv()))
-  set.seed(seed)
-  expr
+  preserve_seed({
+    set.seed(seed)
+    expr
+  })
 }
 
 ## The rate at which resident i, stationary at a fitness minimum, acquires a

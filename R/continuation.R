@@ -357,7 +357,7 @@ community_continue_singularity <- function(community, parameter, p,
       clamped <- any(z < z_lo | z > z_hi)
       predicted <- tf$inv(pmin(pmax(z, z_lo), z_hi))
     }
-    start <- parameter_community(parameter, p[i], community)
+    start <- parameter_community(parameter, p[i], community$trait_names)
     ## the corrector's warnings are why the path stops, if it does; they are
     ## raised again if it does not
     caught <- list()

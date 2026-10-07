@@ -12,8 +12,11 @@
 # solved community in it, along unseen), and under a plan whose workers are
 # not forks the map refuses work that holds a pointer.
 #
-# The work is deterministic, so workers are given no random seeds and a plan
-# never moves the caller's random-number stream.
+# Under a plan each element gets its own reproducible random-number stream,
+# derived from the caller's state, which is then put back: a plan never moves
+# the caller's stream, and work that draws random numbers is reproducible
+# under a plan (though not the same draws as the sequential lapply(), which
+# uses the caller's stream; nothing routed today draws any).
 
 ## The number of workers the active future plan provides (1 without a plan,
 ## or when parallel is FALSE).
@@ -39,7 +42,7 @@ regnans_map <- function(X, FUN, ..., parallel = TRUE) {
          "separate R processes, cannot use. Use future::plan(future::multicore), whose ",
          "workers are forks of this session, or future::plan(future::sequential)")
   }
-  future.apply::future_lapply(X, FUN, ..., future.seed = NULL)
+  preserve_seed(future.apply::future_lapply(X, FUN, ..., future.seed = TRUE))
 }
 
 ## Are the active plan's workers forks of this process, sharing its memory?
@@ -48,7 +51,11 @@ regnans_plan_forks <- function() {
 }
 
 ## The number of external pointers reachable from x, which no serialisation
-## can carry to another process.
+## can carry to another process. The guard built on it errs on the safe side:
+## a pointer that would be harmless to drop (a data.table's self-reference)
+## is refused too, and so is any plan not known to fork, such as a cluster
+## made by parallel::makeForkCluster(). The payload is serialised here once
+## more than future serialises it, which is cheap beside a solve.
 regnans_pointers <- function(x) {
   n <- 0L
   serialize(x, NULL, refhook = function(o) {

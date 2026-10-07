@@ -151,9 +151,8 @@ vectorised call against the cached resident environment, so it is cheap. The
 Jacobian (\code{\link{community_selection_gradient_jacobian}}) needs
 \code{2mk} \emph{resident} evaluations, each a full demographic equilibrium
 solve, so it dominates. Under a \code{future::plan()} with several workers
-these solves, and those of the coexistence test, run in parallel (see
-\code{\link{derivative_control}} for how that can move the Jacobian
-within the equilibrium tolerance). Protected coexistence costs \code{m} more, one
+these solves, and those of the coexistence test, run in parallel, with
+the same answer. Protected coexistence costs \code{m} more, one
 per resident left out (and one more for each re-solve after removing a
 resident without a positive density). Derivative settings come from
 \code{\link{derivative_control}}.

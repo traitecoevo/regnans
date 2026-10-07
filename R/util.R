@@ -84,7 +84,9 @@ maximize_logspace <- function(f, x, bounds, tol) {
 community_trait_transform <- function(community) {
   scale <- if (is.null(community$trait_scale)) "log" else community$trait_scale
   if (identical(scale, "linear")) {
-    list(fwd = function(x) x, inv = function(x) x, scale = "linear")
+    ## identity rather than a closure, whose frame would hold the community
+    ## and could carry a solved one to a parallel worker
+    list(fwd = identity, inv = identity, scale = "linear")
   } else {
     list(fwd = log, inv = exp, scale = "log")
   }
@@ -137,3 +139,13 @@ last <- function(x) {
 }
 
 
+
+## Evaluate expr and leave the caller's random-number state as it was before,
+## including absent if there was none.
+preserve_seed <- function(expr) {
+  had <- exists(".Random.seed", envir = globalenv(), inherits = FALSE)
+  old <- if (had) get(".Random.seed", envir = globalenv()) else NULL
+  on.exit(if (had) assign(".Random.seed", old, envir = globalenv()) else
+            if (exists(".Random.seed", envir = globalenv(), inherits = FALSE)) rm(".Random.seed", envir = globalenv()))
+  expr
+}

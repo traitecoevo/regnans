@@ -10,6 +10,7 @@ local_two_workers <- function(type = c("multicore", "multisession"), env = paren
   type <- match.arg(type)
   testthat::skip_if_not_installed("future")
   testthat::skip_if_not_installed("future.apply")
+  testthat::skip_if_not_installed("pkgload")
   if (type == "multicore") {
     testthat::skip_on_os("windows")
     testthat::skip_if_not(future::supportsMulticore())

@@ -55,10 +55,11 @@ resident_labels <- function(trait_names, m) {
 ## rather than re-solving, and the solves are counted.
 ##
 ## attr(fn, "points") evaluates a list of points, as a stencil asks for them:
-## one after another as above, unless the derivative control allows a plan's
-## workers to solve them apart. Each is then solved from the densities and
-## solver state of the last solve here (the stencil's centre), which remain
-## the starting point of the next call.
+## each solved from the densities and solver state of the last solve here
+## (the stencil's centre), not from the previous point, so the points are
+## independent and go through the parallel map, and the answer is the same
+## with or without a plan. The centre remains the starting point of the next
+## call.
 singularity_gradient_fn <- function(community, m = 1L, birth_rate = NULL) {
   base <- community_clear_residents(community)
   trait_names <- community$trait_names
@@ -86,17 +87,15 @@ singularity_gradient_fn <- function(community, m = 1L, birth_rate = NULL) {
     remember(x, out)
   }
   points <- function(points) {
-    if (regnans_workers(ctrl$parallel) == 1L) {
-      return(lapply(points, fn))
-    }
     points <- lapply(points, as.numeric)
     merged <- vapply(points, function(x) nrow(residents_merged(x, m, k, ctrl)) > 0L, logical(1))
     out <- rep(list(rep(NA_real_, m * k)), length(points))
     out[!merged] <- regnans_map(points[!merged], singularity_gradient_point, base = base, m = m,
-                                birth_rate = seed_birth_rate, state = state,
-                                parallel = ctrl$parallel)
+                                birth_rate = seed_birth_rate, state = state)
+    failed <- vapply(out, inherits, logical(1), "error")
     refused <<- refused + sum(merged)
-    evaluations <<- evaluations + sum(!merged)
+    evaluations <<- evaluations + sum(!merged & !failed)
+    if (any(failed)) stop(out[[which(failed)[1L]]])
     out
   }
   ## keep a solved community as the answer at x and carry its equilibrium
@@ -142,10 +141,12 @@ singularity_solve_point <- function(x, base, m, birth_rate, state) {
     community_selection_gradient()
 }
 
-## The same on a worker, returning only the gradient: a solved plant
-## community cannot cross back to this process.
+## The same for a stencil point, perhaps on a worker, returning only the
+## gradient (a solved plant community cannot cross back to this process), or
+## the error, so that the solves which did finish are still counted.
 singularity_gradient_point <- function(x, base, m, birth_rate, state) {
-  as.numeric(singularity_solve_point(x, base, m, birth_rate, state)$selection_gradient)
+  tryCatch(as.numeric(singularity_solve_point(x, base, m, birth_rate, state)$selection_gradient),
+           error = function(e) e)
 }
 
 ## Has this community been solved to a demographic equilibrium that can stand
@@ -581,9 +582,8 @@ coalition_lost <- function(community, x, m, k, ctrl) {
 ##' Jacobian (\code{\link{community_selection_gradient_jacobian}}) needs
 ##' \code{2mk} \emph{resident} evaluations, each a full demographic equilibrium
 ##' solve, so it dominates. Under a \code{future::plan()} with several workers
-##' these solves, and those of the coexistence test, run in parallel (see
-##' \code{\link{derivative_control}} for how that can move the Jacobian
-##' within the equilibrium tolerance). Protected coexistence costs \code{m} more, one
+##' these solves, and those of the coexistence test, run in parallel, with
+##' the same answer. Protected coexistence costs \code{m} more, one
 ##' per resident left out (and one more for each re-solve after removing a
 ##' resident without a positive density). Derivative settings come from
 ##' \code{\link{derivative_control}}.

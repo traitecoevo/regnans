@@ -96,16 +96,18 @@ test_that("community_solve_singularity and the classifier run on the SCM", {
                if (cl$evolutionarily_stable) "CSS" else "branching point")
 
   # Under a plan the Jacobian's stencil points are solved by workers, each
-  # from the root's densities rather than the previous point's, which moves J
-  # by at most the equilibrium tolerance over the step: far inside 1e-3 and far
-  # from changing the verdict. Only the community without its solve goes to a
-  # worker; the solved one holds the SCM, which no other process can use.
+  # from the root's densities as they are without one, so the answer is the
+  # same. Only the community without its solve goes to a worker; the solved
+  # one holds the SCM, which no other process can use, so this runs under a
+  # plan whose workers are separate processes too.
   expect_gt(regnans_pointers(out), 0L)
   expect_identical(regnans_pointers(community_clear_residents(out)), 0L)
-  parallel <- with_two_workers("multicore", community_classify_singularity(out))
-  expect_equal(parallel$jacobian, cl$jacobian, tolerance = 1e-3)
-  expect_identical(parallel$evaluations, cl$evaluations)
-  expect_equal(parallel$classification, cl$classification)
+  for (type in c("multicore", "multisession")) {
+    parallel <- with_two_workers(type, community_classify_singularity(out))
+    expect_identical(parallel$jacobian, cl$jacobian)
+    expect_identical(parallel$evaluations, cl$evaluations)
+    expect_identical(parallel$classification, cl$classification)
+  }
 })
 
 test_that("a singularity is followed along a plant parameter, its sensitivity matching the roots (SCM)", {
