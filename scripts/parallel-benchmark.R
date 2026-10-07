@@ -5,7 +5,7 @@
 # plus two leave-one-out solves for protected coexistence), and takes that
 # community's Jacobian alone, sequentially and under multicore plans of two
 # and four workers. Reports the wall time, the equilibrium solves and how far
-# the Jacobian moves from the sequential one. The second resident is near
+# the Jacobian moves from the sequential one (it should not). The second resident is near
 # extinction, so one leave-one-out solve starts from almost nothing and
 # dominates its step: the classification is limited by that solve, the
 # Jacobian alone by its slowest stencil point.

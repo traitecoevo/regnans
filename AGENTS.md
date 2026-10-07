@@ -214,12 +214,12 @@ here follow current plant terminology.
 
 ## Test baseline
 
-`devtools::test()` is **green: 1465 pass, 0 fail, 0 skip, 0 warn**. Tests run in
+`devtools::test()` is **green: 1472 pass, 0 fail, 0 skip, 0 warn**. Tests run in
 parallel (`Config/testthat/parallel: true`); the `test-plant-smoke*.R` files
 dominate the wall-clock as they are the only ones that run the real SCM. The
 `test-harness-*.R` and `test-singularity.R` files run no SCM and are fast.
 
-(The count has grown as the toy-harness tier has: 197 → 256 → 401 → 537 → 979 → 1002 → 1052 → 1072 → 1174 → 1186 → 1202 → 1228 → 1363 → 1465.
+(The count has grown as the toy-harness tier has: 197 → 256 → 401 → 537 → 979 → 1002 → 1052 → 1072 → 1174 → 1186 → 1202 → 1228 → 1363 → 1472.
 What matters is that a change moves it up and moves nothing to FAIL.)
 
 Note: the testthat parallel workers may fail to find `plant` on startup in some
