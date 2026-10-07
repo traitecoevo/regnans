@@ -100,7 +100,7 @@ test_that("an immediate split at x0 gives mirror-image daughters, finished by Ne
   fin <- final(ce)
   expect_equal(nrow(fin), 2L)
   expect_equal(fin$x[1], -fin$x[2], tolerance = 1e-3)
-  expect_gt(abs(fin$x[1] - fin$x[2]), 0.1)
+  expect_equal(abs(fin$x), rep(dd99_pair_root(sigma_C = 0.4), 2), tolerance = 1e-5)
   expect_equal(fin$density[1], fin$density[2], tolerance = 1e-3)
   expect_true(ce$outcome %in% c("stable", "max_residents"))
   expect_lt(max(abs(fin$gradient_x)), canonical_control()$gradient_tol)
@@ -119,6 +119,23 @@ test_that("without polishing the explicit stepper jitters at its stability limit
     control = canonical_control(list(branch = "immediate", max_residents = 2, polish = FALSE, max_steps = 400)))
   expect_equal(rodas$outcome, "max_residents")
   expect_lt(rodas$evaluations, 300L)
+})
+
+test_that("polishing finishes locally and refuses a root far from the residents", {
+  # from (-0.1, 1.2) the solver reaches the DD99 pair (+-0.442), a move of 0.76
+  # on a trait range of 4: not a local finish, so polishing declines it, but
+  # still counts the solves it spent
+  comm <- dd99(sigma_C = 0.4)
+  base <- community_clear_residents(comm)
+  tf <- community_trait_transform(comm)
+  a <- dd99_pair_root(sigma_C = 0.4)
+  far <- canonical_polish(base, c(-0.1, 1.2), c(100, 100), tf, 1L, 4, canonical_control())
+  expect_null(far$z)
+  expect_gt(far$evaluations, 0L)
+  anywhere <- canonical_polish(base, c(-0.1, 1.2), c(100, 100), tf, 1L, 4, canonical_control(), reach = Inf)
+  expect_equal(anywhere$z, c(-a, a), tolerance = 1e-4)
+  near <- canonical_polish(base, c(-0.4, 0.45), c(100, 100), tf, 1L, 4, canonical_control())
+  expect_equal(near$z, c(-a, a), tolerance = 1e-4)
 })
 
 test_that("GK98 branches to the dimorphic coalition the trait-evolution plot shows", {

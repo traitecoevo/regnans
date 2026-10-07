@@ -3,23 +3,34 @@
 \name{community_classify_singularity}
 \alias{community_classify_singularity}
 \alias{print.singularity_classification}
-\title{Classify a singular strategy (1-D and N-D)}
+\title{Classify a singular strategy or coalition (1-D and N-D)}
 \usage{
-community_classify_singularity(community, birth_rate = NULL, tol = 1e-08)
+community_classify_singularity(
+  community,
+  birth_rate = NULL,
+  tol = 1e-08,
+  speeds = "density"
+)
 
 \method{print}{singularity_classification}(x, ...)
 }
 \arguments{
-\item{community}{A \code{community} with a single resident at (or very near)
-a singular strategy --- typically the output of
+\item{community}{A \code{community} whose residents are at (or very near) a
+singular strategy or coalition --- typically the output of
 \code{\link{community_solve_singularity}}.}
 
-\item{birth_rate}{Birth rate to start each resident equilibrium solve from;
-see \code{\link{community_solve_singularity}}. Defaults to the singular
-resident's own equilibrium birth rate, which is normally what you want.}
+\item{birth_rate}{Birth rates to start each resident equilibrium solve from;
+see \code{\link{community_solve_singularity}}. Defaults to the residents'
+own equilibrium birth rates, which is normally what you want.}
 
 \item{tol}{Magnitude below which an eigenvalue counts as zero, making the
 classification degenerate rather than forcing a verdict.}
+
+\item{speeds}{The residents' relative speeds of evolution, which decide
+convergence stability for a coalition: \code{"density"} (default) their
+equilibrium densities, as in \code{\link{community_canonical_equation}}
+with \code{canonical_control(density = TRUE)}; \code{"equal"}; or a
+positive vector with one value per resident. Ignored for one resident.}
 
 \item{x}{A \code{singularity_classification} object.}
 
@@ -30,13 +41,23 @@ An object of class \code{singularity_classification}: a list with
 the traits and selection gradient at the point, \code{hessian} and
 \code{jacobian} with their eigen-decompositions
 (\code{hessian_eigen}, \code{jacobian_eigen}, \code{jacobian_symmetric_eigen}),
-the logical verdicts \code{evolutionarily_stable},
+\code{speeds} (normalised to mean one) with \code{jacobian_weighted_eigen},
+the eigen-decomposition of \eqn{D J} on which convergence stability is
+decided (the same as \code{jacobian_eigen} for one resident or equal
+speeds), the logical verdicts \code{evolutionarily_stable} (with
+\code{resident_evolutionarily_stable}, one per resident),
 \code{convergence_stable} and \code{strongly_convergence_stable}, the
-\code{branching_direction} where the point is invadable, and the four-way
-\code{classification}.
+\code{branching_direction} where the point is invadable, the four-way
+\code{classification}, and \code{evaluations} (the equilibrium solves of the
+Jacobian). For one resident \code{traits}, \code{selection_gradient} and
+\code{branching_direction} are vectors named by trait and \code{hessian} a
+matrix; for a coalition they are residents-by-traits matrices (a row of
+\code{NA} in \code{branching_direction} for a resident that is not at a
+fitness minimum) and \code{hessian} and \code{hessian_eigen} are lists with
+one entry per resident.
 }
 \description{
-Classify a singular strategy.
+Classify a singular strategy or coalition.
 }
 \details{
 Finding a singular strategy is only half the question: the interesting part
@@ -45,19 +66,29 @@ that (Geritz et al. 1998; Leimar 2009):
 
 \describe{
   \item{Evolutionary stability}{the curvature of invasion fitness in the
-    \emph{mutant} direction, with the resident held at the singular point.
+    \emph{mutant} direction, with the residents held where they are.
     In one trait this is the scalar
     \eqn{\partial^2 s / \partial y^2}; in \code{k} traits it is the
-    \code{k x k} Hessian \eqn{H}. The point is an ESS (uninvadable) when
-    \eqn{H} is negative definite, i.e. every eigenvalue is negative.}
-  \item{Convergence stability}{whether selection carries a nearby resident
-    towards the point. This is the derivative of the selection gradient with
-    respect to the \emph{resident} trait: the scalar \eqn{dG/dx} in one
-    trait, the Jacobian \eqn{J} in \code{k}. Eigenvalues of \eqn{J} with
-    negative real parts give convergence stability under the canonical
-    equation with an isotropic mutational covariance; a negative-definite
-    symmetric part \eqn{(J + J^T)/2} gives \emph{strong} convergence
-    stability, which holds for any mutational covariance matrix.}
+    \code{k x k} Hessian \eqn{H}. A resident is uninvadable by nearby
+    mutants when \eqn{H} at its traits is negative definite, i.e. every
+    eigenvalue is negative; a coalition is an ESS when every resident is.}
+  \item{Convergence stability}{whether selection carries nearby residents
+    towards the point. This is the derivative of the selection gradients
+    with respect to the \emph{resident} traits: the scalar \eqn{dG/dx} in
+    one trait, the Jacobian \eqn{J} in \code{k}, and for \code{m} residents
+    the \code{mk x mk} Jacobian of every resident's gradient with respect to
+    every resident's traits, through the environment they share. Under
+    the canonical equation with an isotropic mutational covariance each
+    resident moves at its own speed \eqn{w_i} along its gradient, so the
+    point is convergence stable when the eigenvalues of \eqn{D J}, with
+    \eqn{D} the speeds on the diagonal, have negative real parts. For one
+    resident the speed only rescales \eqn{J}; for a coalition it does not,
+    and a coalition stable at equal speeds can be unstable at the speeds
+    its densities give (the canonical equation's speed is proportional to
+    the resident's equilibrium density). A negative-definite symmetric
+    part \eqn{(J + J^T)/2} gives \emph{strong} convergence stability,
+    which holds for any mutational covariance matrix and any (positive)
+    speeds of the residents.}
 }
 
 Crossing the two gives the standard four-way classification:
@@ -68,16 +99,21 @@ Crossing the two gives the standard four-way classification:
   \strong{not ESS} \tab branching point \tab repeller
 }
 
-The full eigen-decompositions are returned, not just the verdict: when the
-point is not an ESS the leading eigenvector of \eqn{H} is the direction in
-trait space along which the population disruptively splits, which is itself
+For a coalition, "CSS" is an evolutionarily stable coalition that selection
+reaches, and "branching point" one that selection reaches but where at
+least one resident sits at a fitness minimum and will branch again
+(\code{resident_evolutionarily_stable} says which).
+
+The full eigen-decompositions are returned, not just the verdict: when a
+resident is not an ESS the leading eigenvector of its \eqn{H} is the
+direction in trait space along which it disruptively splits, which is itself
 the scientific result in a multi-trait problem.
 
-Cost: the Hessian (\code{\link{community_fitness_hessian}}) needs
+Cost: each Hessian (\code{\link{community_fitness_hessian}}) needs
 \code{1 + 4k^2} invasion-fitness evaluations, all made in a single
 vectorised call against the cached resident environment, so it is cheap. The
 Jacobian (\code{\link{community_selection_gradient_jacobian}}) needs
-\code{2k} \emph{resident} evaluations, each a full demographic equilibrium
+\code{2mk} \emph{resident} evaluations, each a full demographic equilibrium
 solve, so it dominates. Derivative settings come from
 \code{\link{derivative_control}}.
 }

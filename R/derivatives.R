@@ -259,40 +259,78 @@ fd_fitness_hessian <- function(f, y, ctrl) {
                r = ctrl$r_hessian)
 }
 
-##' Jacobian of the selection gradient with respect to the resident trait.
+##' Jacobian of the selection gradient with respect to the resident traits.
 ##'
-##' How the selection gradient changes as the (single) resident moves: the
-##' matrix \eqn{J_{ij} = d g_i / d x_j}. Eigenvalues with negative real parts
-##' mean selection carries a nearby resident towards the point --- convergence
-##' stability. Each stencil point introduces the perturbed trait as the sole
-##' resident and solves the community to demographic equilibrium, so this is
-##' the expensive derivative: \code{2k} equilibrium solves per Richardson level.
+##' How the selection gradients of the residents change as the residents move,
+##' each re-solved to demographic equilibrium: for one resident the \code{k}
+##' by \code{k} matrix \eqn{J_{ij} = d g_i / d x_j}; for \code{m} residents the
+##' \code{mk} by \code{mk} matrix of every resident's gradient with respect to
+##' every resident's traits, its gradients and traits stacked as the trait
+##' matrix is stored (trait by trait, residents within each). The
+##' off-diagonal blocks are how a resident's selection responds to the others
+##' through the environment they make. Eigenvalues with negative real parts
+##' mean selection carries nearby residents towards the point ---
+##' convergence stability. Each stencil point solves the perturbed community to
+##' demographic equilibrium, so this is the expensive derivative: \code{2mk}
+##' equilibrium solves per Richardson level, finite differences across the
+##' residents until the model supplies equilibrium sensitivities.
 ##'
 ##' @title Resident Jacobian of the selection gradient
-##' @param community A \code{community} with exactly one resident.
-##' @param birth_rate Birth rate to start each equilibrium solve from; defaults
-##' to the resident's own, with each solve then warm-starting from the last.
-##' @return A \code{k} by \code{k} matrix with the selection gradient at the
-##' resident in \code{attr(., "selection_gradient")}.
+##' @param community A \code{community} with one or more residents, no two of
+##' them within the finite-difference step of each other (an error: the
+##' stencil cannot tell them apart).
+##' @param birth_rate Birth rates to start each equilibrium solve from, one per
+##' resident; defaults to the residents' own, with each solve then
+##' warm-starting from the last.
+##' @return An \code{mk} by \code{mk} matrix, rows and columns named by trait
+##' (and \code{[i]} for resident \code{i} when there are several), with the
+##' stacked selection gradient at the residents in
+##' \code{attr(., "selection_gradient")} and the equilibrium solves it cost in
+##' \code{attr(., "evaluations")}.
 ##' @author Daniel Falster
 ##' @export
 community_selection_gradient_jacobian <- function(community, birth_rate = NULL) {
   trait_names <- community$trait_names
-  if (nrow(community$traits) != 1L) {
-    stop("community_selection_gradient_jacobian needs exactly one resident; ",
-         "this community has ", nrow(community$traits))
+  m <- nrow(community$traits)
+  if (m < 1L) {
+    stop("community_selection_gradient_jacobian needs at least one resident")
   }
-  x <- as.numeric(community$traits[1, ])
-  ctrl <- community_derivative_control(community)
-
-  gradient <- singularity_gradient_fn(community, birth_rate = birth_rate)
+  x <- as.numeric(community$traits)
+  gradient <- singularity_gradient_fn(community, m, birth_rate = birth_rate)
+  ## a community already at equilibrium is the centre of the stencil and its
+  ## warm start, saving a solve; asked to start from other birth rates, solve
+  if (is.null(birth_rate) && community_at_equilibrium(community)) {
+    attr(gradient, "prime")(community)
+  }
   g0 <- gradient(x)
-  J <- util_jacobian(gradient, x, d = ctrl$d_second, eps = ctrl$eps_second,
-                     r = ctrl$r_jacobian)
-  dimnames(J) <- list(trait_names, trait_names)
-  names(g0) <- trait_names
+  ctrl <- community_derivative_control(community)
+  J <- resident_jacobian(gradient, x, ctrl)
+  ## a stencil point that merged two residents was refused, leaving the
+  ## Jacobian across them undefined (the solvers back off from such a point;
+  ## a caller asking for the Jacobian there has residents too close to tell
+  ## apart)
+  if (attr(gradient, "refused")() > 0L) {
+    near <- residents_merged(x, m, length(trait_names), ctrl, reach = 2)
+    stop("community_selection_gradient_jacobian: ",
+         if (nrow(near) > 0L)
+           paste(sprintf("residents %d and %d", near[, 1], near[, 2]), collapse = "; ")
+         else "two residents",
+         " are within the finite-difference step of each other, so the Jacobian across them is undefined")
+  }
+  labels <- resident_labels(trait_names, m)
+  dimnames(J) <- list(labels, labels)
+  names(g0) <- labels
   attr(J, "selection_gradient") <- g0
+  attr(J, "evaluations") <- attr(gradient, "evaluations")()
   J
+}
+
+## The resident Jacobian of a stacked gradient closure (singularity_gradient_fn)
+## at x, raw trait units. Solvers that already hold the closure call this
+## directly, so the stencil shares its warm starts and its count of solves.
+resident_jacobian <- function(gradient, x, ctrl) {
+  util_jacobian(gradient, x, d = ctrl$d_second, eps = ctrl$eps_second,
+                r = ctrl$r_jacobian)
 }
 
 ##' Check a harness's derivatives against finite differences.

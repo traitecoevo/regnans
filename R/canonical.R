@@ -61,10 +61,12 @@
 ##'     gradient on the trait scale is below this.}
 ##'   \item{\code{polish}, \code{polish_tol}}{once every gradient is below
 ##'     \code{polish_tol}, finish the approach to the stationary coalition by
-##'     Newton on the residents' gradients instead of integrating it: near a
-##'     stable coalition the dynamics are stiff, and an explicit stepper held at
-##'     its stability limit jitters about the point without reaching
-##'     \code{gradient_tol}.}
+##'     solving for it (\code{\link{community_solve_singularity}}) instead of
+##'     integrating it: near a stable coalition the dynamics are
+##'     stiff, and an explicit stepper held at its stability limit jitters
+##'     about the point without reaching \code{gradient_tol}. A solution more
+##'     than a tenth of the trait range from the current residents is not a
+##'     local finish and is refused; the integration carries on.}
 ##'   \item{\code{branch}}{what happens to a stationary resident at a fitness
 ##'     minimum. \code{"expected"} (default): a mutant that can invade and
 ##'     coexist arises at the rate
@@ -286,21 +288,32 @@ immigrant_phenotype <- function(control, tf, bounds_z, k) {
   as.numeric(tf$fwd(matrix(as.numeric(x), 1, k)))
 }
 
-## Finish the approach to a stationary coalition: Newton on the residents'
-## gradients, g(z) = 0, with the equilibrium re-solved inside each evaluation.
-## The Jacobian is finite differences across the residents -- one equilibrium
-## solve per unknown -- which is the irreducible part until the model supplies
-## equilibrium sensitivities (the gradient inside each evaluation is already
-## exact where the harness provides it). Returns the new z, or NULL if Newton
-## did not converge, in which case the integration simply carries on.
-canonical_polish <- function(rhs, z, control) {
-  residual <- function(zz) as.numeric(rhs(zz)$g_z)
-  sol <- tryCatch(util_nlsolve(z, residual, tol = control$gradient_tol / 10, maxit = 50,
-                               solver = "newton", require_converged = FALSE,
-                               max_step = 0.1 * max(abs(z), 1)),
-                  error = function(e) NULL)
-  if (is.null(sol) || !isTRUE(attr(sol, "converged"))) return(NULL)
-  as.numeric(sol)
+## Finish the approach to a stationary coalition by solving for it: the
+## residents, at densities n, handed to community_solve_singularity(), which
+## roots every resident's gradient with the equilibrium re-solved inside and
+## the Jacobian across the residents from the derivative layer. Returns the
+## new z and the equilibrium solves it cost, with z NULL if the solve did not
+## converge or lost the coalition, in which case the integration simply
+## carries on. Polishing is a local finish: a small gradient does not mean the
+## root is near (a flat landscape, residents close to merging), and the
+## solver's full steps can carry it to a different singular coalition, so a
+## root more than `reach` of the trait range from z on any trait is refused.
+canonical_polish <- function(base, z, n, tf, k, range_z, control, reach = 0.1) {
+  sol <- tryCatch(
+    suppressWarnings(community_solve_singularity(
+      base, x0 = tf$inv(matrix(z, ncol = k)), tol = control$gradient_tol / 10, maxit = 50, birth_rate = n)),
+    error = function(e) e)
+  if (inherits(sol, "error")) {
+    return(list(z = NULL, evaluations = if (is.null(sol$evaluations)) 0L else sol$evaluations))
+  }
+  evaluations <- attr(sol, "evaluations")
+  z_new <- as.numeric(tf$fwd(sol$traits))
+  m <- length(z) / k
+  if (!isTRUE(attr(sol, "converged")) ||
+      any(abs(z_new - z) > rep(reach * range_z, each = m))) {
+    return(list(z = NULL, evaluations = evaluations))
+  }
+  list(z = z_new, evaluations = evaluations)
 }
 
 ## odelia's step-size control in the canonical equation's terms: the error
@@ -437,6 +450,7 @@ canonical_integrate <- function(community, x0, control, tf, range_z, mutation_sd
   record(t, z, k1)
   outcome <- NULL
   steps <- 0L
+  polish_evaluations <- 0L
 
   while (is.null(outcome)) {
     if (t >= control$t_max) { outcome <- "t_max"; break }
@@ -505,9 +519,10 @@ canonical_integrate <- function(community, x0, control, tf, range_z, mutation_sd
     ## follow the approach, which Newton skips
     if (control$polish && max(abs(k1$g_z)) < control$polish_tol &&
         max(abs(k1$g_z)) >= control$gradient_tol) {
-      polished <- canonical_polish(rhs$f, z, control)
-      if (!is.null(polished)) {
-        z <- polished
+      polished <- canonical_polish(base, z, k1$n, tf, k, range_z, control)
+      polish_evaluations <- polish_evaluations + polished$evaluations
+      if (!is.null(polished$z)) {
+        z <- polished$z
         reseed()
         event(t, "polish")
         record(t, z, k1)
@@ -594,7 +609,7 @@ canonical_integrate <- function(community, x0, control, tf, range_z, mutation_sd
     events = tibble::as_tibble(do.call(rbind, events)),
     community = rhs$last(),
     base = base,
-    evaluations = rhs$evaluations(),
+    evaluations = rhs$evaluations() + polish_evaluations,
     steps = steps,
     rejections = unname(solver$counts()[["n_rejections"]]),
     immigration_attempts = immigration_attempts,

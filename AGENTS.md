@@ -144,17 +144,21 @@ invasion-fitness closure on the community.
   `mlr3`/Gaussian-process surrogates) and viable trait bounds.
 - `R/derivatives.R` — the only source of derivatives: `derivative_control()`,
   `community_fitness_gradient()`, `community_fitness_hessian()`,
-  `community_selection_gradient_jacobian()`. Consumers never build their own
+  `community_selection_gradient_jacobian()` (of every resident's gradient with
+  respect to every resident's traits). Consumers never build their own
   stencils; the finite-difference machinery (`gradient_points()`,
   `util_hessian()`, `util_jacobian()`) in `R/util_gradient.R` is reached only
   from here, so model-supplied derivatives can slot in later (#50).
 - `R/solve_attractors.R` — `community_selection_gradient()` (a thin wrapper over
   `community_fitness_gradient()`).
 - `R/singularity.R` — `community_solve_singularity()` (root-find on the
-  selection gradient in any dimension; Newton, or a `uniroot` bracket for one trait) and `community_classify_singularity()` (CSS / branching
-  point / repeller / Garden of Eden, with eigen-decompositions). Their
-  second-order derivatives come from `R/derivatives.R`. See **Singular
-  strategies** below.
+  selection gradients of one resident or of a coalition of several, in any
+  dimension; `nleqslv` or Newton with the resident Jacobian from
+  `R/derivatives.R`, `dfsane`, or a `uniroot` bracket for one resident with one
+  trait; a coalition that merges or loses a resident is reported lost) and
+  `community_classify_singularity()` (CSS / branching point / repeller /
+  Garden of Eden, per-resident Hessians and the full resident Jacobian, with
+  eigen-decompositions). See **Singular strategies** below.
 - `R/pip.R` — `community_pip()` (resident sweep → fitness surface + exact zero
   contours, with `pip_control()` for seeding/refinement), `pip_mutual()`,
   `community_tep()`, and their `plot()` methods. `R/parallel.R` holds the one
@@ -163,7 +167,7 @@ invasion-fitness closure on the community.
 - `R/canonical.R` — `community_canonical_equation()`: the canonical equation of
   adaptive dynamics with branching after a kernel-dependent waiting time
   (expected, stochastic or immediate), immigration from a pool, extinction and
-  Newton polishing of the stationary coalition; `canonical_control()` picks the
+  the stationary coalition solved by `community_solve_singularity()`; `canonical_control()` picks the
   odelia stepper (the linearly implicit `rodas`, `rkck` or `dopri`), rate,
   mutational kernel, immigration and limits. `canonical_community(ce, time)` rebuilds the
   community at a recorded time; `plot(ce, type = "landscapes")` shows the
@@ -207,12 +211,12 @@ here follow current plant terminology.
 
 ## Test baseline
 
-`devtools::test()` is **green: 1072 pass, 0 fail, 0 skip, 0 warn**. Tests run in
+`devtools::test()` is **green: 1174 pass, 0 fail, 0 skip, 0 warn**. Tests run in
 parallel (`Config/testthat/parallel: true`); the `test-plant-smoke*.R` files
 dominate the wall-clock as they are the only ones that run the real SCM. The
 `test-harness-*.R` and `test-singularity.R` files run no SCM and are fast.
 
-(The count has grown as the toy-harness tier has: 197 → 256 → 401 → 537 → 979 → 1002 → 1052 → 1072.
+(The count has grown as the toy-harness tier has: 197 → 256 → 401 → 537 → 979 → 1002 → 1052 → 1072 → 1174.
 What matters is that a change moves it up and moves nothing to FAIL.)
 
 Note: the testthat parallel workers may fail to find `plant` on startup in some
@@ -231,10 +235,7 @@ shells; run `TESTTHAT_PARALLEL=FALSE Rscript -e 'devtools::test()'` if so.
   `tidy_assembly` output shape.
 - `helper-assembly.R` (new) — shared `assembly_model_support(max_patch_lifetime
   = 30)` used by the integration tests (previously inlined in test-community.R).
-- `test-singularity.R` — `community_solve_singularity` (1-D, 2-trait, both
-  solvers, trait scales, edge/validation branches) and
-  `community_classify_singularity`, both against the analytic oracles tabulated
-  under **Singular strategies** below.
+- `test-singularity.R` — `community_solve_singularity` (1-D, 2-trait, every solver, trait scales, edge/validation branches; coalitions: the DD99 pair in closed form, the DD99 triple and GK98 pair from their closed-form gradients, a two-trait DD99 pair checking the trait-by-trait stacking, GM99 on a log scale, a pair that cannot coexist reported lost) and `community_classify_singularity` (one resident and coalitions, speed-weighted convergence stability on the DD99 triple's unequal densities), against the analytic oracles tabulated under **Singular strategies** below and in `helper-coalition.R`.
 - `test-demography-solvers.R` — all five equilibrium solvers on DD99, plus the
   genuine fixed-point tests and the `equilibrium_hybrid` extinct-species
   accept/reject branches built on `helper-harness-map.R`.
@@ -321,19 +322,18 @@ source of truth and list only live defects here.
 
 Two dimension-agnostic functions; both go through the harness connectors only, so they run on the toy harnesses exactly as on the plant SCM.
 
-- **`community_solve_singularity(community, x0, bounds, solver, ...)`** — root-find on `community_selection_gradient()`: `nleqslv` (default) or `dfsane` via `util_nlsolve` in any dimension, or `"bracket"` (`uniroot` between the bounds, one trait only; needs a sign change but cannot then miss the root). Searches on the community's trait scale (for `"log"` traits the residual is the gradient w.r.t. `log(x)`, far better conditioned). Discards any residents on the way in — a singular point is monomorphic — and returns the community *at* the root, with `attr(., "singularity")`. Candidates are clamped to `bounds`; landing on a bound (or, for the bracket, no sign change) warns, or errors with `edge_ok = FALSE`.
+- **`community_solve_singularity(community, x0, bounds, solver, ...)`** — root-find on the selection gradients of the residents in `x0` (by default the community's own; a matrix with one row per resident, while a bare vector is always one resident, one value per trait, so the same call cannot mean a coalition in a one-trait model and a single resident in a two-trait one), jointly, the equilibrium re-solved at each evaluation: one resident is a singular strategy, several a singular coalition (#53). `nleqslv` (default) or the package's `newton` via `util_nlsolve`, both taking the Jacobian from `community_selection_gradient_jacobian()`'s machinery; `dfsane`; or `"bracket"` (`uniroot` between the bounds, one resident with one trait; needs a sign change but cannot then miss the root). Searches on the community's trait scale (for `"log"` traits the residual is the gradient w.r.t. `log(x)`, far better conditioned). Returns the community *at* the root, with `attr(., "singularity")` and the equilibrium solves in `attr(., "evaluations")`. Candidates are clamped to `bounds`; landing on a bound (or, for the bracket, no sign change) warns, or errors with `edge_ok = FALSE`. Residents closer than the resident Jacobian's finite-difference step have merged: the residual is non-finite there (no solve), and a coalition that ends merged or with a resident at zero density is reported lost (warning, `converged = FALSE`).
 - **`community_classify_singularity(community, ...)`** — the second-order
-  conditions, covering 1-D and N-D with one code path (a 1-D result is just
-  1x1 matrices). Returns a `singularity_classification` object:
+  conditions, covering 1-D and N-D and any number of residents with one code
+  path (a 1-D result is just 1x1 matrices; for a coalition `hessian` is a list
+  with one matrix per resident, `resident_evolutionarily_stable` says which
+  residents are at a fitness maximum, and `jacobian` is `mk × mk`). Returns a
+  `singularity_classification` object:
   - `hessian` — curvature of invasion fitness in the *mutant* direction, with
     the resident held fixed. Negative definite = ESS. Computed by
     `util_hessian()` in one vectorised call to `fitness_function`
     (`1 + 4k^2` mutant evaluations, cheap).
-  - `jacobian` — derivative of the selection gradient w.r.t. the *resident*.
-    Eigenvalues with negative real parts = convergence stability; a negative
-    definite symmetric part = *strong* convergence stability (any mutational
-    covariance). Computed by `util_jacobian()`, `2k` full equilibrium solves —
-    this dominates the cost.
+  - `jacobian` — derivative of the selection gradients w.r.t. the *residents*. Convergence stability is decided on `diag(speeds) J` (`jacobian_weighted_eigen`): for a coalition the residents evolve at different speeds, by default their equilibrium densities as in the canonical equation (`speeds = "density"`, or `"equal"`, or a vector), and a coalition stable at equal speeds can be unstable at the speeds its densities give; for one resident the speed only rescales `J`. A negative definite symmetric part = *strong* convergence stability (any mutational covariance, any speeds). Computed by `util_jacobian()`, `2mk` full equilibrium solves — this dominates the cost. `community_selection_gradient_jacobian()` errors when two residents are within the finite-difference step of each other (the stencil cannot tell them apart).
   - the four-way `classification`: CSS / branching point / repeller / Garden of
     Eden, plus `degenerate` when an eigenvalue is within `tol` of zero.
   - the full eigen-decompositions and, where the point is invadable,
