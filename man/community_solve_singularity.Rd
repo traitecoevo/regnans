@@ -19,8 +19,9 @@ community_solve_singularity(
 \item{community}{A \code{community} object to search within.}
 
 \item{x0}{Starting traits, one row per resident (a bare vector is one
-resident with one value per trait, or, for a single trait, one resident per
-element). Defaults to the community's residents, or, if it has none, the
+resident with one value per trait, whatever the number of traits; several
+residents need a matrix, e.g. \code{trait_matrix(c(-0.3, 0.6), "x")}).
+Defaults to the community's residents, or, if it has none, the
 midpoint of \code{bounds} on the community's trait scale.}
 
 \item{bounds}{A \code{k} by 2 matrix of lower/upper bounds (a length-2
@@ -103,7 +104,7 @@ comm <- community_start(bounds(x = c(-2, 2)), trait_scale = "linear",
 # the monomorphic singular strategy, then the dimorphic coalition it
 # branches into
 one <- community_solve_singularity(comm, x0 = 0.5)
-pair <- community_solve_singularity(comm, x0 = c(-0.3, 0.6))
+pair <- community_solve_singularity(comm, x0 = trait_matrix(c(-0.3, 0.6), "x"))
 pair$traits
 community_classify_singularity(pair)
 }

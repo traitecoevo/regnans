@@ -144,7 +144,10 @@ test_that("community_solve_singularity warns when the bounds exclude the root", 
 
 test_that("community_solve_singularity validates x0 and bounds", {
   expect_error(community_solve_singularity(dd99_2d(), x0 = 1),
-               "x0 must have one value per trait")
+               "x0 as a vector is one resident, with one value per trait")
+  # a vector is never a coalition, even with one trait
+  expect_error(community_solve_singularity(dd99_1d(), x0 = c(-0.3, 0.6)),
+               "several residents as a matrix")
   expect_error(community_solve_singularity(dd99_2d(), bounds = c(-1, 1)),
                "bounds must be a 2 x 2 matrix")
 })
@@ -287,6 +290,9 @@ test_that("the classification prints its verdict and eigenvalues", {
 # DD99 symmetric triple and the GK98 pair as scalar roots of their closed-form
 # gradients, and closed-form curvatures at each resident.
 
+# one-trait residents as the matrix x0 a coalition needs
+residents_x0 <- function(...) trait_matrix(c(...), "x")
+
 gk98_1d <- function(d = 1.5) {
   community_start(bounds(x = c(-3, 3)), trait_scale = "linear",
                   harness = harness_gk98(d = d, sigma = 1))
@@ -295,7 +301,7 @@ gk98_1d <- function(d = 1.5) {
 test_that("community_solve_singularity finds the DD99 dimorphic coalition in closed form", {
   a <- dd99_pair_root(sigma_C = 0.4, sigma_K = 1)
   for (solver in c("nleqslv", "newton")) {
-    out <- community_solve_singularity(dd99_1d(), x0 = c(-0.3, 0.6), solver = solver, tol = 1e-10)
+    out <- community_solve_singularity(dd99_1d(), x0 = residents_x0(-0.3, 0.6), solver = solver, tol = 1e-10)
     expect_true(attr(out, "converged"), info = solver)
     expect_equal(as.numeric(out$traits), c(-a, a), tolerance = 1e-8, info = solver)
     expect_equal(out$birth_rate[1], out$birth_rate[2], tolerance = 1e-8, info = solver)
@@ -307,7 +313,7 @@ test_that("community_solve_singularity finds the DD99 dimorphic coalition in clo
     expect_lte(attr(out, "evaluations"), 12L)
   }
   # derivative-free, and a looser residual tolerance
-  df <- community_solve_singularity(dd99_1d(), x0 = c(-0.3, 0.6), solver = "dfsane")
+  df <- community_solve_singularity(dd99_1d(), x0 = residents_x0(-0.3, 0.6), solver = "dfsane")
   expect_equal(as.numeric(df$traits), c(-a, a), tolerance = 1e-5)
   # by default the community's own residents are the starting coalition, and
   # their densities the starting equilibrium
@@ -319,7 +325,7 @@ test_that("community_solve_singularity finds the DD99 dimorphic coalition in clo
 
 test_that("community_solve_singularity finds the DD99 trimorphic coalition", {
   b <- dd99_triple_root(sigma_C = 0.3)
-  out <- community_solve_singularity(dd99_1d(sigma_C = 0.3), x0 = c(-0.5, 0.05, 0.8), tol = 1e-10)
+  out <- community_solve_singularity(dd99_1d(sigma_C = 0.3), x0 = residents_x0(-0.5, 0.05, 0.8), tol = 1e-10)
   expect_true(attr(out, "converged"))
   expect_equal(as.numeric(out$traits), c(-b, 0, b), tolerance = 1e-8)
   expect_equal(out$birth_rate, dd99_coalition_density(c(-b, 0, b), sigma_C = 0.3), tolerance = 1e-6)
@@ -327,7 +333,7 @@ test_that("community_solve_singularity finds the DD99 trimorphic coalition", {
 
 test_that("community_solve_singularity finds the GK98 dimorphic coalition", {
   a <- gk98_pair_root(d = 1.5)
-  out <- community_solve_singularity(gk98_1d(), x0 = c(-0.5, 1), tol = 1e-10)
+  out <- community_solve_singularity(gk98_1d(), x0 = residents_x0(-0.5, 1), tol = 1e-10)
   expect_true(attr(out, "converged"))
   expect_equal(as.numeric(out$traits), c(-a, a), tolerance = 1e-8)
 })
@@ -338,7 +344,7 @@ test_that("community_solve_singularity searches a coalition on a log trait scale
   # resident's gradient vanishes, every resident has invasion fitness zero, and
   # a Newton solve with a correct trait-scale Jacobian gets there in few solves
   gm <- community_start(bounds(x = c(0.1, 0.95)), harness = harness_gm99(alpha = 7, beta = 15))
-  out <- community_solve_singularity(gm, x0 = c(0.5, 0.8), tol = 1e-8)
+  out <- community_solve_singularity(gm, x0 = residents_x0(0.5, 0.8), tol = 1e-8)
   expect_true(attr(out, "converged"))
   x <- as.numeric(out$traits)
   expect_lt(max(abs(out$selection_gradient * x)), 1e-7)
@@ -352,20 +358,20 @@ test_that("a coalition that cannot coexist is reported lost, not returned as con
   # resident is driven out on the way, depending on the solver's path)
   for (solver in c("nleqslv", "newton", "dfsane")) {
     expect_warning(
-      out <- community_solve_singularity(dd99_1d(sigma_C = 1.5), x0 = c(-0.3, 0.6), solver = solver),
+      out <- community_solve_singularity(dd99_1d(sigma_C = 1.5), x0 = residents_x0(-0.3, 0.6), solver = solver),
       "lost the coalition", info = solver)
     expect_false(attr(out, "converged"), info = solver)
     expect_equal(nrow(out$traits), 2L)
   }
-  expect_error(community_solve_singularity(dd99_1d(), x0 = c(0.2, 0.2)), "distinct residents")
-  expect_error(community_solve_singularity(dd99_1d(), x0 = c(-0.3, 0.6), solver = "bracket"),
+  expect_error(community_solve_singularity(dd99_1d(), x0 = residents_x0(0.2, 0.2)), "distinct residents")
+  expect_error(community_solve_singularity(dd99_1d(), x0 = residents_x0(-0.3, 0.6), solver = "bracket"),
                "needs a single resident")
   expect_error(community_solve_singularity(dd99_2d(), x0 = c(0.1, 0.2, 0.3)), "one value per trait")
 })
 
 test_that("the DD99 pair classifies as a convergence-stable branching coalition", {
   a <- dd99_pair_root()
-  sol <- community_solve_singularity(dd99_1d(), x0 = c(-0.3, 0.6), tol = 1e-10)
+  sol <- community_solve_singularity(dd99_1d(), x0 = residents_x0(-0.3, 0.6), tol = 1e-10)
   cl <- community_classify_singularity(sol)
   expect_s3_class(cl, "singularity_classification")
   expect_equal(cl$classification, "branching point")
@@ -391,7 +397,7 @@ test_that("the DD99 pair classifies as a convergence-stable branching coalition"
 
 test_that("the GK98 pair classifies as an evolutionarily stable coalition", {
   a <- gk98_pair_root(d = 1.5)
-  cl <- community_solve_singularity(gk98_1d(), x0 = c(-0.5, 1), tol = 1e-10) |>
+  cl <- community_solve_singularity(gk98_1d(), x0 = residents_x0(-0.5, 1), tol = 1e-10) |>
     community_classify_singularity()
   expect_equal(cl$classification, "CSS")
   expect_equal(cl$resident_evolutionarily_stable, c(TRUE, TRUE))
@@ -402,7 +408,7 @@ test_that("the GK98 pair classifies as an evolutionarily stable coalition", {
 
 test_that("the DD99 trimorphic coalition classifies as a branching coalition", {
   b <- dd99_triple_root(sigma_C = 0.3)
-  sol <- community_solve_singularity(dd99_1d(sigma_C = 0.3), x0 = c(-0.5, 0.05, 0.8), tol = 1e-10)
+  sol <- community_solve_singularity(dd99_1d(sigma_C = 0.3), x0 = residents_x0(-0.5, 0.05, 0.8), tol = 1e-10)
   cl <- community_classify_singularity(sol)
   expect_equal(cl$classification, "branching point")
   expect_equal(vapply(cl$hessian, as.numeric, numeric(1)),

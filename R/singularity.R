@@ -183,8 +183,9 @@ singularity_bracket <- function(residual, z_lo, z_hi, tol, maxit) {
 ##' @title Solve for a singular strategy or coalition (N-dimensional)
 ##' @param community A \code{community} object to search within.
 ##' @param x0 Starting traits, one row per resident (a bare vector is one
-##' resident with one value per trait, or, for a single trait, one resident per
-##' element). Defaults to the community's residents, or, if it has none, the
+##' resident with one value per trait, whatever the number of traits; several
+##' residents need a matrix, e.g. \code{trait_matrix(c(-0.3, 0.6), "x")}).
+##' Defaults to the community's residents, or, if it has none, the
 ##' midpoint of \code{bounds} on the community's trait scale.
 ##' @param bounds A \code{k} by 2 matrix of lower/upper bounds (a length-2
 ##' vector is accepted when there is a single trait). Defaults to the
@@ -215,7 +216,7 @@ singularity_bracket <- function(residual, z_lo, z_hi, tol, maxit) {
 ##' # the monomorphic singular strategy, then the dimorphic coalition it
 ##' # branches into
 ##' one <- community_solve_singularity(comm, x0 = 0.5)
-##' pair <- community_solve_singularity(comm, x0 = c(-0.3, 0.6))
+##' pair <- community_solve_singularity(comm, x0 = trait_matrix(c(-0.3, 0.6), "x"))
 ##' pair$traits
 ##' community_classify_singularity(pair)
 ##' @author Daniel Falster
@@ -247,11 +248,15 @@ community_solve_singularity <- function(community, x0 = NULL, bounds = NULL,
   if (is.null(x0)) {
     x0 <- if (nrow(community$traits) >= 1L) community$traits else tf$inv((z_lo + z_hi) / 2)
   }
+  ## a vector is one resident whatever the number of traits, so the same call
+  ## cannot mean a coalition in one model and a single resident in another
   if (!is.matrix(x0)) {
-    if (k > 1L && length(x0) != k) {
-      stop("x0 must have one value per trait (", k, ") or be a matrix with one row per resident")
+    if (length(x0) != k) {
+      stop("x0 as a vector is one resident, with one value per trait (", k, "); ",
+           "give several residents as a matrix with one row per resident, e.g. ",
+           "trait_matrix(c(...), \"", trait_names[1], "\")")
     }
-    x0 <- if (k == 1L) matrix(x0, ncol = 1L) else matrix(x0, nrow = 1L)
+    x0 <- matrix(x0, nrow = 1L)
   }
   if (ncol(x0) != k || nrow(x0) < 1L) {
     stop("x0 must have one column per trait (", k, ") and a row per resident")

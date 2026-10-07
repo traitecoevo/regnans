@@ -211,12 +211,12 @@ here follow current plant terminology.
 
 ## Test baseline
 
-`devtools::test()` is **green: 1170 pass, 0 fail, 0 skip, 0 warn**. Tests run in
+`devtools::test()` is **green: 1171 pass, 0 fail, 0 skip, 0 warn**. Tests run in
 parallel (`Config/testthat/parallel: true`); the `test-plant-smoke*.R` files
 dominate the wall-clock as they are the only ones that run the real SCM. The
 `test-harness-*.R` and `test-singularity.R` files run no SCM and are fast.
 
-(The count has grown as the toy-harness tier has: 197 → 256 → 401 → 537 → 979 → 1002 → 1052 → 1072 → 1170.
+(The count has grown as the toy-harness tier has: 197 → 256 → 401 → 537 → 979 → 1002 → 1052 → 1072 → 1171.
 What matters is that a change moves it up and moves nothing to FAIL.)
 
 Note: the testthat parallel workers may fail to find `plant` on startup in some
@@ -322,7 +322,7 @@ source of truth and list only live defects here.
 
 Two dimension-agnostic functions; both go through the harness connectors only, so they run on the toy harnesses exactly as on the plant SCM.
 
-- **`community_solve_singularity(community, x0, bounds, solver, ...)`** — root-find on the selection gradients of the residents in `x0` (by default the community's own; one row per resident), jointly, the equilibrium re-solved at each evaluation: one resident is a singular strategy, several a singular coalition (#53). `nleqslv` (default) or the package's `newton` via `util_nlsolve`, both taking the Jacobian from `community_selection_gradient_jacobian()`'s machinery; `dfsane`; or `"bracket"` (`uniroot` between the bounds, one resident with one trait; needs a sign change but cannot then miss the root). Searches on the community's trait scale (for `"log"` traits the residual is the gradient w.r.t. `log(x)`, far better conditioned). Returns the community *at* the root, with `attr(., "singularity")` and the equilibrium solves in `attr(., "evaluations")`. Candidates are clamped to `bounds`; landing on a bound (or, for the bracket, no sign change) warns, or errors with `edge_ok = FALSE`. Residents closer than the resident Jacobian's finite-difference step have merged: the residual is non-finite there (no solve), and a coalition that ends merged or with a resident at zero density is reported lost (warning, `converged = FALSE`).
+- **`community_solve_singularity(community, x0, bounds, solver, ...)`** — root-find on the selection gradients of the residents in `x0` (by default the community's own; a matrix with one row per resident, while a bare vector is always one resident, one value per trait, so the same call cannot mean a coalition in a one-trait model and a single resident in a two-trait one), jointly, the equilibrium re-solved at each evaluation: one resident is a singular strategy, several a singular coalition (#53). `nleqslv` (default) or the package's `newton` via `util_nlsolve`, both taking the Jacobian from `community_selection_gradient_jacobian()`'s machinery; `dfsane`; or `"bracket"` (`uniroot` between the bounds, one resident with one trait; needs a sign change but cannot then miss the root). Searches on the community's trait scale (for `"log"` traits the residual is the gradient w.r.t. `log(x)`, far better conditioned). Returns the community *at* the root, with `attr(., "singularity")` and the equilibrium solves in `attr(., "evaluations")`. Candidates are clamped to `bounds`; landing on a bound (or, for the bracket, no sign change) warns, or errors with `edge_ok = FALSE`. Residents closer than the resident Jacobian's finite-difference step have merged: the residual is non-finite there (no solve), and a coalition that ends merged or with a resident at zero density is reported lost (warning, `converged = FALSE`).
 - **`community_classify_singularity(community, ...)`** — the second-order
   conditions, covering 1-D and N-D and any number of residents with one code
   path (a 1-D result is just 1x1 matrices; for a coalition `hessian` is a list
