@@ -153,8 +153,18 @@ test_that("the resident Jacobian of a coalition matches the closed-form Lotka-Vo
   expect_equal(dim(J), c(3L, 3L))
   expect_equal(rownames(J), c("x[1]", "x[2]", "x[3]"))
   expect_equal(as.numeric(attr(J, "selection_gradient")), dd99_coalition_gradient(x), tolerance = 1e-8)
-  # one equilibrium solve at the centre and two per resident
-  expect_equal(attr(J, "evaluations"), 1L + 2L * 3L)
+  # two equilibrium solves per resident: the community's own equilibrium is the
+  # centre; asked to start from other birth rates, or not yet solved, the
+  # centre is solved too
+  expect_equal(attr(J, "evaluations"), 2L * 3L)
+  expect_equal(attr(community_selection_gradient_jacobian(comm, birth_rate = c(90, 90, 90)), "evaluations"),
+               1L + 2L * 3L)
+  unsolved <- community_start(bounds(x = c(-2, 2)), trait_scale = "linear",
+                              harness = harness_dd99(sigma_C = 0.4)) |>
+    community_add(trait_matrix(x, "x"), birth_rate = c(100, 100, 100))
+  J_unsolved <- community_selection_gradient_jacobian(unsolved)
+  expect_equal(attr(J_unsolved, "evaluations"), 1L + 2L * 3L)
+  expect_equal(unname(J_unsolved[, ]), unname(J[, ]), tolerance = 1e-8)
   # central differences with the default step: second-order error ~ 1e-6
   expect_equal(unname(J[, ]), oracle_jacobian(dd99_coalition_gradient, x), tolerance = 1e-5)
   # the off-diagonal blocks are the residents' effect on each other's selection

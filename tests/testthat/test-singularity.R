@@ -389,7 +389,7 @@ test_that("the DD99 pair classifies as a convergence-stable branching coalition"
   expect_equal(dim(cl$branching_direction), c(2L, 1L))
   expect_equal(abs(as.numeric(cl$branching_direction)), c(1, 1))
   expect_equal(dim(cl$traits), c(2L, 1L))
-  expect_equal(cl$evaluations, 1L + 2L * 2L)
+  expect_equal(cl$evaluations, 2L * 2L)
   out <- paste(utils::capture.output(print(cl)), collapse = "\n")
   expect_match(out, "coalition of 2")
   expect_match(out, "branching direction of resident 2")

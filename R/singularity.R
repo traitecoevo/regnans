@@ -83,15 +83,17 @@ singularity_gradient_fn <- function(community, m = 1L, birth_rate = NULL) {
       community_demography() |>
       community_selection_gradient()
     evaluations <<- evaluations + 1L
+    remember(x, out)
+  }
+  ## keep a solved community as the answer at x and carry its equilibrium
+  ## forward as the next candidate's starting point
+  remember <- function(x, out) {
     last_community <<- out
     state <<- out$demography_state
-
-    ## carry this equilibrium forward as the next candidate's starting point
     br <- as.numeric(out$birth_rate)
     if (length(br) == m && all(is.finite(br) & br > 0)) {
       seed_birth_rate <<- br
     }
-
     last_x <<- x
     last_g <<- as.numeric(out$selection_gradient)
     last_g
@@ -99,7 +101,24 @@ singularity_gradient_fn <- function(community, m = 1L, birth_rate = NULL) {
   attr(fn, "last") <- function() last_community
   attr(fn, "evaluations") <- function() evaluations
   attr(fn, "refused") <- function() refused
+  ## Take a community already at demographic equilibrium as the answer at its
+  ## own traits, so a caller holding one does not pay to solve it again.
+  attr(fn, "prime") <- function(community) {
+    if (is.null(community$selection_gradient)) {
+      community <- community_selection_gradient(community)
+    }
+    remember(as.numeric(community$traits), community)
+  }
   fn
+}
+
+## Has this community been solved to a demographic equilibrium that can stand
+## for a fresh solve at its residents: its fitness function in place, the
+## solve converged and every resident at a positive density.
+community_at_equilibrium <- function(community) {
+  br <- as.numeric(community$birth_rate)
+  !is.null(community$fitness_function) && isTRUE(attr(community, "converged")) &&
+    length(br) == nrow(community$traits) && all(is.finite(br) & br > 0)
 }
 
 ## Normalise a bounds argument to a k x 2 matrix, accepting a bare length-2

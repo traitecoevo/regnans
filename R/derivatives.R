@@ -297,6 +297,11 @@ community_selection_gradient_jacobian <- function(community, birth_rate = NULL) 
   }
   x <- as.numeric(community$traits)
   gradient <- singularity_gradient_fn(community, m, birth_rate = birth_rate)
+  ## a community already at equilibrium is the centre of the stencil and its
+  ## warm start, saving a solve; asked to start from other birth rates, solve
+  if (is.null(birth_rate) && community_at_equilibrium(community)) {
+    attr(gradient, "prime")(community)
+  }
   g0 <- gradient(x)
   ctrl <- community_derivative_control(community)
   J <- resident_jacobian(gradient, x, ctrl)
