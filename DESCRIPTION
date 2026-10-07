@@ -44,7 +44,8 @@ Suggests:
     DiceKriging,
     nloptr,
     lgr,
-    withr
+    withr,
+    pkgload
 Encoding: UTF-8
 Config/testthat/edition: 3
 Config/testthat/parallel: true

@@ -173,34 +173,46 @@ util_hessian <- function(f, x, d = 1e-3, eps = 1e-3, r = 2L) {
 ##' so \code{g} is called point by point and \code{r = 1} (a plain central
 ##' difference, \code{2 * length(x)} evaluations) is the default.
 ##'
+##' Every point of every level is built first and handed to \code{evaluate} in
+##' one call, so a caller whose points can be solved apart (in parallel) can
+##' do so; by default they are evaluated one after another, each level's
+##' columns in turn, the step up before the step down.
+##'
 ##' @title Finite-difference Jacobian
 ##' @param g Function taking a numeric vector and returning a numeric vector.
 ##' @param x Point at which to evaluate the Jacobian.
 ##' @param d Relative step size.
 ##' @param eps Absolute step size, used for coordinates that are ~0.
 ##' @param r Number of successively halved step sizes to extrapolate over.
+##' @param evaluate Function taking the list of stencil points, in that order,
+##' and returning the list of \code{g} at each.
 ##' @return A matrix with \code{J[i, j] = d g_i / d x_j}.
 ##' @author Daniel Falster
 ##' @noRd
-util_jacobian <- function(g, x, d = 1e-3, eps = 1e-3, r = 1L) {
+util_jacobian <- function(g, x, d = 1e-3, eps = 1e-3, r = 1L,
+                          evaluate = function(points) lapply(points, g)) {
   x <- as.numeric(x)
   n <- length(x)
   h0 <- util_fd_step(x, d, eps)
   unit <- diag(1, n)
 
-  est <- vector("list", r)
+  h <- lapply(seq_len(r), function(k) h0 / 2^(k - 1L))
+  points <- list()
   for (k in seq_len(r)) {
-    h <- h0 / 2^(k - 1L)
-    J <- NULL
     for (j in seq_len(n)) {
-      hj <- h[j] * unit[j, ]
-      up <- as.numeric(g(x + hj))
-      dn <- as.numeric(g(x - hj))
-      col <- (up - dn) / (2 * h[j])
-      if (is.null(J)) {
-        J <- matrix(NA_real_, length(col), n)
-      }
-      J[, j] <- col
+      hj <- h[[k]][j] * unit[j, ]
+      points <- c(points, list(x + hj, x - hj))
+    }
+  }
+  values <- lapply(evaluate(points), as.numeric)
+
+  est <- vector("list", r)
+  pos <- 0L
+  for (k in seq_len(r)) {
+    J <- matrix(NA_real_, length(values[[1L]]), n)
+    for (j in seq_len(n)) {
+      J[, j] <- (values[[pos + 1L]] - values[[pos + 2L]]) / (2 * h[[k]][j])
+      pos <- pos + 2L
     }
     est[[k]] <- J
   }

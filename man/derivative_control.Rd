@@ -13,7 +13,7 @@ derivative_control(control = NULL)
 A list with elements \code{d_gradient}, \code{eps_gradient},
 \code{r_gradient}, \code{d_second}, \code{eps_second}, \code{r_hessian},
 \code{r_jacobian}, \code{d_parameter}, \code{eps_parameter},
-\code{r_parameter}.
+\code{r_parameter} and \code{parallel}.
 }
 \description{
 Control how derivatives are computed.
@@ -37,6 +37,19 @@ respect to model parameters
 successively halved steps combined by Richardson extrapolation; each level of
 a resident or parameter Jacobian costs two demographic equilibrium solves per
 column, so they stay at one by default.
+
+Those equilibrium solves are independent, and with \code{parallel = TRUE}
+(the default) a \code{future::plan()} with several workers solves them
+apart. Without a plan the points of a resident Jacobian are solved one
+after another, each warm-started from the last; solved apart, each starts
+from the densities and solver state at the centre of the stencil. A finite
+difference of a solve is only as accurate as the solve, its error the
+equilibrium tolerance divided by the step whichever the start, so this
+moves the Jacobian by up to that much; \code{parallel = FALSE} keeps the
+sequential numbers with a plan active. The points of a parameter Jacobian
+all start from the residents' densities either way. A solved community
+never goes to a worker (each point is solved there from the community
+without its residents), so any plan works, plant included.
 }
 \author{
 Daniel Falster

@@ -53,6 +53,12 @@ resident_labels <- function(trait_names, m) {
 ## answer is non-finite and nothing is solved, so a solver backtracks. The
 ## community behind the most recent solve is kept so callers can return it
 ## rather than re-solving, and the solves are counted.
+##
+## attr(fn, "points") evaluates a list of points, as a stencil asks for them:
+## one after another as above, unless the derivative control allows a plan's
+## workers to solve them apart. Each is then solved from the densities and
+## solver state of the last solve here (the stencil's centre), which remain
+## the starting point of the next call.
 singularity_gradient_fn <- function(community, m = 1L, birth_rate = NULL) {
   base <- community_clear_residents(community)
   trait_names <- community$trait_names
@@ -75,15 +81,23 @@ singularity_gradient_fn <- function(community, m = 1L, birth_rate = NULL) {
       refused <<- refused + 1L
       return(rep(NA_real_, m * k))
     }
-    comm <- base |>
-      community_add(trait_matrix(matrix(x, m, k), trait_names),
-                    birth_rate = seed_birth_rate)
-    comm$demography_state <- state
-    out <- comm |>
-      community_demography() |>
-      community_selection_gradient()
+    out <- singularity_solve_point(x, base, m, seed_birth_rate, state)
     evaluations <<- evaluations + 1L
     remember(x, out)
+  }
+  points <- function(points) {
+    if (regnans_workers(ctrl$parallel) == 1L) {
+      return(lapply(points, fn))
+    }
+    points <- lapply(points, as.numeric)
+    merged <- vapply(points, function(x) nrow(residents_merged(x, m, k, ctrl)) > 0L, logical(1))
+    out <- rep(list(rep(NA_real_, m * k)), length(points))
+    out[!merged] <- regnans_map(points[!merged], singularity_gradient_point, base = base, m = m,
+                                birth_rate = seed_birth_rate, state = state,
+                                parallel = ctrl$parallel)
+    refused <<- refused + sum(merged)
+    evaluations <<- evaluations + sum(!merged)
+    out
   }
   ## keep a solved community as the answer at x and carry its equilibrium
   ## forward as the next candidate's starting point
@@ -98,6 +112,7 @@ singularity_gradient_fn <- function(community, m = 1L, birth_rate = NULL) {
     last_g <<- as.numeric(out$selection_gradient)
     last_g
   }
+  attr(fn, "points") <- points
   attr(fn, "last") <- function() last_community
   attr(fn, "evaluations") <- function() evaluations
   attr(fn, "refused") <- function() refused
@@ -110,6 +125,27 @@ singularity_gradient_fn <- function(community, m = 1L, birth_rate = NULL) {
     remember(as.numeric(community$traits), community)
   }
   fn
+}
+
+## The solve behind one call of the gradient closure: m residents at the
+## stacked traits x added to the community without residents `base`, solved
+## to demographic equilibrium from seed densities and the equilibrium solver's
+## state, with the selection gradient at each.
+singularity_solve_point <- function(x, base, m, birth_rate, state) {
+  trait_names <- base$trait_names
+  comm <- base |>
+    community_add(trait_matrix(matrix(x, m, length(trait_names)), trait_names),
+                  birth_rate = birth_rate)
+  comm$demography_state <- state
+  comm |>
+    community_demography() |>
+    community_selection_gradient()
+}
+
+## The same on a worker, returning only the gradient: a solved plant
+## community cannot cross back to this process.
+singularity_gradient_point <- function(x, base, m, birth_rate, state) {
+  as.numeric(singularity_solve_point(x, base, m, birth_rate, state)$selection_gradient)
 }
 
 ## Has this community been solved to a demographic equilibrium that can stand
@@ -178,7 +214,8 @@ singularity_bracket <- function(residual, z_lo, z_hi, tol, maxit) {
 ##' \code{\link{community_selection_gradient_jacobian}} (finite differences
 ##' across the residents, \code{2mk} equilibrium solves, until the model
 ##' supplies equilibrium sensitivities), refreshing it only when their
-##' rank-one updates fail. A Jacobian already in hand for a nearby point
+##' rank-one updates fail; under a \code{future::plan()} its solves run in
+##' parallel (\code{\link{derivative_control}}). A Jacobian already in hand for a nearby point
 ##' (\code{jacobian}, as in a continuation) answers their first request instead,
 ##' saving those solves.
 ##'
@@ -543,7 +580,10 @@ coalition_lost <- function(community, x, m, k, ctrl) {
 ##' vectorised call against the cached resident environment, so it is cheap. The
 ##' Jacobian (\code{\link{community_selection_gradient_jacobian}}) needs
 ##' \code{2mk} \emph{resident} evaluations, each a full demographic equilibrium
-##' solve, so it dominates. Protected coexistence costs \code{m} more, one
+##' solve, so it dominates. Under a \code{future::plan()} with several workers
+##' these solves, and those of the coexistence test, run in parallel (see
+##' \code{\link{derivative_control}} for how that can move the Jacobian
+##' within the equilibrium tolerance). Protected coexistence costs \code{m} more, one
 ##' per resident left out (and one more for each re-solve after removing a
 ##' resident without a positive density). Derivative settings come from
 ##' \code{\link{derivative_control}}.
@@ -823,6 +863,13 @@ community_invasion_when_rare <- function(base, residents, birth_rate, invader) {
   structure(as.numeric(f(invader)), evaluations = evaluations, reason = NULL)
 }
 
+## One invasion test, a list of residents, birth_rate and invader, against
+## the community without residents `base`; the tests of a coalition or a
+## branching are independent, so they go through the parallel map.
+invasion_when_rare_test <- function(test, base) {
+  community_invasion_when_rare(base, test$residents, test$birth_rate, test$invader)
+}
+
 ## Each resident's invasion fitness when rare in the community the others
 ## settle at without it (community_invasion_when_rare), with the equilibrium
 ## solves it cost and, for an undetermined one (NA), the reason. Every one
@@ -832,9 +879,10 @@ coalition_invasion_fitness <- function(community, birth_rate = NULL) {
   base <- community_clear_residents(community)
   n <- if (is.null(birth_rate)) as.numeric(community$birth_rate) else as.numeric(birth_rate)
   x <- community$traits
-  out <- lapply(seq_len(m), function(i) {
-    community_invasion_when_rare(base, x[-i, , drop = FALSE], n[-i], x[i, , drop = FALSE])
+  tests <- lapply(seq_len(m), function(i) {
+    list(residents = x[-i, , drop = FALSE], birth_rate = n[-i], invader = x[i, , drop = FALSE])
   })
+  out <- regnans_map(tests, invasion_when_rare_test, base = base)
   s <- vapply(out, as.numeric, numeric(1))
   reasons <- lapply(out, function(o) {
     if (is.null(attr(o, "reason")) && is.na(o)) "the model's invasion fitness is not a number" else attr(o, "reason")

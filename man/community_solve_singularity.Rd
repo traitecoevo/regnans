@@ -85,7 +85,8 @@ gradients with respect to the residents from
 \code{\link{community_selection_gradient_jacobian}} (finite differences
 across the residents, \code{2mk} equilibrium solves, until the model
 supplies equilibrium sensitivities), refreshing it only when their
-rank-one updates fail. A Jacobian already in hand for a nearby point
+rank-one updates fail; under a \code{future::plan()} its solves run in
+parallel (\code{\link{derivative_control}}). A Jacobian already in hand for a nearby point
 (\code{jacobian}, as in a continuation) answers their first request instead,
 saving those solves.
 

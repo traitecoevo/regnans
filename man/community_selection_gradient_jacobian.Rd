@@ -13,7 +13,7 @@ stencil cannot tell them apart).}
 
 \item{birth_rate}{Birth rates to start each equilibrium solve from, one per
 resident; defaults to the residents' own, with each solve then
-warm-starting from the last.}
+warm-starting from the last (under a plan, from the solve at the residents).}
 }
 \value{
 An \code{mk} by \code{mk} matrix, rows and columns named by trait
@@ -38,7 +38,10 @@ mean selection carries nearby residents towards the point ---
 convergence stability. Each stencil point solves the perturbed community to
 demographic equilibrium, so this is the expensive derivative: \code{2mk}
 equilibrium solves per Richardson level, finite differences across the
-residents until the model supplies equilibrium sensitivities.
+residents until the model supplies equilibrium sensitivities. Under a
+\code{future::plan()} with several workers those solves run in parallel,
+each from the densities at the residents rather than from the previous
+point (\code{\link{derivative_control}}, \code{parallel}).
 }
 \author{
 Daniel Falster

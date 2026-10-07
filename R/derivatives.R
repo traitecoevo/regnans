@@ -40,12 +40,25 @@
 ##' a resident or parameter Jacobian costs two demographic equilibrium solves per
 ##' column, so they stay at one by default.
 ##'
+##' Those equilibrium solves are independent, and with \code{parallel = TRUE}
+##' (the default) a \code{future::plan()} with several workers solves them
+##' apart. Without a plan the points of a resident Jacobian are solved one
+##' after another, each warm-started from the last; solved apart, each starts
+##' from the densities and solver state at the centre of the stencil. A finite
+##' difference of a solve is only as accurate as the solve, its error the
+##' equilibrium tolerance divided by the step whichever the start, so this
+##' moves the Jacobian by up to that much; \code{parallel = FALSE} keeps the
+##' sequential numbers with a plan active. The points of a parameter Jacobian
+##' all start from the residents' densities either way. A solved community
+##' never goes to a worker (each point is solved there from the community
+##' without its residents), so any plan works, plant included.
+##'
 ##' @title Derivative settings
 ##' @param control A list of values to modify from the defaults.
 ##' @return A list with elements \code{d_gradient}, \code{eps_gradient},
 ##' \code{r_gradient}, \code{d_second}, \code{eps_second}, \code{r_hessian},
 ##' \code{r_jacobian}, \code{d_parameter}, \code{eps_parameter},
-##' \code{r_parameter}.
+##' \code{r_parameter} and \code{parallel}.
 ##' @author Daniel Falster
 ##' @export
 derivative_control <- function(control = NULL) {
@@ -59,7 +72,8 @@ derivative_control <- function(control = NULL) {
     r_jacobian   = 1L,
     d_parameter   = 1e-3,
     eps_parameter = 1e-3,
-    r_parameter   = 1L
+    r_parameter   = 1L,
+    parallel      = TRUE
   )
 
   control <- as.list(control)
@@ -83,6 +97,9 @@ derivative_control <- function(control = NULL) {
     }
     ret[[nm]] <- as.integer(v)
   }
+  if (!is.logical(ret$parallel) || length(ret$parallel) != 1L || is.na(ret$parallel)) {
+    stop("parallel must be TRUE or FALSE")
+  }
   ret
 }
 
@@ -90,11 +107,10 @@ derivative_control <- function(control = NULL) {
 ## Each names a closure `function(y, control)` in community$fitness_derivatives.
 fitness_derivative_names <- c("fitness_gradient", "fitness_hessian")
 
-## Communities built before derivative_control existed, or by hand in tests,
-## carry no settings; they get the defaults.
+## Communities built by hand carry no settings, or only some; the rest are
+## the defaults.
 community_derivative_control <- function(community) {
-  ctrl <- community$derivative_control
-  if (is.null(ctrl)) derivative_control() else ctrl
+  derivative_control(community$derivative_control)
 }
 
 ## Mutant points as a matrix with one row per point, following the convention
@@ -281,7 +297,10 @@ fd_fitness_hessian <- function(f, y, ctrl) {
 ##' convergence stability. Each stencil point solves the perturbed community to
 ##' demographic equilibrium, so this is the expensive derivative: \code{2mk}
 ##' equilibrium solves per Richardson level, finite differences across the
-##' residents until the model supplies equilibrium sensitivities.
+##' residents until the model supplies equilibrium sensitivities. Under a
+##' \code{future::plan()} with several workers those solves run in parallel,
+##' each from the densities at the residents rather than from the previous
+##' point (\code{\link{derivative_control}}, \code{parallel}).
 ##'
 ##' @title Resident Jacobian of the selection gradient
 ##' @param community A \code{community} with one or more residents, no two of
@@ -289,7 +308,7 @@ fd_fitness_hessian <- function(f, y, ctrl) {
 ##' stencil cannot tell them apart).
 ##' @param birth_rate Birth rates to start each equilibrium solve from, one per
 ##' resident; defaults to the residents' own, with each solve then
-##' warm-starting from the last.
+##' warm-starting from the last (under a plan, from the solve at the residents).
 ##' @return An \code{mk} by \code{mk} matrix, rows and columns named by trait
 ##' (and \code{[i]} for resident \code{i} when there are several), with the
 ##' stacked selection gradient at the residents in
@@ -336,9 +355,10 @@ community_selection_gradient_jacobian <- function(community, birth_rate = NULL) 
 ## The resident Jacobian of a stacked gradient closure (singularity_gradient_fn)
 ## at x, raw trait units. Solvers that already hold the closure call this
 ## directly, so the stencil shares its warm starts and its count of solves.
+## The closure evaluates the stencil's points, apart under a plan.
 resident_jacobian <- function(gradient, x, ctrl) {
   util_jacobian(gradient, x, d = ctrl$d_second, eps = ctrl$eps_second,
-                r = ctrl$r_jacobian)
+                r = ctrl$r_jacobian, evaluate = attr(gradient, "points"))
 }
 
 ##' Jacobian of the selection gradient with respect to model parameters.
@@ -359,7 +379,11 @@ resident_jacobian <- function(gradient, x, ctrl) {
 ##' equilibrium solves per Richardson level, warm-started from the residents'
 ##' densities, with steps from \code{\link{derivative_control}}
 ##' (\code{d_parameter}, \code{eps_parameter}, \code{r_parameter}) of the
-##' community.
+##' community. Under a \code{future::plan()} with several workers the solves
+##' run in parallel, with the same answer, and \code{parameter} runs on the
+##' workers: under a plan whose workers are separate processes it must not
+##' hold a solved plant community (its fitness function holds the SCM), which
+##' is an error.
 ##'
 ##' @title Parameter Jacobian of the selection gradient
 ##' @param community A \code{community} with one or more residents, built by
@@ -398,20 +422,33 @@ community_selection_gradient_parameter_jacobian <- function(community, parameter
   p <- check_parameter_values(parameter, p, community)
   x <- as.numeric(community$traits)
   n <- if (is.null(birth_rate)) as.numeric(community$birth_rate) else as.numeric(birth_rate)
-  evaluations <- 0L
-  g_at <- function(q) {
-    comm <- parameter_community(parameter, stats::setNames(q, names(p)), community)
-    gradient <- singularity_gradient_fn(comm, m, birth_rate = n)
-    g <- gradient(x)
-    evaluations <<- evaluations + attr(gradient, "evaluations")()
-    g
-  }
   ctrl <- community_derivative_control(community)
-  G <- util_jacobian(g_at, p, d = ctrl$d_parameter, eps = ctrl$eps_parameter,
-                     r = ctrl$r_parameter)
+  ## every point starts from the same densities, so solving them apart under
+  ## a plan changes only the time; what goes to a worker is the community
+  ## without its solve
+  like <- community_reset(community)
+  evaluations <- 0L
+  evaluate <- function(points) {
+    g <- regnans_map(points, parameter_gradient_point, parameter = parameter,
+                     names = names(p), like = like, x = x, m = m, birth_rate = n,
+                     parallel = ctrl$parallel)
+    evaluations <<- evaluations + sum(vapply(g, attr, integer(1), "evaluations"))
+    lapply(g, as.numeric)
+  }
+  G <- util_jacobian(NULL, p, d = ctrl$d_parameter, eps = ctrl$eps_parameter,
+                     r = ctrl$r_parameter, evaluate = evaluate)
   dimnames(G) <- list(resident_labels(community$trait_names, m), names(p))
   attr(G, "evaluations") <- evaluations
   G
+}
+
+## One point of the parameter Jacobian's stencil: the selection gradient at
+## the residents x of the community parameter(q) builds, solved from
+## birth_rate, with the solves it took. Runs on a worker under a plan.
+parameter_gradient_point <- function(q, parameter, names, like, x, m, birth_rate) {
+  comm <- parameter_community(parameter, stats::setNames(q, names), like)
+  gradient <- singularity_gradient_fn(comm, m, birth_rate = birth_rate)
+  structure(gradient(x), evaluations = attr(gradient, "evaluations")())
 }
 
 ## The parameter values `community` was built at, as a named numeric vector.
