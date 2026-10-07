@@ -52,7 +52,7 @@ test_that("community_solve_singularity and the classifier run on the SCM", {
   # The selection gradient itself jumps: on the log scale it falls at about
   # -740 per unit log(lma) near the root, but steps up by ~0.23 every ~2e-5 in
   # relative lma (reproduced from cold solves, so the model's, not the warm
-  # starts'). A residual tolerance below the jumps can leave the search on one
+  # starts'; plant#653). A residual tolerance below the jumps can leave the search on one
   # of them, which #74 rightly reports as not converged; 0.3 sits above them
   # and still places the root to ~4e-4 of log(lma).
   out <- community_start(bounds(lma = c(0.02, 0.6)),
