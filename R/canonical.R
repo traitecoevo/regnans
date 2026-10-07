@@ -93,7 +93,9 @@
 ##'     right constant is model-dependent and the waiting times are exact only up
 ##'     to it.}
 ##'   \item{\code{branch_nodes}}{Gauss--Hermite nodes for the branching-rate
-##'     integral; each costs one equilibrium solve.}
+##'     integral; each costs one equilibrium solve, and under a
+##'     \code{future::plan()} with several workers they are solved in
+##'     parallel, with the same answer.}
 ##'   \item{\code{branch_distance}}{for \code{"immediate"}: how far, as a
 ##'     fraction of the trait range on the trait scale, the two daughters sit
 ##'     from the parent.}
@@ -228,12 +230,10 @@ gauss_hermite <- function(n) {
 ## Run expr with a given seed, leaving the caller's random stream as it was.
 with_seed <- function(seed, expr) {
   if (is.null(seed)) return(expr)
-  had <- exists(".Random.seed", envir = globalenv(), inherits = FALSE)
-  old <- if (had) get(".Random.seed", envir = globalenv()) else NULL
-  on.exit(if (had) assign(".Random.seed", old, envir = globalenv()) else
-            if (exists(".Random.seed", envir = globalenv(), inherits = FALSE)) rm(".Random.seed", envir = globalenv()))
-  set.seed(seed)
-  expr
+  preserve_seed({
+    set.seed(seed)
+    expr
+  })
 }
 
 ## The rate at which resident i, stationary at a fitness minimum, acquires a
@@ -262,13 +262,17 @@ canonical_branch_rate <- function(base, comm, tf, control, zm, i, v, sd_v, weigh
   failed <- 0L
   evaluations <- 0L
   n_res <- as.numeric(comm$birth_rate)
-  for (j in which(p_est > 0)) {
+  invaders <- which(p_est > 0)
+  tests <- lapply(invaders, function(j) {
     z_other <- zm; z_other[i, ] <- z_mut[j, ]
-    s_back <- community_invasion_when_rare(base, tf$inv(z_other), n_res,
-                                           tf$inv(matrix(zm[i, ], 1, k)))
+    list(residents = tf$inv(z_other), birth_rate = n_res, invader = tf$inv(matrix(zm[i, ], 1, k)))
+  })
+  back <- regnans_map(tests, invasion_when_rare_test, base = base)
+  for (b in seq_along(invaders)) {
+    s_back <- back[[b]]
     evaluations <- evaluations + attr(s_back, "evaluations")
     if (is.na(s_back)) { failed <- failed + 1L; next }
-    if (is.finite(s_back) && s_back > 0) success[j] <- p_est[j]
+    if (is.finite(s_back) && s_back > 0) success[invaders[b]] <- p_est[invaders[b]]
   }
   if (failed > 0L) {
     warning(sprintf("%d of %d coexistence tests could not be decided while computing a branching rate; the rate is a lower bound",

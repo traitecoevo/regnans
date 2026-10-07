@@ -70,7 +70,9 @@ canonical_control(control = NULL)
     right constant is model-dependent and the waiting times are exact only up
     to it.}
   \item{\code{branch_nodes}}{Gauss--Hermite nodes for the branching-rate
-    integral; each costs one equilibrium solve.}
+    integral; each costs one equilibrium solve, and under a
+    \code{future::plan()} with several workers they are solved in
+    parallel, with the same answer.}
   \item{\code{branch_distance}}{for \code{"immediate"}: how far, as a
     fraction of the trait range on the trait scale, the two daughters sit
     from the parent.}

@@ -227,24 +227,13 @@ test_that("GM99 non-viable mutants are shaded as unable to invade", {
   expect_true(all(is.finite(pip$contours$mutant)))
 })
 
-test_that("residents are solved in contiguous chunks and a parallel plan gives the same surface", {
-  expect_equal(regnans_chunks(0), list())
-  expect_equal(regnans_chunks(5, parallel = FALSE), list(1:5))
-  expect_equal(regnans_map(1:3, function(i) i * 2, parallel = FALSE), list(2, 4, 6))
-
-  skip_if_not_installed("future")
-  skip_if_not_installed("future.apply")
-  skip_on_os("windows")
-  skip_if_not(future::supportsMulticore())
+test_that("a parallel plan gives the same surface", {
   sequential <- community_pip(dd99(), control = ctrl())
-  old <- future::plan(future::multicore, workers = 2)
-  on.exit(future::plan(old), add = TRUE)
-  expect_equal(regnans_workers(), 2L)
-  expect_equal(sort(lengths(regnans_chunks(11))), c(5L, 6L))
-  expect_equal(unlist(regnans_chunks(11)), 1:11)
-  parallel <- community_pip(dd99(), control = ctrl())
-  expect_equal(parallel$surface, sequential$surface, tolerance = 1e-10)
-  expect_equal(parallel$contours, sequential$contours, tolerance = 1e-8)
+  for (type in c("multicore", "multisession")) {
+    parallel <- with_two_workers(type, community_pip(dd99(), control = ctrl()))
+    expect_equal(parallel$surface, sequential$surface, tolerance = 1e-10)
+    expect_equal(parallel$contours, sequential$contours, tolerance = 1e-8)
+  }
 })
 
 # ---- other models ------------------------------------------------------------

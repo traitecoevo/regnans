@@ -233,19 +233,25 @@ pip_interpolate_seeds <- function(solved, z_new, tf) {
 ## chunk runs in order and warm-starts from its previous resident.
 pip_solve_residents <- function(base, residents, seeds, z_mutant, tf, control) {
   chunks <- regnans_chunks(length(residents), control$parallel)
-  solved <- regnans_map(chunks, function(idx) {
-    out <- vector("list", length(idx))
-    previous <- NULL
-    for (j in seq_along(idx)) {
-      i <- idx[j]
-      seed <- if (is.finite(seeds[i]) && seeds[i] > 0) seeds[i] else previous
-      out[[j]] <- pip_resident(base, residents[i], z_mutant, tf, control, seed)
-      br <- out[[j]]$birth_rate
-      previous <- if (control$seed != "cold" && length(br) == 1L && is.finite(br) && br > 0) br else NULL
-    }
-    out
-  }, parallel = control$parallel)
+  solved <- regnans_map(chunks, pip_solve_chunk, base = base, residents = residents,
+                        seeds = seeds, z_mutant = z_mutant, tf = tf, control = control,
+                        parallel = control$parallel)
   unlist(solved, recursive = FALSE)
+}
+
+## One chunk of residents, solved in order, each warm-starting from the last
+## unless it has a seed of its own. Runs on a worker under a plan.
+pip_solve_chunk <- function(idx, base, residents, seeds, z_mutant, tf, control) {
+  out <- vector("list", length(idx))
+  previous <- NULL
+  for (j in seq_along(idx)) {
+    i <- idx[j]
+    seed <- if (is.finite(seeds[i]) && seeds[i] > 0) seeds[i] else previous
+    out[[j]] <- pip_resident(base, residents[i], z_mutant, tf, control, seed)
+    br <- out[[j]]$birth_rate
+    previous <- if (control$seed != "cold" && length(br) == 1L && is.finite(br) && br > 0) br else NULL
+  }
+  out
 }
 
 ## The two-pass solve of the initial resident grid for seed = "interpolate":
@@ -480,18 +486,9 @@ community_tep <- function(community, pip) {
   base <- community_clear_residents(community)
   extinct <- community$demography_control$equilibrium_extinct_birth_rate
   seed_of <- stats::setNames(pip$residents$birth_rate, pip$residents$resident)
-  rows <- regnans_map(seq_len(nrow(pairs)), function(i) {
-    x <- c(pairs$x1[i], pairs$x2[i])
-    solved <- base |>
-      community_add(trait_matrix(x, trait_names),
-                    birth_rate = unname(seed_of[as.character(x)])) |>
-      community_demography()
-    n <- as.numeric(solved$birth_rate)
-    if (any(!is.finite(n)) || any(n <= extinct)) return(NULL)
-    g <- community_fitness_gradient(solved)
-    tibble::tibble(x1 = x[1], x2 = x[2], n1 = n[1], n2 = n[2],
-                   g1 = g[1, 1], g2 = g[2, 1])
-  }, parallel = pip$control$parallel)
+  pairs <- lapply(seq_len(nrow(pairs)), function(i) c(pairs$x1[i], pairs$x2[i]))
+  rows <- regnans_map(pairs, tep_pair, base = base, seed_of = seed_of, extinct = extinct,
+                      parallel = pip$control$parallel)
   kept <- !vapply(rows, is.null, logical(1))
   out <- if (any(kept)) do.call(rbind, rows[kept]) else
     tibble::tibble(x1 = numeric(0), x2 = numeric(0), n1 = numeric(0),
@@ -502,6 +499,21 @@ community_tep <- function(community, pip) {
   attr(out, "pip") <- pip
   class(out) <- c("tep", class(out))
   out
+}
+
+## One coexisting pair x of the trait-evolution plot, solved from the
+## residents' own densities: their densities and selection gradients, or NULL
+## if either goes extinct. Runs on a worker under a plan.
+tep_pair <- function(x, base, seed_of, extinct) {
+  solved <- base |>
+    community_add(trait_matrix(x, base$trait_names),
+                  birth_rate = unname(seed_of[as.character(x)])) |>
+    community_demography()
+  n <- as.numeric(solved$birth_rate)
+  if (any(!is.finite(n)) || any(n <= extinct)) return(NULL)
+  g <- community_fitness_gradient(solved)
+  tibble::tibble(x1 = x[1], x2 = x[2], n1 = n[1], n2 = n[2],
+                 g1 = g[1, 1], g2 = g[2, 1])
 }
 
 ## Link the exact crossings of consecutive residents into contour branches.

@@ -164,9 +164,8 @@ invasion-fitness closure on the community.
 - `R/continuation.R` — how singular points move with model parameters: `community_parameter_sensitivity()` (`dx*/dp = −J⁻¹ ∂g/∂p`, one resident or a coalition) and `community_continue_singularity()` (natural-parameter continuation: sensitivity predictor, `community_solve_singularity(jacobian = )` corrector started from the last point's Jacobian, classification at each point, `changes` where it flips, a warning and a stop where the corrector fails). A parameter enters through a function `p -> community`; `community_parameter_map()` builds one for an explicit harness (it rebuilds the harness via `h$rebuild(pars)`, since `harness_explicit()` closes `pars` into the model functions and editing `h$pars` does nothing). A map records only the names it varies; `p` defaults to the community's own values (`community_parameter_values()`), never to values stored on the map. `∂g/∂p` is `community_selection_gradient_parameter_jacobian()` in `R/derivatives.R`. Worked examples, each on a test's oracle: overstorey `DD99.qmd`, `GM99.qmd` and `JJ12.qmd`.
 - `R/pip.R` — `community_pip()` (resident sweep → fitness surface + exact zero
   contours, with `pip_control()` for seeding/refinement), `pip_mutual()`,
-  `community_tep()`, and their `plot()` methods. `R/parallel.R` holds the one
-  `future`-backed map (`regnans_map()`, contiguous `regnans_chunks()`) that
-  independent model evaluations go through.
+  `community_tep()`, and their `plot()` methods.
+- `R/parallel.R` — the one `future`-backed map (`regnans_map()`, contiguous `regnans_chunks()`, `regnans_workers()`) that every independent model evaluation goes through: the PIP's residents, the TEP's pairs, the resident-Jacobian stencil (`util_jacobian()` takes an `evaluate` hook and the gradient closure supplies `attr(gradient, "points")`, so the classifier, the singularity solver, sensitivity and continuation all route), the parameter Jacobian, protected coexistence's leave-one-out solves and the canonical branch rate's invade-back tests. Sequential without a plan, and the same answer bit for bit under any plan: every stencil point starts from the centre's densities and solver state, never from the previous point. Rules (ROADMAP, "Decided for #59"): only a community without its solve crosses to a worker, which solves it and returns numbers, since a solved plant community's fitness function holds the SCM (an external pointer); worker functions are top-level with their data as arguments, because a closure would carry its frame (the linear trait transform is `identity` for the same reason); under a plan that does not fork, the map refuses a payload holding an external pointer (`regnans_pointers()`); each element gets a seeded stream and the caller's RNG state is restored (`preserve_seed()`), so a plan never moves the caller's stream; a stencil point whose solve fails is reported after the others finish, with their solves counted; only `pip_control()` has a `parallel` field, since only the PIP's chunked warm starts make the answer depend on the plan.
 - `R/canonical.R` — `community_canonical_equation()`: the canonical equation of
   adaptive dynamics with branching after a kernel-dependent waiting time
   (expected, stochastic or immediate), immigration from a pool, extinction and
@@ -215,12 +214,12 @@ here follow current plant terminology.
 
 ## Test baseline
 
-`devtools::test()` is **green: 1363 pass, 0 fail, 0 skip, 0 warn**. Tests run in
+`devtools::test()` is **green: 1472 pass, 0 fail, 0 skip, 0 warn**. Tests run in
 parallel (`Config/testthat/parallel: true`); the `test-plant-smoke*.R` files
 dominate the wall-clock as they are the only ones that run the real SCM. The
 `test-harness-*.R` and `test-singularity.R` files run no SCM and are fast.
 
-(The count has grown as the toy-harness tier has: 197 → 256 → 401 → 537 → 979 → 1002 → 1052 → 1072 → 1174 → 1186 → 1202 → 1228 → 1363.
+(The count has grown as the toy-harness tier has: 197 → 256 → 401 → 537 → 979 → 1002 → 1052 → 1072 → 1174 → 1186 → 1202 → 1228 → 1363 → 1472.
 What matters is that a change moves it up and moves nothing to FAIL.)
 
 Note: the testthat parallel workers may fail to find `plant` on startup in some
@@ -255,8 +254,10 @@ shells; run `TESTTHAT_PARALLEL=FALSE Rscript -e 'devtools::test()'` if so.
   root at a resident beside the singular strategy, refinement landing only at
   contour exits and the singular strategy, seeding strategies agreeing on an
   iterated GM99 while costing fewer evaluations, `pip_mutual()`,
-  `community_tep()` mirror symmetry, the plots, and a multicore run matching
-  the sequential surface.
+  `community_tep()` mirror symmetry, the plots, and multicore and multisession
+  runs matching the sequential surface.
+- `test-parallel.R` — the parallel map: the routed paths' values pinned to 1e-12 (resident Jacobian, singularity solve, classification, parameter Jacobian, branch rate, on DD99 with the Newton equilibrium solver, where each solve starts matters); two-worker plans being separate processes running the source under test; the caller's RNG untouched by a plan and draws on workers reproducible and plan-independent; the external-pointer refusal under multisession and not under multicore; every routed path, a stochastic canonical run included, bit-identical with identical solve counts under multicore and multisession, with the model's own equilibrium and with an iterated one; the iterated Jacobian reaching the closed form at a tight tolerance; refusals and failed solves under a plan, the finished solves counted.
+- `helper-parallel.R` — `with_two_workers(type, code)`: a two-worker `multicore` plan, or a two-process cluster (what `multisession` builds) whose workers `load_all()` this source tree, since a fresh process would otherwise load the installed regnans; it asserts the map sees both workers, so a test cannot pass by falling back to `lapply()`.
 - `test-community-plots.R` — `community_plot_fitness_landscape` and `plot_community` (one and two traits, log and linear scales, step selection), forcing `ggplot_build()` so the aesthetics are actually evaluated and checking each plotted point against the residents.
 - `test-derivatives.R` — `derivative_control`, the dispatch functions in
   `R/derivatives.R` against the DD99 slope/curvature oracles, model-supplied vs
@@ -269,7 +270,10 @@ shells; run `TESTTHAT_PARALLEL=FALSE Rscript -e 'devtools::test()'` if so.
   coalition), GK98 (the dimorphic coalition the trait-evolution plot shows).
 - `test-plant-smoke-singularity.R` — the SCM anchor for the above: the
   alternative equilibrium solvers agreeing with the iteration, and the N-D
-  solver plus classifier running on the real model. Deliberately
+  solver plus classifier running on the real model (under multicore and
+  multisession plans too: the same Jacobian, cost and verdict bit for bit; a
+  solved community holding the SCM's pointer, the community without its solve
+  holding none). Deliberately
   **reference-free** (internal consistency, not pinned trait values) so it
   survives changes to the plant parameterisation; the pinned references stay in
   `test-plant-smoke.R`.

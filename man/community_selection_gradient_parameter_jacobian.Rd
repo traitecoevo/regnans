@@ -54,7 +54,11 @@ not a harness parameter. Each column is a central difference, two
 equilibrium solves per Richardson level, warm-started from the residents'
 densities, with steps from \code{\link{derivative_control}}
 (\code{d_parameter}, \code{eps_parameter}, \code{r_parameter}) of the
-community.
+community. Under a \code{future::plan()} with several workers the solves
+run in parallel, with the same answer, and \code{parameter} runs on the
+workers: under a plan whose workers are separate processes (anything but
+\code{multicore}) it must not hold a solved plant community, whose fitness
+function holds the SCM; that is an error.
 }
 \examples{
 comm <- community_start(bounds(x = c(-2, 2)), trait_scale = "linear",

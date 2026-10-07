@@ -40,6 +40,16 @@
 ##' a resident or parameter Jacobian costs two demographic equilibrium solves per
 ##' column, so they stay at one by default.
 ##'
+##' Every point of a resident Jacobian is solved from the densities and
+##' solver state at the centre of the stencil, and every point of a parameter
+##' Jacobian from the residents' densities, so the solves are independent: a
+##' \code{future::plan()} with several workers solves them in parallel, with
+##' the same answer as without one. A finite difference of an equilibrium
+##' solve is only as accurate as the solve: its error is about the equilibrium
+##' tolerance divided by the step, near 1e-2 relative at the default
+##' \code{equilibrium_eps} and \code{d_second}
+##' (\href{https://github.com/traitecoevo/regnans/issues/80}{#80}).
+##'
 ##' @title Derivative settings
 ##' @param control A list of values to modify from the defaults.
 ##' @return A list with elements \code{d_gradient}, \code{eps_gradient},
@@ -281,15 +291,18 @@ fd_fitness_hessian <- function(f, y, ctrl) {
 ##' convergence stability. Each stencil point solves the perturbed community to
 ##' demographic equilibrium, so this is the expensive derivative: \code{2mk}
 ##' equilibrium solves per Richardson level, finite differences across the
-##' residents until the model supplies equilibrium sensitivities.
+##' residents until the model supplies equilibrium sensitivities. Each is
+##' solved from the densities and solver state at the residents, so under a
+##' \code{future::plan()} with several workers they run in parallel, with the
+##' same answer.
 ##'
 ##' @title Resident Jacobian of the selection gradient
 ##' @param community A \code{community} with one or more residents, no two of
 ##' them within the finite-difference step of each other (an error: the
 ##' stencil cannot tell them apart).
 ##' @param birth_rate Birth rates to start each equilibrium solve from, one per
-##' resident; defaults to the residents' own, with each solve then
-##' warm-starting from the last.
+##' resident; defaults to the residents' own. Every stencil point starts from
+##' the solve at the residents.
 ##' @return An \code{mk} by \code{mk} matrix, rows and columns named by trait
 ##' (and \code{[i]} for resident \code{i} when there are several), with the
 ##' stacked selection gradient at the residents in
@@ -336,9 +349,10 @@ community_selection_gradient_jacobian <- function(community, birth_rate = NULL) 
 ## The resident Jacobian of a stacked gradient closure (singularity_gradient_fn)
 ## at x, raw trait units. Solvers that already hold the closure call this
 ## directly, so the stencil shares its warm starts and its count of solves.
+## The closure evaluates the stencil's points, apart under a plan.
 resident_jacobian <- function(gradient, x, ctrl) {
   util_jacobian(gradient, x, d = ctrl$d_second, eps = ctrl$eps_second,
-                r = ctrl$r_jacobian)
+                r = ctrl$r_jacobian, evaluate = attr(gradient, "points"))
 }
 
 ##' Jacobian of the selection gradient with respect to model parameters.
@@ -359,7 +373,11 @@ resident_jacobian <- function(gradient, x, ctrl) {
 ##' equilibrium solves per Richardson level, warm-started from the residents'
 ##' densities, with steps from \code{\link{derivative_control}}
 ##' (\code{d_parameter}, \code{eps_parameter}, \code{r_parameter}) of the
-##' community.
+##' community. Under a \code{future::plan()} with several workers the solves
+##' run in parallel, with the same answer, and \code{parameter} runs on the
+##' workers: under a plan whose workers are separate processes (anything but
+##' \code{multicore}) it must not hold a solved plant community, whose fitness
+##' function holds the SCM; that is an error.
 ##'
 ##' @title Parameter Jacobian of the selection gradient
 ##' @param community A \code{community} with one or more residents, built by
@@ -398,20 +416,31 @@ community_selection_gradient_parameter_jacobian <- function(community, parameter
   p <- check_parameter_values(parameter, p, community)
   x <- as.numeric(community$traits)
   n <- if (is.null(birth_rate)) as.numeric(community$birth_rate) else as.numeric(birth_rate)
-  evaluations <- 0L
-  g_at <- function(q) {
-    comm <- parameter_community(parameter, stats::setNames(q, names(p)), community)
-    gradient <- singularity_gradient_fn(comm, m, birth_rate = n)
-    g <- gradient(x)
-    evaluations <<- evaluations + attr(gradient, "evaluations")()
-    g
-  }
   ctrl <- community_derivative_control(community)
-  G <- util_jacobian(g_at, p, d = ctrl$d_parameter, eps = ctrl$eps_parameter,
-                     r = ctrl$r_parameter)
+  ## every point starts from the same densities, so they are independent and
+  ## go through the parallel map
+  evaluations <- 0L
+  evaluate <- function(points) {
+    g <- regnans_map(points, parameter_gradient_point, parameter = parameter,
+                     names = names(p), trait_names = community$trait_names, x = x, m = m,
+                     birth_rate = n)
+    evaluations <<- evaluations + sum(vapply(g, attr, integer(1), "evaluations"))
+    lapply(g, as.numeric)
+  }
+  G <- util_jacobian(NULL, p, d = ctrl$d_parameter, eps = ctrl$eps_parameter,
+                     r = ctrl$r_parameter, evaluate = evaluate)
   dimnames(G) <- list(resident_labels(community$trait_names, m), names(p))
   attr(G, "evaluations") <- evaluations
   G
+}
+
+## One point of the parameter Jacobian's stencil: the selection gradient at
+## the residents x of the community parameter(q) builds, solved from
+## birth_rate, with the solves it took. Runs on a worker under a plan.
+parameter_gradient_point <- function(q, parameter, names, trait_names, x, m, birth_rate) {
+  comm <- parameter_community(parameter, stats::setNames(q, names), trait_names)
+  gradient <- singularity_gradient_fn(comm, m, birth_rate = birth_rate)
+  structure(gradient(x), evaluations = attr(gradient, "evaluations")())
 }
 
 ## The parameter values `community` was built at, as a named numeric vector.
@@ -445,13 +474,13 @@ check_parameter_values <- function(parameter, p, community) {
   p
 }
 
-## The community parameter(p) builds, checked to be a model of the same
-## traits as `like`.
-parameter_community <- function(parameter, p, like) {
+## The community parameter(p) builds, checked to be a model of the given
+## traits.
+parameter_community <- function(parameter, p, trait_names) {
   comm <- parameter(p)
-  if (!inherits(comm, "community") || !identical(comm$trait_names, like$trait_names)) {
+  if (!inherits(comm, "community") || !identical(comm$trait_names, trait_names)) {
     stop("parameter(p) must return a community with the traits ",
-         paste(like$trait_names, collapse = ", "))
+         paste(trait_names, collapse = ", "))
   }
   comm
 }
