@@ -17,9 +17,11 @@ A function taking a numeric vector \code{p}, the named parameters
 concatenated in order (a vector-valued parameter gives one entry per element),
 and returning \code{community} with those parameters set to \code{p}: same
 residents, bounds and controls, reset so that nothing solved under the old
-parameters is carried over. The current values, named (\code{"sigma_K"}, or
-\code{"sigma_K[1]"}, \code{"sigma_K[2]"} for a vector), are in
-\code{attr(., "value")}.
+parameters is carried over. The names it varies are in
+\code{attr(., "pars")}; the functions that take a map read a community's own
+values of them (\code{community_parameter_values()}) as their default
+\code{p}, so a community the map built always answers at the parameters it
+was built at.
 }
 \description{
 Vary the parameters of a model with an explicit harness.
@@ -41,7 +43,7 @@ returns a community of the same traits.
 comm <- community_start(bounds(x = c(-2, 2)), trait_scale = "linear",
                         harness = harness_dd99())
 by_x0 <- community_parameter_map(comm, "x0")
-attr(by_x0, "value")
+community_parameter_values(by_x0(0.5), by_x0)
 community_solve_singularity(by_x0(0.5))$traits
 }
 \author{

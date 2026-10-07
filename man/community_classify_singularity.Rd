@@ -162,7 +162,10 @@ the point the solve stopped at. So is one whose residents are visibly away
 from a singularity, a Newton step on their selection gradients moving some
 trait by more than a thousandth of the bounds' width on the trait scale
 (\code{newton_reach}): the second-order conditions describe a singularity,
-and away from one they describe nothing in particular.
+and away from one they describe nothing in particular. A coalition with two
+residents within a thousandth of the bounds' width of each other also
+warns: at a pitchfork the coalition shrinks to a point, and a near-merged
+pair can pass as a root whatever its verdict.
 }
 \author{
 Daniel Falster

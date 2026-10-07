@@ -161,7 +161,7 @@ invasion-fitness closure on the community.
   `community_classify_singularity()` (CSS / branching point / repeller /
   Garden of Eden, per-resident Hessians and the full resident Jacobian, with
   eigen-decompositions). See **Singular strategies** below.
-- `R/continuation.R` — how singular points move with model parameters: `community_parameter_sensitivity()` (`dx*/dp = −J⁻¹ ∂g/∂p`, one resident or a coalition) and `community_continue_singularity()` (natural-parameter continuation: sensitivity predictor, `community_solve_singularity(jacobian = )` corrector started from the last point's Jacobian, classification at each point, `changes` where it flips, a warning and a stop where the corrector fails). A parameter enters through a function `p -> community`; `community_parameter_map()` builds one for an explicit harness (it rebuilds the harness via `h$rebuild(pars)`, since `harness_explicit()` closes `pars` into the model functions and editing `h$pars` does nothing). `∂g/∂p` is `community_selection_gradient_parameter_jacobian()` in `R/derivatives.R`.
+- `R/continuation.R` — how singular points move with model parameters: `community_parameter_sensitivity()` (`dx*/dp = −J⁻¹ ∂g/∂p`, one resident or a coalition) and `community_continue_singularity()` (natural-parameter continuation: sensitivity predictor, `community_solve_singularity(jacobian = )` corrector started from the last point's Jacobian, classification at each point, `changes` where it flips, a warning and a stop where the corrector fails). A parameter enters through a function `p -> community`; `community_parameter_map()` builds one for an explicit harness (it rebuilds the harness via `h$rebuild(pars)`, since `harness_explicit()` closes `pars` into the model functions and editing `h$pars` does nothing). A map records only the names it varies; `p` defaults to the community's own values (`community_parameter_values()`), never to values stored on the map. `∂g/∂p` is `community_selection_gradient_parameter_jacobian()` in `R/derivatives.R`.
 - `R/pip.R` — `community_pip()` (resident sweep → fitness surface + exact zero
   contours, with `pip_control()` for seeding/refinement), `pip_mutual()`,
   `community_tep()`, and their `plot()` methods. `R/parallel.R` holds the one
@@ -214,12 +214,12 @@ here follow current plant terminology.
 
 ## Test baseline
 
-`devtools::test()` is **green: 1323 pass, 0 fail, 0 skip, 0 warn**. Tests run in
+`devtools::test()` is **green: 1363 pass, 0 fail, 0 skip, 0 warn**. Tests run in
 parallel (`Config/testthat/parallel: true`); the `test-plant-smoke*.R` files
 dominate the wall-clock as they are the only ones that run the real SCM. The
 `test-harness-*.R` and `test-singularity.R` files run no SCM and are fast.
 
-(The count has grown as the toy-harness tier has: 197 → 256 → 401 → 537 → 979 → 1002 → 1052 → 1072 → 1174 → 1186 → 1202 → 1228 → 1323.
+(The count has grown as the toy-harness tier has: 197 → 256 → 401 → 537 → 979 → 1002 → 1052 → 1072 → 1174 → 1186 → 1202 → 1228 → 1363.
 What matters is that a change moves it up and moves nothing to FAIL.)
 
 Note: the testthat parallel workers may fail to find `plant` on startup in some
@@ -339,7 +339,7 @@ Two dimension-agnostic functions; both go through the harness connectors only, s
     (`1 + 4k^2` mutant evaluations, cheap).
   - `jacobian` — derivative of the selection gradients w.r.t. the *residents*. Convergence stability is decided on `diag(speeds) J` (`jacobian_weighted_eigen`): for a coalition the residents evolve at different speeds, by default their equilibrium densities as in the canonical equation (`speeds = "density"`, or `"equal"`, or a vector), and a coalition stable at equal speeds can be unstable at the speeds its densities give; for one resident the speed only rescales `J`. A negative definite symmetric part = *strong* convergence stability (any mutational covariance, any speeds). Computed by `util_jacobian()`, `2mk` full equilibrium solves — this dominates the cost. `community_selection_gradient_jacobian()` errors when two residents are within the finite-difference step of each other (the stencil cannot tell them apart).
   - `protected_coexistence` (coalitions): each resident, made rare, invades the community the others settle at without it (`invasion_fitness`, threshold `invasion_tol`), `m` more equilibrium solves; without it the classification is `unprotected`. For two Lotka–Volterra residents this is exactly the stability of their equilibrium (priority effects give positive densities at an unstable one); for three or more it is *stronger* than stability, since a stable coalition can have a resident that, once lost, stays lost. Where the others settle is their equilibrium with any non-positive density removed and the rest re-solved (`community_invasion_when_rare()`): a model's own equilibrium can be infeasible once a resident is left out, and invasion fitness against negative densities can have either sign. A failed solve, or a removed resident that could invade back, makes the test undetermined: `NA`, a warning, and the verdict falls to the second-order conditions. `canonical_branch_rate()` uses the same helper for its invade-back test.
-  - the four-way `classification`: CSS / branching point / repeller / Garden of Eden, plus `degenerate` when an eigenvalue is within `tol` of zero and `unprotected` as above. A community marked as not converged (by the singularity or the equilibrium solve) is classified with a warning, and so is one whose residents a Newton step on the gradients would move by more than 1e-3 of the bounds' width (`newton_reach`): the classifier does not otherwise check that it was handed a singularity.
+  - the four-way `classification`: CSS / branching point / repeller / Garden of Eden, plus `degenerate` when an eigenvalue is within `tol` of zero and `unprotected` as above. A community marked as not converged (by the singularity or the equilibrium solve) is classified with a warning, and so is one whose residents a Newton step on the gradients would move by more than 1e-3 of the bounds' width (`newton_reach`): the classifier does not otherwise check that it was handed a singularity. A coalition with two residents within 1e-3 of the bounds' width of each other also warns: at a pitchfork it shrinks to a point and passes as a root with any verdict.
   - the full eigen-decompositions and, where the point is invadable,
     `branching_direction` — the leading Hessian eigenvector, i.e. the direction
     in trait space the population splits along. In a multi-trait problem that

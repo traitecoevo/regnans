@@ -7,7 +7,7 @@
 community_parameter_sensitivity(
   community,
   parameter,
-  p = attr(parameter, "value"),
+  p = NULL,
   birth_rate = NULL
 )
 }
@@ -19,8 +19,10 @@ typically from \code{\link{community_solve_singularity}} on
 \item{parameter}{A function \code{p -> community}; see
 \code{\link{community_parameter_map}}.}
 
-\item{p}{The parameter values \code{community} was built at; defaults to
-those \code{community_parameter_map()} records.}
+\item{p}{The parameter values \code{community} was built at. Needed for a
+function written by the caller; for a map from
+\code{\link{community_parameter_map}} they are read from the community,
+and a \code{p} given must agree with them.}
 
 \item{birth_rate}{Birth rates to start each equilibrium solve from, one per
 resident; defaults to the residents' own.}
@@ -55,7 +57,8 @@ Cost: \code{2mk} equilibrium solves for \eqn{J} and two per parameter for
 The sensitivity is in raw trait units whatever the community's trait scale
 (on a log scale, \eqn{d \log x^* / dp} is it divided by \eqn{x^*}).
 \code{community} is taken to be the model at \code{p}, as
-\code{parameter(p)} builds it; it is not re-solved to check. As in
+\code{parameter(p)} builds it; it is not re-solved to check, but with a map
+from \code{\link{community_parameter_map}} \code{p} is read from it. As in
 \code{\link{community_classify_singularity}}, a community marked as not
 converged, or whose residents a Newton step on their gradients would move
 by more than a thousandth of the bounds' width, is answered with a warning.

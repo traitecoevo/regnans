@@ -31,11 +31,14 @@
 ##' \code{attr(., "converged") == FALSE} and decide what to do with it.
 ##' @param jac Optional exact Jacobian function of \code{fn}, used by
 ##' \code{newton} and \code{nleqslv}.
-##' @param J0 Optional starting Jacobian approximation for \code{newton}, e.g.
-##' the one a previous nearby solve returned. It is only a hint: if the first
-##' step from it fails its line search, the Jacobian is recomputed by finite
-##' differences (or \code{jac}) and the solve continues, so a poor \code{J0}
-##' costs one wasted step rather than the solve.
+##' @param J0 Optional starting Jacobian approximation for \code{newton} and
+##' \code{nleqslv}, e.g. the one a previous nearby solve returned. It is only a
+##' hint. For \code{newton}, if the first step from it fails its line search,
+##' the Jacobian is recomputed by finite differences (or \code{jac}) and the
+##' solve continues, so a poor \code{J0} costs one wasted step rather than the
+##' solve. \code{nleqslv} never recomputes a Jacobian once it has one, so if
+##' the solve from \code{J0} does not converge it is run again from \code{x}
+##' with the Jacobian computed, at the cost of the first attempt.
 ##' @param refresh For \code{newton}: recompute the Jacobian by finite
 ##' differences every this many steps (Broyden updates in between).
 ##' @param max_step For \code{newton}: the largest change in any coordinate a
@@ -52,7 +55,7 @@ util_nlsolve <- function(x, fn, tol=1e-6, maxit=100, solver="nleqslv",
   solver <- match.arg(solver, c("nleqslv", "dfsane", "newton"))
 
   res <- switch(solver,
-                nleqslv=util_nlsolve_nleqslv(x, fn, tol, maxit, jac = jac, xtol = xtol),
+                nleqslv=util_nlsolve_nleqslv(x, fn, tol, maxit, jac = jac, J0 = J0, xtol = xtol),
                 dfsane=util_nlsolve_dfsane(x, fn, tol, maxit),
                 newton=util_nlsolve_newton(x, fn, tol, maxit, jac = jac, J0 = J0,
                                            refresh = refresh, max_step = max_step,
@@ -69,8 +72,17 @@ util_nlsolve <- function(x, fn, tol=1e-6, maxit=100, solver="nleqslv",
 }
 
 util_nlsolve_nleqslv <- function(x, fn, tol=1e-6, maxit=100, jac = NULL,
-                                 xtol = tol * 1e-3) {
+                                 J0 = NULL, xtol = tol * 1e-3) {
   control <- list(xtol=xtol, ftol=tol, maxit=maxit)
+  if (!is.null(J0)) {
+    ## nleqslv asks for one Jacobian and Broyden-updates it from then on
+    sol <- nleqslv::nleqslv(x, fn, jac = function(z) J0, global="none", control=control)
+    res <- sol$x
+    attributes(res) <- util_nlsolve_nleqslv_attr(sol, tol)
+    if (attr(res, "converged")) {
+      return(res)
+    }
+  }
   sol <- nleqslv::nleqslv(x, fn, jac = jac, global="none", control=control)
   res <- sol$x
   attributes(res) <- util_nlsolve_nleqslv_attr(sol, tol)

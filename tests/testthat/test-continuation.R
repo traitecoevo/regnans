@@ -36,9 +36,11 @@ test_that("community_parameter_map rebuilds the model at new parameter values", 
     community_add(trait_matrix(0.2, "x"), birth_rate = 100) |>
     community_demography()
   by <- community_parameter_map(comm, c("x0", "sigma_K"))
-  expect_equal(attr(by, "value"), c(x0 = 0, sigma_K = 1))
+  expect_equal(attr(by, "pars"), c("x0", "sigma_K"))
+  expect_equal(community_parameter_values(comm, by), c(x0 = 0, sigma_K = 1))
 
   moved <- by(c(0.5, 1.2))
+  expect_equal(community_parameter_values(moved, by), c(x0 = 0.5, sigma_K = 1.2))
   expect_equal(moved$harness$pars$x0, 0.5)
   expect_equal(moved$harness$pars$sigma_K, 1.2)
   expect_true(isTRUE(moved$harness$fd))
@@ -46,6 +48,8 @@ test_that("community_parameter_map rebuilds the model at new parameter values", 
   expect_equal(moved$traits, comm$traits)
   expect_equal(moved$bounds, comm$bounds)
   expect_null(moved$fitness_function)
+  expect_null(moved$selection_gradient)
+  expect_null(attr(moved, "converged"))
   # the model really is the new one: its singular strategy is the new x0
   expect_equal(as.numeric(community_solve_singularity(moved)$traits), 0.5, tolerance = 1e-6)
   # and the community it was built from is untouched
@@ -56,7 +60,7 @@ test_that("community_parameter_map gives a vector parameter one entry per elemen
   comm <- community_start(bounds(x1 = c(-2, 2), x2 = c(-2, 2)), trait_scale = "linear",
                           harness = harness_dd99_nd(x0 = c(0.2, -0.4)))
   by <- community_parameter_map(comm, c("x0", "r"))
-  expect_equal(attr(by, "value"), c(`x0[1]` = 0.2, `x0[2]` = -0.4, r = 1))
+  expect_equal(community_parameter_values(comm, by), c(`x0[1]` = 0.2, `x0[2]` = -0.4, r = 1))
   expect_equal(by(c(0.1, 0.3, 2))$harness$pars$x0, c(0.1, 0.3))
 })
 
@@ -67,6 +71,25 @@ test_that("community_parameter_map refuses what it cannot vary", {
   expect_error(community_parameter_map(comm, "x0")(c(1, 2)), "must have 1 value")
   plant <- community_start(bounds(lma = c(0.01, 2)), harness = harness_plant())
   expect_error(community_parameter_map(plant, "x0"), "harness_explicit")
+  expect_error(community_parameter_values(comm, function(p) comm), "give p")
+  jj <- community_start(bounds(x = c(-3, 3)), trait_scale = "linear", harness = harness_jj12())
+  expect_error(community_parameter_values(jj, community_parameter_map(comm, "x0")),
+               "not built by this parameter map")
+})
+
+test_that("a community the map built is not mistaken for one solved under the old parameters", {
+  # solved at x0 = 0.3, then rebuilt at x0 = 0.6: the old gradient (zero) and
+  # convergence must not stand for the new model's
+  sol <- community_solve_singularity(dd99_comm(x0 = 0.3), tol = 1e-10)
+  by <- community_parameter_map(sol, "x0")
+  moved <- community_demography(by(0.6))
+  expect_equal(as.numeric(community_selection_gradient(moved)$selection_gradient), 0.3, tolerance = 1e-8)
+  expect_warning(cl <- community_classify_singularity(by(0.6)), "not at a singular point")
+  expect_equal(as.numeric(cl$selection_gradient), 0.3, tolerance = 1e-8)
+  # the same holds for a resident added after a solve
+  added <- community_add(sol, trait_matrix(0.9, "x"), birth_rate = 10)
+  expect_null(added$selection_gradient)
+  expect_null(attr(added, "converged"))
 })
 
 # ---- community_selection_gradient_parameter_jacobian ------------------------
@@ -190,6 +213,18 @@ test_that("a singular resident Jacobian is refused as a fold, not answered", {
                "resident Jacobian is singular")
 })
 
+test_that("the sensitivity is taken at the parameters the community was built at", {
+  # a map built at sigma_C = 0.4 asked about a pair solved at sigma_C = 0.6
+  comm <- dd99_comm()
+  by <- community_parameter_map(comm, "sigma_C")
+  pair <- community_solve_singularity(by(0.6), x0 = pair_x0(-0.3, 0.6), tol = 1e-10)
+  S <- community_parameter_sensitivity(pair, by)
+  da <- dd99_pair_root_gradient(0.6, 1)[["sigma_C"]]
+  expect_equal(as.numeric(S), c(-da, da), tolerance = 1e-5)
+  expect_equal(as.numeric(community_parameter_sensitivity(pair, by, p = 0.6)), as.numeric(S))
+  expect_error(community_parameter_sensitivity(pair, by, p = 0.4), "built at sigma_C = 0.6")
+})
+
 test_that("the sensitivity warns away from a singularity", {
   comm <- dd99_comm() |>
     community_add(trait_matrix(0.5, "x"), birth_rate = 100) |>
@@ -299,6 +334,76 @@ test_that("a path stops, with a warning, where the DD99 pair merges", {
   expect_match(paste(utils::capture.output(print(path)), collapse = "\n"), "stopped at p = 1.1")
 })
 
+test_that("a log-scale path predicts on the log scale and clamps to the bounds", {
+  # x* = 0.555, dx*/dalpha = 0.129: the step to alpha = 8.5 overshoots the upper
+  # bound even on the log scale; clamped there, the corrector finds the root
+  gm <- community_start(bounds(x = c(0.05, 0.95)), harness = harness_gm99(alpha = 6, beta = 15))
+  by <- community_parameter_map(gm, "alpha")
+  start <- community_solve_singularity(gm, tol = 1e-10)
+  path <- community_continue_singularity(start, by, c(6, 8.5), tol = 1e-10)
+  expect_null(path$stopped)
+  expect_equal(path$predicted[2, 1], c(x = 0.95))
+  expect_equal(as.numeric(path$traits[2, ]),
+               as.numeric(community_solve_singularity(by(8.5), tol = 1e-10)$traits), tolerance = 1e-8)
+  # a raw-scale step of the same size would have predicted a negative seed size
+  S <- path$sensitivity[1, 1]
+  expect_lt(start$traits[1, 1] - 3 * S * 2.5, 0)
+  path <- community_continue_singularity(start, by, c(6, 6 - 2.5 * 3), tol = 1e-10)
+  expect_gt(path$predicted[2, 1], 0)
+})
+
+test_that("at the pitchfork the near-merged pair is flagged, and a clamped prediction that merges it stops the path", {
+  # at sigma_C = sigma_K the corrector lands on a pair ~4e-4 apart, every
+  # derivative O(a^2): the classifier warns, the sensitivity is huge, and the
+  # next prediction, clamped, merges the pair
+  comm <- dd99_comm(sigma_C = 0.95)
+  start <- community_solve_singularity(comm, x0 = pair_x0(-0.3, 0.35), tol = 1e-10)
+  warnings <- character(0)
+  path <- withCallingHandlers(
+    community_continue_singularity(start, community_parameter_map(comm, "sigma_C"),
+                                   c(0.95, 1, 1.1), tol = 1e-10),
+    warning = function(w) {
+      warnings <<- c(warnings, conditionMessage(w))
+      invokeRestart("muffleWarning")
+    })
+  expect_true(any(grepl("residents 1 and 2 are within 0.001 of the bounds' width", warnings)))
+  expect_true(any(grepl("stopped at p = 1.1: .*merged.*clamped to the bounds", warnings)))
+  expect_equal(path$p, c(0.95, 1))
+  expect_gt(max(abs(path$sensitivity[2, ])), 100 * max(abs(path$sensitivity[1, ])))
+})
+
+test_that("a point that cannot be differentiated ends the path but keeps the points before it", {
+  # DD99 below p = 1, then a model whose every point is singular with J = 0
+  cubic <- harness_explicit(
+    fitness = function(x_mut, x_res, n_res, pars) (x_mut - x_res[1])^3,
+    equilibrium = function(x_res, pars) rep(1, length(x_res)),
+    fitness_gradient = function(x_mut, x_res, n_res, pars) matrix(3 * (x_mut - x_res[1])^2, ncol = 1L),
+    pars = list(), trait_names = "x", label = "cubic")
+  by <- function(p) {
+    h <- if (p < 1) harness_dd99(x0 = p) else cubic
+    community_start(bounds(x = c(-2, 2)), trait_scale = "linear", harness = h)
+  }
+  start <- community_solve_singularity(by(0.2), tol = 1e-10)
+  expect_warning(path <- community_continue_singularity(start, by, c(0.2, 0.5, 1.5)),
+                 "stopped at p = 1.5: .*resident Jacobian is singular")
+  expect_equal(path$p, c(0.2, 0.5))
+  expect_equal(as.numeric(path$traits), c(0.2, 0.5), tolerance = 1e-6)
+  expect_error(community_continue_singularity(community_solve_singularity(by(1.5)), by, 1.5),
+               "could not classify the starting point")
+})
+
+test_that("classifier arguments reach the classifier, apart from the corrector's", {
+  comm <- dd99_comm(sigma_C = 0.7)
+  path <- community_continue_singularity(community_solve_singularity(comm),
+                                         community_parameter_map(comm, "sigma_C"), c(0.7, 0.8),
+                                         tol = 1e-9, classify = list(tol = 1e-3, speeds = "equal"))
+  expect_equal(path$classifications[[1]]$tol, 1e-3)
+  expect_error(community_continue_singularity(community_solve_singularity(comm),
+                                              community_parameter_map(comm, "sigma_C"), 0.7,
+                                              classify = list(solver = "newton")),
+               "classify must be a named list")
+})
+
 test_that("community_continue_singularity validates its start", {
   comm <- dd99_comm()
   by <- community_parameter_map(comm, "sigma_C")
@@ -307,6 +412,8 @@ test_that("community_continue_singularity validates its start", {
   expect_error(community_continue_singularity(one, by, numeric(0)), "finite parameter values")
   expect_error(community_continue_singularity(one, "sigma_C", 0.4), "must be a function")
   expect_error(community_continue_singularity(one, by, 0.4, solver = "bracket"))
+  expect_error(community_continue_singularity(one, community_parameter_map(comm, c("sigma_C", "sigma_K")), 0.4),
+               "follows one parameter; this map varies sigma_C, sigma_K")
   # no dimorphism exists when sigma_C > sigma_K
   wide <- dd99_comm(sigma_C = 1.5)
   expect_error(suppressWarnings(

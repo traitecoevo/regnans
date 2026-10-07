@@ -37,14 +37,16 @@
 ##' concatenated in order (a vector-valued parameter gives one entry per element),
 ##' and returning \code{community} with those parameters set to \code{p}: same
 ##' residents, bounds and controls, reset so that nothing solved under the old
-##' parameters is carried over. The current values, named (\code{"sigma_K"}, or
-##' \code{"sigma_K[1]"}, \code{"sigma_K[2]"} for a vector), are in
-##' \code{attr(., "value")}.
+##' parameters is carried over. The names it varies are in
+##' \code{attr(., "pars")}; the functions that take a map read a community's own
+##' values of them (\code{community_parameter_values()}) as their default
+##' \code{p}, so a community the map built always answers at the parameters it
+##' was built at.
 ##' @examples
 ##' comm <- community_start(bounds(x = c(-2, 2)), trait_scale = "linear",
 ##'                         harness = harness_dd99())
 ##' by_x0 <- community_parameter_map(comm, "x0")
-##' attr(by_x0, "value")
+##' community_parameter_values(by_x0(0.5), by_x0)
 ##' community_solve_singularity(by_x0(0.5))$traits
 ##' @author Daniel Falster
 ##' @export
@@ -63,22 +65,15 @@ community_parameter_map <- function(community, names) {
          "; it has ", paste(names(h$pars), collapse = ", "))
   }
   pars <- h$pars
-  value <- lapply(pars[names], function(v) {
-    if (!is.numeric(v) || length(v) < 1L) {
-      stop("community_parameter_map() varies numeric parameters only")
-    }
-    as.numeric(v)
-  })
-  sizes <- lengths(value)
-  labels <- unlist(Map(function(nm, s) if (s == 1L) nm else sprintf("%s[%d]", nm, seq_len(s)),
-                       names, sizes), use.names = FALSE)
-  value <- stats::setNames(unlist(value, use.names = FALSE), labels)
+  value <- harness_parameter_values(pars, names)
+  sizes <- lengths(pars[names])
   last <- cumsum(sizes)
 
   map <- function(p) {
     p <- as.numeric(p)
     if (length(p) != length(value)) {
-      stop("p must have ", length(value), " value(s), for ", paste(labels, collapse = ", "))
+      stop("p must have ", length(value), " value(s), for ",
+           paste(names(value), collapse = ", "))
     }
     for (i in seq_along(names)) {
       pars[[names[i]]] <- p[(last[i] - sizes[i] + 1L):last[i]]
@@ -87,8 +82,46 @@ community_parameter_map <- function(community, names) {
     out$harness <- harness_fd(h$rebuild(pars))
     community_reset(out)
   }
-  attr(map, "value") <- value
+  attr(map, "pars") <- names
   map
+}
+
+## The named harness parameters as one vector, labelled by name (and [i] for
+## each element of a vector parameter).
+harness_parameter_values <- function(pars, names) {
+  value <- lapply(pars[names], function(v) {
+    if (!is.numeric(v) || length(v) < 1L) {
+      stop("community_parameter_map() varies numeric parameters only")
+    }
+    as.numeric(v)
+  })
+  labels <- unlist(Map(function(nm, s) if (s == 1L) nm else sprintf("%s[%d]", nm, seq_len(s)),
+                       names, lengths(value)), use.names = FALSE)
+  stats::setNames(unlist(value, use.names = FALSE), labels)
+}
+
+##' The values of the parameters a parameter map varies, as a community
+##' carries them.
+##'
+##' @title Parameter values of a community
+##' @param community A \code{community}, typically built by \code{parameter}.
+##' @param parameter A map from \code{\link{community_parameter_map}}.
+##' @return A named numeric vector, the parameters in the order \code{parameter}
+##' takes them.
+##' @author Daniel Falster
+##' @export
+community_parameter_values <- function(community, parameter) {
+  names <- attr(parameter, "pars")
+  if (is.null(names)) {
+    stop("parameter was not built by community_parameter_map(), so the ",
+         "parameter values cannot be read from a community; give p")
+  }
+  missing <- setdiff(names, names(community$harness$pars))
+  if (length(missing) > 0L) {
+    stop("The community's harness has no parameter ", paste(missing, collapse = ", "),
+         ", so it was not built by this parameter map")
+  }
+  harness_parameter_values(community$harness$pars, names)
 }
 
 ##' Sensitivity of a singular strategy or coalition to model parameters.
@@ -112,7 +145,8 @@ community_parameter_map <- function(community, names) {
 ##' The sensitivity is in raw trait units whatever the community's trait scale
 ##' (on a log scale, \eqn{d \log x^* / dp} is it divided by \eqn{x^*}).
 ##' \code{community} is taken to be the model at \code{p}, as
-##' \code{parameter(p)} builds it; it is not re-solved to check. As in
+##' \code{parameter(p)} builds it; it is not re-solved to check, but with a map
+##' from \code{\link{community_parameter_map}} \code{p} is read from it. As in
 ##' \code{\link{community_classify_singularity}}, a community marked as not
 ##' converged, or whose residents a Newton step on their gradients would move
 ##' by more than a thousandth of the bounds' width, is answered with a warning.
@@ -123,8 +157,10 @@ community_parameter_map <- function(community, names) {
 ##' \code{parameter(p)}.
 ##' @param parameter A function \code{p -> community}; see
 ##' \code{\link{community_parameter_map}}.
-##' @param p The parameter values \code{community} was built at; defaults to
-##' those \code{community_parameter_map()} records.
+##' @param p The parameter values \code{community} was built at. Needed for a
+##' function written by the caller; for a map from
+##' \code{\link{community_parameter_map}} they are read from the community,
+##' and a \code{p} given must agree with them.
 ##' @param birth_rate Birth rates to start each equilibrium solve from, one per
 ##' resident; defaults to the residents' own.
 ##' @return An \code{mk} by \code{np} matrix of \eqn{dx^*/dp}, rows named as in
@@ -141,10 +177,9 @@ community_parameter_map <- function(community, names) {
 ##' community_parameter_sensitivity(pair, by)
 ##' @author Daniel Falster
 ##' @export
-community_parameter_sensitivity <- function(community, parameter,
-                                            p = attr(parameter, "value"),
+community_parameter_sensitivity <- function(community, parameter, p = NULL,
                                             birth_rate = NULL) {
-  p <- check_parameter_values(parameter, p)
+  p <- check_parameter_values(parameter, p, community)
   if (nrow(community$traits) < 1L) {
     stop("community_parameter_sensitivity needs at least one resident (the ",
          "singular strategy or coalition)")
@@ -196,7 +231,8 @@ singularity_sensitivity <- function(community, J, parameter, p, birth_rate = NUL
 ##' Natural-parameter continuation of a singular point through the values
 ##' \code{p}, in the order given. At each value the point is predicted from the
 ##' last by its sensitivity (\code{\link{community_parameter_sensitivity}}),
-##' \eqn{x^*_i \approx x^*_{i-1} + (dx^*/dp)(p_i - p_{i-1})}, corrected by
+##' \eqn{z^*_i \approx z^*_{i-1} + (dz^*/dp)(p_i - p_{i-1})} on the
+##' community's trait scale \eqn{z} (so a log-scale trait stays positive), corrected by
 ##' \code{\link{community_solve_singularity}} started there with the last
 ##' equilibrium densities, and classified by
 ##' \code{\link{community_classify_singularity}}. The classifier's resident
@@ -207,24 +243,38 @@ singularity_sensitivity <- function(community, J, parameter, p, birth_rate = NUL
 ##' path records the change (\code{changes}): a branching point becoming a CSS,
 ##' say, as a kernel widens.
 ##'
-##' The path stops at the first value the corrector cannot reach --- it does not
-##' converge, a coalition loses or merges residents, or the point leaves the
-##' bounds --- with one warning naming the value and the reason, and keeps the
-##' points before it. Such a stop usually brackets a fold or a bifurcation; a
-##' finer \code{p} near it, or a path restarted from \code{community} at the last
-##' point, says more. Failing at \code{p[1]} is an error.
+##' A prediction outside the bounds is clamped to them, as the corrector clamps
+##' every candidate. The path stops at the first value it cannot reach --- the
+##' corrector does not converge, a coalition loses or merges
+##' residents, or the corrected point cannot be classified or differentiated
+##' (a singular Jacobian) --- with one warning naming the value and the reason,
+##' and keeps the points before it. Such a stop usually brackets a fold or a
+##' bifurcation; a finer \code{p} near it, or a path restarted from
+##' \code{community} at the last point, says more. Failing at \code{p[1]} is an
+##' error.
+##'
+##' Two limits of natural-parameter continuation. Near a fold or bifurcation
+##' the resident Jacobian approaches singularity and \code{sensitivity} grows
+##' without bound; the classification of a point there is not reliable, and a
+##' point exactly at a pitchfork can be a near-merged coalition that passes as
+##' a root (the classifier warns of residents that close). And the corrector
+##' is not held to the prediction: where singular points lie close together it
+##' can land on another branch, which \code{traits} against \code{predicted}
+##' shows.
 ##'
 ##' @title Continuation of a singular strategy or coalition along a parameter
 ##' @param community A \code{community} whose residents (and their densities, if
 ##' solved) start the path: the singular point at \code{p[1]}, or near it.
 ##' @param parameter A function from one parameter value to a \code{community};
-##' see \code{\link{community_parameter_map}} (built with one name).
+##' see \code{\link{community_parameter_map}} (built with one scalar
+##' parameter).
 ##' @param p The parameter values to visit, \code{p[1]} the starting one.
 ##' @param solver,tol,maxit Passed to \code{\link{community_solve_singularity}}
 ##' for each correction. The \code{"bracket"} solver ignores the prediction and
 ##' is not offered.
-##' @param ... Passed to \code{\link{community_classify_singularity}}
-##' (\code{tol}, \code{speeds}, \code{invasion_tol}).
+##' @param classify A list of arguments for
+##' \code{\link{community_classify_singularity}} (\code{tol}, \code{speeds},
+##' \code{invasion_tol}, \code{birth_rate}).
 ##' @return An object of class \code{singularity_path}: a list with \code{p}
 ##' (the values reached), \code{traits}, \code{predicted} (the corrector's
 ##' starting points, the community's residents at \code{p[1]}) and
@@ -252,11 +302,22 @@ singularity_sensitivity <- function(community, J, parameter, p, birth_rate = NUL
 ##' @export
 community_continue_singularity <- function(community, parameter, p,
                                            solver = c("nleqslv", "newton", "dfsane"),
-                                           tol = 1e-6, maxit = 100, ...) {
+                                           tol = 1e-6, maxit = 100, classify = list()) {
   solver <- match.arg(solver)
   if (!is.function(parameter)) {
     stop("parameter must be a function p -> community; ",
          "community_parameter_map() builds one for an explicit harness")
+  }
+  if (!is.null(attr(parameter, "pars")) &&
+      length(community_parameter_values(community, parameter)) != 1L) {
+    stop("community_continue_singularity follows one parameter; this map varies ",
+         paste(names(community_parameter_values(community, parameter)), collapse = ", "))
+  }
+  classify_args <- setdiff(names(formals(community_classify_singularity)), "community")
+  if (!is.list(classify) || (length(classify) > 0L &&
+                             (is.null(names(classify)) || !all(names(classify) %in% classify_args)))) {
+    stop("classify must be a named list of arguments for community_classify_singularity(): ",
+         paste(classify_args, collapse = ", "))
   }
   if (!is.numeric(p) || length(p) < 1L || !all(is.finite(p))) {
     stop("p must be a vector of finite parameter values, the first the one ",
@@ -269,6 +330,11 @@ community_continue_singularity <- function(community, parameter, p,
     stop("community_continue_singularity needs at least one resident to start from")
   }
   labels <- resident_labels(trait_names, m)
+  tf <- community_trait_transform(community)
+  log_scale <- identical(tf$scale, "log")
+  bnds <- singularity_bounds(community$bounds, trait_names)
+  z_lo <- rep(tf$fwd(bnds[, 1]), each = m)
+  z_hi <- rep(tf$fwd(bnds[, 2]), each = m)
 
   x <- as.numeric(community$traits)
   n <- as.numeric(community$birth_rate)
@@ -281,7 +347,16 @@ community_continue_singularity <- function(community, parameter, p,
   last <- NULL
 
   for (i in seq_along(p)) {
-    predicted <- if (i == 1L) x else x + as.numeric(S) * (p[i] - p[i - 1L])
+    predicted <- x
+    clamped <- FALSE
+    if (i > 1L) {
+      ## on the trait scale (dz/dp = (dx/dp) / x for a log trait), and inside
+      ## the bounds, where the corrector clamps every candidate anyway
+      dzdp <- if (log_scale) as.numeric(S) / x else as.numeric(S)
+      z <- as.numeric(tf$fwd(x)) + dzdp * (p[i] - p[i - 1L])
+      clamped <- any(z < z_lo | z > z_hi)
+      predicted <- tf$inv(pmin(pmax(z, z_lo), z_hi))
+    }
     start <- parameter_community(parameter, p[i], community)
     ## the corrector's warnings are why the path stops, if it does; they are
     ## raised again if it does not
@@ -301,6 +376,13 @@ community_continue_singularity <- function(community, parameter, p,
       reason <- if (inherits(sol, "error")) conditionMessage(sol)
                 else if (length(caught) > 0L) paste(unique(vapply(caught, conditionMessage, "")), collapse = "; ")
                 else "the corrector did not converge"
+      if (clamped) {
+        reason <- sprintf(paste0(
+          "%s (the prediction, from a sensitivity of up to %s at p = %s, was clamped ",
+          "to the bounds: the singularity moves fast here, as approaching a fold or ",
+          "bifurcation, or the step is too long)"),
+          reason, signif(max(abs(S)), 3), signif(p[i - 1L], 6))
+      }
       if (i == 1L) {
         stop("community_continue_singularity could not solve for the starting point at p = ",
              signif(p[1L], 6), ": ", reason)
@@ -310,9 +392,24 @@ community_continue_singularity <- function(community, parameter, p,
     }
     for (w in caught) warning(w)
 
-    cl <- community_classify_singularity(sol, ...)
+    ## a corrected point that cannot be classified or differentiated (a
+    ## singular Jacobian, residents within a finite-difference step) also ends
+    ## the path, not the points already reached
+    at_point <- tryCatch({
+      cl <- do.call(community_classify_singularity, c(list(sol), classify))
+      list(cl = cl, S = singularity_sensitivity(sol, cl$jacobian, parameter, p[i]))
+    }, error = function(e) e)
+    if (inherits(at_point, "error")) {
+      if (i == 1L) {
+        stop("community_continue_singularity could not classify the starting point at p = ",
+             signif(p[1L], 6), ": ", conditionMessage(at_point))
+      }
+      stopped <- list(p = p[i], reason = conditionMessage(at_point))
+      break
+    }
+    cl <- at_point$cl
+    S <- at_point$S
     J <- cl$jacobian
-    S <- singularity_sensitivity(sol, J, parameter, p[i])
     x <- as.numeric(sol$traits)
     n <- as.numeric(sol$birth_rate)
     points[[i]] <- list(traits = x, predicted = predicted, sensitivity = as.numeric(S),
@@ -356,6 +453,7 @@ community_continue_singularity <- function(community, parameter, p,
 }
 
 ##' @param x A \code{singularity_path} object.
+##' @param ... Ignored.
 ##' @rdname community_continue_singularity
 ##' @export
 print.singularity_path <- function(x, ...) {

@@ -367,9 +367,11 @@ resident_jacobian <- function(gradient, x, ctrl) {
 ##' @param parameter A function taking a numeric vector like \code{p} and
 ##' returning a \code{community} with the same traits (its residents are
 ##' replaced by those of \code{community}).
-##' @param p The parameter values at which \code{community} was built.
-##' Defaults to \code{attr(parameter, "value")}, set by
-##' \code{\link{community_parameter_map}}.
+##' @param p The parameter values at which \code{community} was built. Needed
+##' for a function written by the caller; for a map from
+##' \code{\link{community_parameter_map}} they are read from the community
+##' (\code{\link{community_parameter_values}}), and a \code{p} given must
+##' agree with them.
 ##' @param birth_rate Birth rates to start each equilibrium solve from, one per
 ##' resident; defaults to the residents' own.
 ##' @return An \code{mk} by \code{np} matrix, rows named as in
@@ -387,13 +389,13 @@ resident_jacobian <- function(gradient, x, ctrl) {
 ##' @author Daniel Falster
 ##' @export
 community_selection_gradient_parameter_jacobian <- function(community, parameter,
-                                                            p = attr(parameter, "value"),
+                                                            p = NULL,
                                                             birth_rate = NULL) {
   m <- nrow(community$traits)
   if (m < 1L) {
     stop("community_selection_gradient_parameter_jacobian needs at least one resident")
   }
-  p <- check_parameter_values(parameter, p)
+  p <- check_parameter_values(parameter, p, community)
   x <- as.numeric(community$traits)
   n <- if (is.null(birth_rate)) as.numeric(community$birth_rate) else as.numeric(birth_rate)
   evaluations <- 0L
@@ -412,16 +414,27 @@ community_selection_gradient_parameter_jacobian <- function(community, parameter
   G
 }
 
-## Parameter values as a named numeric vector, defaulting to those a
-## parameter map carries, with names p[1], p[2], ... when none are given.
-check_parameter_values <- function(parameter, p) {
+## The parameter values `community` was built at, as a named numeric vector.
+## For a map from community_parameter_map() they are read from the community
+## (a p given must agree with them: a sensitivity taken at one p of a
+## community built at another is wrong without looking it); otherwise p must
+## be given, named p, or p[1], p[2], ... unless it has names.
+check_parameter_values <- function(parameter, p, community) {
   if (!is.function(parameter)) {
     stop("parameter must be a function p -> community; ",
          "community_parameter_map() builds one for an explicit harness")
   }
+  if (!is.null(attr(parameter, "pars"))) {
+    own <- community_parameter_values(community, parameter)
+    if (!is.null(p) && !isTRUE(all.equal(as.numeric(p), as.numeric(own)))) {
+      stop("The community was built at ", paste(names(own), signif(own, 6), sep = " = ", collapse = ", "),
+           ", not at the p given; leave p out to use its own values")
+    }
+    return(own)
+  }
   if (is.null(p)) {
     stop("Give p, the parameter values the community was built at ",
-         "(only a map from community_parameter_map() carries its own)")
+         "(only a map from community_parameter_map() can read them from the community)")
   }
   if (!is.numeric(p) || length(p) < 1L || !all(is.finite(p))) {
     stop("p must be a vector of finite numbers")

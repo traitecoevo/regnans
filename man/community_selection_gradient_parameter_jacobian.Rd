@@ -7,7 +7,7 @@
 community_selection_gradient_parameter_jacobian(
   community,
   parameter,
-  p = attr(parameter, "value"),
+  p = NULL,
   birth_rate = NULL
 )
 }
@@ -19,9 +19,11 @@ community_selection_gradient_parameter_jacobian(
 returning a \code{community} with the same traits (its residents are
 replaced by those of \code{community}).}
 
-\item{p}{The parameter values at which \code{community} was built.
-Defaults to \code{attr(parameter, "value")}, set by
-\code{\link{community_parameter_map}}.}
+\item{p}{The parameter values at which \code{community} was built. Needed
+for a function written by the caller; for a map from
+\code{\link{community_parameter_map}} they are read from the community
+(\code{\link{community_parameter_values}}), and a \code{p} given must
+agree with them.}
 
 \item{birth_rate}{Birth rates to start each equilibrium solve from, one per
 resident; defaults to the residents' own.}

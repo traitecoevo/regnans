@@ -61,6 +61,8 @@ community_check_for_inviable_strategies <- function(community) {
   community$harness$fns$check_for_inviable_strategies(community)
 }
 community_update_fitness_function <- function(community) {
+  ## a selection gradient is a property of the fitness function it came from
+  community$selection_gradient <- NULL
   community$harness$fns$update_fitness_function(community)
 }
 community_model_equilibrium <- function(community) {

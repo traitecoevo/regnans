@@ -12,7 +12,7 @@ community_continue_singularity(
   solver = c("nleqslv", "newton", "dfsane"),
   tol = 1e-06,
   maxit = 100,
-  ...
+  classify = list()
 )
 
 \method{print}{singularity_path}(x, ...)
@@ -22,7 +22,8 @@ community_continue_singularity(
 solved) start the path: the singular point at \code{p[1]}, or near it.}
 
 \item{parameter}{A function from one parameter value to a \code{community};
-see \code{\link{community_parameter_map}} (built with one name).}
+see \code{\link{community_parameter_map}} (built with one scalar
+parameter).}
 
 \item{p}{The parameter values to visit, \code{p[1]} the starting one.}
 
@@ -30,10 +31,13 @@ see \code{\link{community_parameter_map}} (built with one name).}
 for each correction. The \code{"bracket"} solver ignores the prediction and
 is not offered.}
 
-\item{...}{Passed to \code{\link{community_classify_singularity}}
-(\code{tol}, \code{speeds}, \code{invasion_tol}).}
+\item{classify}{A list of arguments for
+\code{\link{community_classify_singularity}} (\code{tol}, \code{speeds},
+\code{invasion_tol}, \code{birth_rate}).}
 
 \item{x}{A \code{singularity_path} object.}
+
+\item{...}{Ignored.}
 }
 \value{
 An object of class \code{singularity_path}: a list with \code{p}
@@ -57,7 +61,8 @@ Follow a singular strategy or coalition along one parameter.
 Natural-parameter continuation of a singular point through the values
 \code{p}, in the order given. At each value the point is predicted from the
 last by its sensitivity (\code{\link{community_parameter_sensitivity}}),
-\eqn{x^*_i \approx x^*_{i-1} + (dx^*/dp)(p_i - p_{i-1})}, corrected by
+\eqn{z^*_i \approx z^*_{i-1} + (dz^*/dp)(p_i - p_{i-1})} on the
+community's trait scale \eqn{z} (so a log-scale trait stays positive), corrected by
 \code{\link{community_solve_singularity}} started there with the last
 equilibrium densities, and classified by
 \code{\link{community_classify_singularity}}. The classifier's resident
@@ -68,12 +73,24 @@ solves, the classification's and two more for
 path records the change (\code{changes}): a branching point becoming a CSS,
 say, as a kernel widens.
 
-The path stops at the first value the corrector cannot reach --- it does not
-converge, a coalition loses or merges residents, or the point leaves the
-bounds --- with one warning naming the value and the reason, and keeps the
-points before it. Such a stop usually brackets a fold or a bifurcation; a
-finer \code{p} near it, or a path restarted from \code{community} at the last
-point, says more. Failing at \code{p[1]} is an error.
+A prediction outside the bounds is clamped to them, as the corrector clamps
+every candidate. The path stops at the first value it cannot reach --- the
+corrector does not converge, a coalition loses or merges
+residents, or the corrected point cannot be classified or differentiated
+(a singular Jacobian) --- with one warning naming the value and the reason,
+and keeps the points before it. Such a stop usually brackets a fold or a
+bifurcation; a finer \code{p} near it, or a path restarted from
+\code{community} at the last point, says more. Failing at \code{p[1]} is an
+error.
+
+Two limits of natural-parameter continuation. Near a fold or bifurcation
+the resident Jacobian approaches singularity and \code{sensitivity} grows
+without bound; the classification of a point there is not reliable, and a
+point exactly at a pitchfork can be a near-merged coalition that passes as
+a root (the classifier warns of residents that close). And the corrector
+is not held to the prediction: where singular points lie close together it
+can land on another branch, which \code{traits} against \code{predicted}
+shows.
 }
 \examples{
 comm <- community_start(bounds(x = c(-2, 2)), trait_scale = "linear",
