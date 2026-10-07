@@ -352,10 +352,12 @@ test_that("a log-scale path predicts on the log scale and clamps to the bounds",
   expect_gt(path$predicted[2, 1], 0)
 })
 
-test_that("at the pitchfork the near-merged pair is flagged, and a clamped prediction that merges it stops the path", {
+test_that("at the pitchfork the near-merged pair is flagged, and the path stops beyond it", {
   # at sigma_C = sigma_K the corrector lands on a pair ~4e-4 apart, every
-  # derivative O(a^2): the classifier warns, the sensitivity is huge, and the
-  # next prediction, clamped, merges the pair
+  # derivative O(a^2), so the classifier warns; beyond it there is no pair.
+  # The sensitivity there is rounding noise (the Jacobian's entries are
+  # ~1e-7), so how the next step fails -- a clamped prediction that merges
+  # the pair, or a corrector that loses it -- depends on the platform
   comm <- dd99_comm(sigma_C = 0.95)
   start <- community_solve_singularity(comm, x0 = pair_x0(-0.3, 0.35), tol = 1e-10)
   warnings <- character(0)
@@ -367,9 +369,20 @@ test_that("at the pitchfork the near-merged pair is flagged, and a clamped predi
       invokeRestart("muffleWarning")
     })
   expect_true(any(grepl("residents 1 and 2 are within 0.001 of the bounds' width", warnings)))
-  expect_true(any(grepl("stopped at p = 1.1: .*merged.*clamped to the bounds", warnings)))
+  expect_true(any(grepl("stopped at p = 1.1", warnings)))
   expect_equal(path$p, c(0.95, 1))
-  expect_gt(max(abs(path$sensitivity[2, ])), 100 * max(abs(path$sensitivity[1, ])))
+  expect_equal(path$stopped$p, 1.1)
+})
+
+test_that("a clamped prediction is named in the reason when the corrector then fails", {
+  # x* = x0: the step from x0 = 0 to 3 predicts x = 3, clamped to the bound
+  # at 2, and the singularity at 3 lies outside the bounds
+  comm <- dd99_comm()
+  start <- community_solve_singularity(comm, tol = 1e-10)
+  expect_warning(
+    path <- community_continue_singularity(start, community_parameter_map(comm, "x0"), c(0, 3)),
+    "stopped at p = 3: Bounds do not include a singularity .*sensitivity of up to 1 at p = 0, was clamped to the bounds")
+  expect_equal(path$p, 0)
 })
 
 test_that("a point that cannot be differentiated ends the path but keeps the points before it", {
