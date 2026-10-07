@@ -32,16 +32,20 @@
 ##' fallback (\code{eps_*}) for trait values that are numerically zero, as the
 ##' singular strategies of the reference models are. First derivatives of
 ##' fitness use the \code{*_gradient} settings; the Hessian and the resident
-##' Jacobian use \code{*_second}. The \code{r_*} settings are the number of
+##' Jacobian use \code{*_second}; the derivative of the selection gradient with
+##' respect to model parameters
+##' (\code{\link{community_selection_gradient_parameter_jacobian}}) uses
+##' \code{*_parameter}. The \code{r_*} settings are the number of
 ##' successively halved steps combined by Richardson extrapolation; each level of
-##' the Jacobian costs \code{2k} demographic equilibrium solves, so it stays at
-##' one by default.
+##' a resident or parameter Jacobian costs two demographic equilibrium solves per
+##' column, so they stay at one by default.
 ##'
 ##' @title Derivative settings
 ##' @param control A list of values to modify from the defaults.
 ##' @return A list with elements \code{d_gradient}, \code{eps_gradient},
 ##' \code{r_gradient}, \code{d_second}, \code{eps_second}, \code{r_hessian},
-##' \code{r_jacobian}.
+##' \code{r_jacobian}, \code{d_parameter}, \code{eps_parameter},
+##' \code{r_parameter}.
 ##' @author Daniel Falster
 ##' @export
 derivative_control <- function(control = NULL) {
@@ -52,7 +56,10 @@ derivative_control <- function(control = NULL) {
     d_second     = 1e-3,
     eps_second   = 1e-3,
     r_hessian    = 2L,
-    r_jacobian   = 1L
+    r_jacobian   = 1L,
+    d_parameter   = 1e-3,
+    eps_parameter = 1e-3,
+    r_parameter   = 1L
   )
 
   control <- as.list(control)
@@ -62,13 +69,14 @@ derivative_control <- function(control = NULL) {
   }
   ret <- modifyList(defaults, control)
 
-  for (nm in c("d_gradient", "eps_gradient", "d_second", "eps_second")) {
+  for (nm in c("d_gradient", "eps_gradient", "d_second", "eps_second",
+               "d_parameter", "eps_parameter")) {
     v <- ret[[nm]]
     if (!is.numeric(v) || length(v) != 1L || !is.finite(v) || v <= 0) {
       stop(nm, " must be a single positive number")
     }
   }
-  for (nm in c("r_gradient", "r_hessian", "r_jacobian")) {
+  for (nm in c("r_gradient", "r_hessian", "r_jacobian", "r_parameter")) {
     v <- ret[[nm]]
     if (!is.numeric(v) || length(v) != 1L || v < 1 || v != round(v)) {
       stop(nm, " must be a positive whole number")
@@ -331,6 +339,108 @@ community_selection_gradient_jacobian <- function(community, birth_rate = NULL) 
 resident_jacobian <- function(gradient, x, ctrl) {
   util_jacobian(gradient, x, d = ctrl$d_second, eps = ctrl$eps_second,
                 r = ctrl$r_jacobian)
+}
+
+##' Jacobian of the selection gradient with respect to model parameters.
+##'
+##' How the selection gradients of the residents change as model parameters
+##' move, the residents held at their traits and re-solved to demographic
+##' equilibrium under the changed model: the \code{mk} by \code{np} matrix
+##' \eqn{\partial g / \partial p}, its rows stacked as in
+##' \code{\link{community_selection_gradient_jacobian}}. With that Jacobian it
+##' gives the sensitivity of a singular strategy or coalition
+##' (\code{\link{community_parameter_sensitivity}}).
+##'
+##' A parameter enters through \code{parameter}, a function from a parameter
+##' vector to a community: \code{\link{community_parameter_map}} builds one for
+##' a model with an explicit harness, and any function that rebuilds the
+##' community from \code{p} will do for another model or for an input that is
+##' not a harness parameter. Each column is a central difference, two
+##' equilibrium solves per Richardson level, warm-started from the residents'
+##' densities, with steps from \code{\link{derivative_control}}
+##' (\code{d_parameter}, \code{eps_parameter}, \code{r_parameter}) of the
+##' community.
+##'
+##' @title Parameter Jacobian of the selection gradient
+##' @param community A \code{community} with one or more residents, built by
+##' \code{parameter(p)}.
+##' @param parameter A function taking a numeric vector like \code{p} and
+##' returning a \code{community} with the same traits (its residents are
+##' replaced by those of \code{community}).
+##' @param p The parameter values at which \code{community} was built.
+##' Defaults to \code{attr(parameter, "value")}, set by
+##' \code{\link{community_parameter_map}}.
+##' @param birth_rate Birth rates to start each equilibrium solve from, one per
+##' resident; defaults to the residents' own.
+##' @return An \code{mk} by \code{np} matrix, rows named as in
+##' \code{\link{community_selection_gradient_jacobian}} and columns by
+##' \code{names(p)}, with the equilibrium solves it cost in
+##' \code{attr(., "evaluations")}.
+##' @examples
+##' comm <- community_start(bounds(x = c(-2, 2)), trait_scale = "linear",
+##'                         harness = harness_dd99(x0 = 0.3)) |>
+##'   community_add(trait_matrix(0, "x"), birth_rate = 100) |>
+##'   community_demography()
+##' # away from the singular strategy, moving its optimum x0 tilts selection
+##' community_selection_gradient_parameter_jacobian(
+##'   comm, community_parameter_map(comm, c("x0", "sigma_K")))
+##' @author Daniel Falster
+##' @export
+community_selection_gradient_parameter_jacobian <- function(community, parameter,
+                                                            p = attr(parameter, "value"),
+                                                            birth_rate = NULL) {
+  m <- nrow(community$traits)
+  if (m < 1L) {
+    stop("community_selection_gradient_parameter_jacobian needs at least one resident")
+  }
+  p <- check_parameter_values(parameter, p)
+  x <- as.numeric(community$traits)
+  n <- if (is.null(birth_rate)) as.numeric(community$birth_rate) else as.numeric(birth_rate)
+  evaluations <- 0L
+  g_at <- function(q) {
+    comm <- parameter_community(parameter, stats::setNames(q, names(p)), community)
+    gradient <- singularity_gradient_fn(comm, m, birth_rate = n)
+    g <- gradient(x)
+    evaluations <<- evaluations + attr(gradient, "evaluations")()
+    g
+  }
+  ctrl <- community_derivative_control(community)
+  G <- util_jacobian(g_at, p, d = ctrl$d_parameter, eps = ctrl$eps_parameter,
+                     r = ctrl$r_parameter)
+  dimnames(G) <- list(resident_labels(community$trait_names, m), names(p))
+  attr(G, "evaluations") <- evaluations
+  G
+}
+
+## Parameter values as a named numeric vector, defaulting to those a
+## parameter map carries, with names p[1], p[2], ... when none are given.
+check_parameter_values <- function(parameter, p) {
+  if (!is.function(parameter)) {
+    stop("parameter must be a function p -> community; ",
+         "community_parameter_map() builds one for an explicit harness")
+  }
+  if (is.null(p)) {
+    stop("Give p, the parameter values the community was built at ",
+         "(only a map from community_parameter_map() carries its own)")
+  }
+  if (!is.numeric(p) || length(p) < 1L || !all(is.finite(p))) {
+    stop("p must be a vector of finite numbers")
+  }
+  if (is.null(names(p))) {
+    names(p) <- if (length(p) == 1L) "p" else sprintf("p[%d]", seq_along(p))
+  }
+  p
+}
+
+## The community parameter(p) builds, checked to be a model of the same
+## traits as `like`.
+parameter_community <- function(parameter, p, like) {
+  comm <- parameter(p)
+  if (!inherits(comm, "community") || !identical(comm$trait_names, like$trait_names)) {
+    stop("parameter(p) must return a community with the traits ",
+         paste(like$trait_names, collapse = ", "))
+  }
+  comm
 }
 
 ##' Check a harness's derivatives against finite differences.

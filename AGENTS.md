@@ -161,6 +161,7 @@ invasion-fitness closure on the community.
   `community_classify_singularity()` (CSS / branching point / repeller /
   Garden of Eden, per-resident Hessians and the full resident Jacobian, with
   eigen-decompositions). See **Singular strategies** below.
+- `R/continuation.R` — how singular points move with model parameters: `community_parameter_sensitivity()` (`dx*/dp = −J⁻¹ ∂g/∂p`, one resident or a coalition) and `community_continue_singularity()` (natural-parameter continuation: sensitivity predictor, `community_solve_singularity(jacobian = )` corrector started from the last point's Jacobian, classification at each point, `changes` where it flips, a warning and a stop where the corrector fails). A parameter enters through a function `p -> community`; `community_parameter_map()` builds one for an explicit harness (it rebuilds the harness via `h$rebuild(pars)`, since `harness_explicit()` closes `pars` into the model functions and editing `h$pars` does nothing). `∂g/∂p` is `community_selection_gradient_parameter_jacobian()` in `R/derivatives.R`.
 - `R/pip.R` — `community_pip()` (resident sweep → fitness surface + exact zero
   contours, with `pip_control()` for seeding/refinement), `pip_mutual()`,
   `community_tep()`, and their `plot()` methods. `R/parallel.R` holds the one
@@ -213,12 +214,12 @@ here follow current plant terminology.
 
 ## Test baseline
 
-`devtools::test()` is **green: 1228 pass, 0 fail, 0 skip, 0 warn**. Tests run in
+`devtools::test()` is **green: 1323 pass, 0 fail, 0 skip, 0 warn**. Tests run in
 parallel (`Config/testthat/parallel: true`); the `test-plant-smoke*.R` files
 dominate the wall-clock as they are the only ones that run the real SCM. The
 `test-harness-*.R` and `test-singularity.R` files run no SCM and are fast.
 
-(The count has grown as the toy-harness tier has: 197 → 256 → 401 → 537 → 979 → 1002 → 1052 → 1072 → 1174 → 1186 → 1202 → 1228.
+(The count has grown as the toy-harness tier has: 197 → 256 → 401 → 537 → 979 → 1002 → 1052 → 1072 → 1174 → 1186 → 1202 → 1228 → 1323.
 What matters is that a change moves it up and moves nothing to FAIL.)
 
 Note: the testthat parallel workers may fail to find `plant` on startup in some
@@ -238,6 +239,7 @@ shells; run `TESTTHAT_PARALLEL=FALSE Rscript -e 'devtools::test()'` if so.
 - `helper-assembly.R` (new) — shared `assembly_model_support(max_patch_lifetime
   = 30)` used by the integration tests (previously inlined in test-community.R).
 - `test-singularity.R` — `community_solve_singularity` (1-D, 2-trait, every solver, trait scales, edge/validation branches; coalitions: the DD99 pair in closed form, the DD99 triple and GK98 pair from their closed-form gradients, a two-trait DD99 pair checking the trait-by-trait stacking, the asymmetric GM99 pair on a log scale against an independent coding of the model, a pair that cannot coexist reported lost) and `community_classify_singularity` (one resident and coalitions, speed-weighted convergence stability on unequal densities, protected coexistence against closed-form invasion fitness, a priority-effects pair classified unprotected, a resident left out tested against where the others settle rather than an infeasible equilibrium, an undetermined test reported `NA`, the warnings on a non-converged solve and on a point away from a singularity), against the analytic oracles tabulated under **Singular strategies** below and in `helper-coalition.R`.
+- `test-continuation.R` — `community_parameter_map()`, the parameter Jacobian against DD99 in closed form, `community_parameter_sensitivity()` against JJ12 (`dx*/dσ² = −a` through a caller-written map), DD99 (`dx*/dx0 = 1`, kernels `0`, the two-trait identity), the DD99 pair (`dd99_pair_root_gradient()` in `helper-coalition.R`, the closed form differentiated by hand) and the GM99 pair on a log scale; a singular Jacobian refused; continuation of JJ12 (predictor exact), DD99 through its branching-point-to-CSS change, the DD99 pair along `σ_K` and stopping where it merges, and the GM99 pair through its second branching. The SCM case (along `hmat`) is in `test-plant-smoke-singularity.R`.
 - `test-demography-solvers.R` — all five equilibrium solvers on DD99, plus the
   genuine fixed-point tests and the `equilibrium_hybrid` extinct-species
   accept/reject branches built on `helper-harness-map.R`.
@@ -324,7 +326,7 @@ source of truth and list only live defects here.
 
 Two dimension-agnostic functions; both go through the harness connectors only, so they run on the toy harnesses exactly as on the plant SCM.
 
-- **`community_solve_singularity(community, x0, bounds, solver, ...)`** — root-find on the selection gradients of the residents in `x0` (by default the community's own; a matrix with one row per resident, while a bare vector is always one resident, one value per trait, so the same call cannot mean a coalition in a one-trait model and a single resident in a two-trait one), jointly, the equilibrium re-solved at each evaluation: one resident is a singular strategy, several a singular coalition (#53). `nleqslv` (default) or the package's `newton` via `util_nlsolve`, both taking the Jacobian from `community_selection_gradient_jacobian()`'s machinery; `dfsane`; or `"bracket"` (`uniroot` between the bounds, one resident with one trait; needs a sign change but cannot then miss the root). Searches on the community's trait scale (for `"log"` traits the residual is the gradient w.r.t. `log(x)`, far better conditioned). Returns the community *at* the root, with `attr(., "singularity")` and the equilibrium solves in `attr(., "evaluations")`. Candidates are clamped to `bounds`; landing on a bound (or, for the bracket, no sign change) warns, or errors with `edge_ok = FALSE`. Residents closer than the resident Jacobian's finite-difference step have merged: the residual is non-finite there (no solve), and a coalition that ends merged or with a resident at zero density is reported lost (warning, `converged = FALSE`).
+- **`community_solve_singularity(community, x0, bounds, solver, ...)`** — root-find on the selection gradients of the residents in `x0` (by default the community's own; a matrix with one row per resident, while a bare vector is always one resident, one value per trait, so the same call cannot mean a coalition in a one-trait model and a single resident in a two-trait one), jointly, the equilibrium re-solved at each evaluation: one resident is a singular strategy, several a singular coalition (#53). `nleqslv` (default) or the package's `newton` via `util_nlsolve`, both taking the Jacobian from `community_selection_gradient_jacobian()`'s machinery (or, for the first request, a nearby point's passed as `jacobian =`, as continuation does); `dfsane`; or `"bracket"` (`uniroot` between the bounds, one resident with one trait; needs a sign change but cannot then miss the root). Searches on the community's trait scale (for `"log"` traits the residual is the gradient w.r.t. `log(x)`, far better conditioned). Returns the community *at* the root, with `attr(., "singularity")` and the equilibrium solves in `attr(., "evaluations")`. Candidates are clamped to `bounds`; landing on a bound (or, for the bracket, no sign change) warns, or errors with `edge_ok = FALSE`. Residents closer than the resident Jacobian's finite-difference step have merged: the residual is non-finite there (no solve), and a coalition that ends merged or with a resident at zero density is reported lost (warning, `converged = FALSE`).
 - **`community_classify_singularity(community, ...)`** — the second-order
   conditions, covering 1-D and N-D and any number of residents with one code
   path (a 1-D result is just 1x1 matrices; for a coalition `hessian` is a list

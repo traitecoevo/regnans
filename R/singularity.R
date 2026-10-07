@@ -178,7 +178,9 @@ singularity_bracket <- function(residual, z_lo, z_hi, tol, maxit) {
 ##' \code{\link{community_selection_gradient_jacobian}} (finite differences
 ##' across the residents, \code{2mk} equilibrium solves, until the model
 ##' supplies equilibrium sensitivities), refreshing it only when their
-##' rank-one updates fail.
+##' rank-one updates fail. A Jacobian already in hand for a nearby point
+##' (\code{jacobian}, as in a continuation) answers their first request instead,
+##' saving those solves.
 ##'
 ##' Each residual evaluation costs one demographic equilibrium solve, warm
 ##' started from the last, plus a gradient of invasion fitness at each
@@ -222,6 +224,12 @@ singularity_bracket <- function(residual, z_lo, z_hi, tol, maxit) {
 ##' the model's equilibrium birth rates are far from \code{birth_rate_initial}.
 ##' @param edge_ok Is it (not) an error if the solution lands on the edge of
 ##' \code{bounds}?
+##' @param jacobian A resident Jacobian of the selection gradients, \code{mk}
+##' by \code{mk} in raw trait units as
+##' \code{\link{community_selection_gradient_jacobian}} returns it, to start
+##' \code{"nleqslv"} or \code{"newton"} from in place of computing one at
+##' \code{x0}: typically that of a nearby singular point. Later Jacobians are
+##' computed as usual.
 ##' @return The \code{community} at the singular strategy or coalition, solved
 ##' to demographic equilibrium, with \code{selection_gradient} set. Attributes
 ##' record the solve: \code{converged}, \code{solver}, \code{evaluations} (the
@@ -243,7 +251,8 @@ singularity_bracket <- function(residual, z_lo, z_hi, tol, maxit) {
 community_solve_singularity <- function(community, x0 = NULL, bounds = NULL,
                                         solver = c("nleqslv", "newton", "dfsane", "bracket"),
                                         tol = 1e-6, maxit = 100,
-                                        birth_rate = NULL, edge_ok = TRUE) {
+                                        birth_rate = NULL, edge_ok = TRUE,
+                                        jacobian = NULL) {
   solver <- match.arg(solver)
   trait_names <- community$trait_names
   k <- length(trait_names)
@@ -285,6 +294,12 @@ community_solve_singularity <- function(community, x0 = NULL, bounds = NULL,
     stop("solver = \"bracket\" needs a single resident; x0 has ", m)
   }
   labels <- resident_labels(trait_names, m)
+  if (!is.null(jacobian) &&
+      (!is.numeric(jacobian) || !identical(dim(jacobian), c(m * k, m * k)) ||
+       !all(is.finite(jacobian)))) {
+    stop("jacobian must be a finite ", m * k, " x ", m * k,
+         " matrix, the resident Jacobian of x0's residents")
+  }
   ## the bounds, stacked as the residents' traits are
   z_lo <- rep(z_lo, each = m)
   z_hi <- rep(z_hi, each = m)
@@ -321,11 +336,12 @@ community_solve_singularity <- function(community, x0 = NULL, bounds = NULL,
   ## Its Jacobian, the resident Jacobian carried onto the trait scale: on a
   ## log scale d(g_i x_i)/dz_j = x_i J_ij x_j + [i = j] g_i x_i. The solvers
   ## ask for it where they have just evaluated the residual, so the gradient
-  ## there is already in hand.
-  jacobian <- function(z) {
+  ## there is already in hand. A Jacobian handed in answers the first request.
+  residual_jacobian <- function(z) {
     x <- tf$inv(pmin(pmax(z, z_lo), z_hi))
     g <- gradient(x)
-    J <- resident_jacobian(gradient, x, ctrl)
+    J <- if (is.null(jacobian)) resident_jacobian(gradient, x, ctrl) else unname(jacobian)
+    jacobian <<- NULL
     if (log_scale) J <- J * outer(x, x) + diag(g * x, length(x))
     J
   }
@@ -339,7 +355,7 @@ community_solve_singularity <- function(community, x0 = NULL, bounds = NULL,
     tryCatch(
       util_nlsolve(as.numeric(tf$fwd(x0)), residual, tol = tol, maxit = maxit,
                    solver = solver, require_converged = FALSE,
-                   jac = if (solver == "dfsane") NULL else jacobian),
+                   jac = if (solver == "dfsane") NULL else residual_jacobian),
       error = function(e) {
         if (attr(gradient, "refused")() == refused_before) {
           e$evaluations <- attr(gradient, "evaluations")()

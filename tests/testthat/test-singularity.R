@@ -323,6 +323,23 @@ test_that("community_solve_singularity finds the DD99 dimorphic coalition in clo
   expect_equal(as.numeric(community_solve_singularity(start)$traits), c(-a, a), tolerance = 1e-6)
 })
 
+test_that("community_solve_singularity starts from a Jacobian handed in", {
+  # the pair's own Jacobian answers the solver's first request, saving its
+  # 2mk solves; the root is the same
+  a <- dd99_pair_root()
+  J <- oracle_jacobian(dd99_coalition_gradient, c(-a, a))
+  for (solver in c("nleqslv", "newton")) {
+    cold <- community_solve_singularity(dd99_1d(), x0 = residents_x0(-0.4, 0.45), solver = solver, tol = 1e-10)
+    warm <- community_solve_singularity(dd99_1d(), x0 = residents_x0(-0.4, 0.45), solver = solver, tol = 1e-10,
+                                        jacobian = J)
+    expect_true(attr(warm, "converged"), info = solver)
+    expect_equal(as.numeric(warm$traits), c(-a, a), tolerance = 1e-8, info = solver)
+    expect_lte(attr(warm, "evaluations"), attr(cold, "evaluations") - 4L)
+  }
+  expect_error(community_solve_singularity(dd99_1d(), x0 = residents_x0(-0.4, 0.45), jacobian = diag(3)),
+               "jacobian must be a finite 2 x 2 matrix")
+})
+
 test_that("community_solve_singularity finds the DD99 trimorphic coalition", {
   b <- dd99_triple_root(sigma_C = 0.3)
   out <- community_solve_singularity(dd99_1d(sigma_C = 0.3), x0 = residents_x0(-0.5, 0.05, 0.8), tol = 1e-10)
