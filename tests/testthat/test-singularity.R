@@ -338,19 +338,35 @@ test_that("community_solve_singularity finds the GK98 dimorphic coalition", {
   expect_equal(as.numeric(out$traits), c(-a, a), tolerance = 1e-8)
 })
 
-test_that("community_solve_singularity searches a coalition on a log trait scale", {
-  # GM99 at alpha R = 7 branches at m* ~ 0.645; its daughters settle at a
-  # dimorphism no closed form gives, so the oracle is internal: every
-  # resident's gradient vanishes, every resident has invasion fitness zero, and
-  # a Newton solve with a correct trait-scale Jacobian gets there in few solves
+test_that("community_solve_singularity finds the asymmetric GM99 coalition on a log trait scale", {
+  # GM99 at alpha R = 7 branches at m* ~ 0.645 into a dimorphism with no
+  # symmetry: residents at ~0.206 and ~0.700, densities ~3.4 : 1. The oracle
+  # (helper-coalition.R) roots the model's own gradients, coded independently;
+  # unlike the mirror-image pairs, swapping or misstacking the residents would
+  # show here
+  a <- gm99_pair_root(alpha = 7, beta = 15)
   gm <- community_start(bounds(x = c(0.1, 0.95)), harness = harness_gm99(alpha = 7, beta = 15))
-  out <- community_solve_singularity(gm, x0 = residents_x0(0.5, 0.8), tol = 1e-8)
+  out <- community_solve_singularity(gm, x0 = residents_x0(0.5, 0.8), tol = 1e-10)
   expect_true(attr(out, "converged"))
-  x <- as.numeric(out$traits)
-  expect_lt(max(abs(out$selection_gradient * x)), 1e-7)
+  expect_equal(as.numeric(out$traits), a, tolerance = 1e-8)
+  expect_equal(out$birth_rate, gm99_coalition_density(a, alpha = 7, beta = 15), tolerance = 1e-8)
   expect_lt(max(abs(out$resident_fitness)), 1e-8)
-  expect_true(all(out$birth_rate > 0))
   expect_lte(attr(out, "evaluations"), 20L)
+
+  # the coalition Jacobian, block by block, and the speed-weighted verdict on
+  # the oracle's own (unequal) densities
+  cl <- community_classify_singularity(out)
+  J <- oracle_jacobian(function(x) gm99_coalition_gradient(x, alpha = 7, beta = 15), a, h = 1e-5)
+  expect_equal(unname(cl$jacobian[, ]), J, tolerance = 1e-5)
+  n <- gm99_coalition_density(a, alpha = 7, beta = 15)
+  expect_equal(cl$speeds, n / mean(n), tolerance = 1e-8)
+  expect_equal(sort(Re(cl$jacobian_weighted_eigen$values)), sort(Re(eigen(n / mean(n) * J)$values)),
+               tolerance = 1e-5)
+  # each resident's curvature, so the "CSS" verdict rests on the oracle too
+  curv <- gm99_coalition_curvature(a, alpha = 7, beta = 15)
+  expect_true(all(curv < 0))
+  expect_equal(vapply(cl$hessian, as.numeric, numeric(1)), curv, tolerance = 1e-5)
+  expect_equal(cl$classification, "CSS")
 })
 
 test_that("a coalition that cannot coexist is reported lost, not returned as converged", {
@@ -389,10 +405,121 @@ test_that("the DD99 pair classifies as a convergence-stable branching coalition"
   expect_equal(dim(cl$branching_direction), c(2L, 1L))
   expect_equal(abs(as.numeric(cl$branching_direction)), c(1, 1))
   expect_equal(dim(cl$traits), c(2L, 1L))
-  expect_equal(cl$evaluations, 2L * 2L)
+  # protected coexistence: rare in the other's monoculture (n = K), each
+  # resident's fitness is 1 - C(2a), K being symmetric about x0
+  expect_true(cl$protected_coexistence)
+  expect_equal(cl$invasion_fitness, rep(1 - exp(-(2 * a)^2 / (2 * 0.4^2)), 2), tolerance = 1e-8)
+  # two Jacobian solves per resident, and one per resident left out
+  expect_equal(cl$evaluations, 2L * 2L + 2L)
   out <- paste(utils::capture.output(print(cl)), collapse = "\n")
   expect_match(out, "coalition of 2")
+  expect_match(out, "protected coexistence: TRUE")
   expect_match(out, "branching direction of resident 2")
+})
+
+test_that("protected coexistence is invasion fitness when rare, against Lotka-Volterra", {
+  # A(y, x) = 1 + gamma (1 - exp(-(y - x)^2 / 2s^2)): for gamma > 0 competition
+  # is stronger between residents than within them (priority effects). A
+  # symmetric pair +-b then has positive densities K(b) / (1 + a), but rare in
+  # the other's monoculture (n = K(b)) each resident's fitness is 1 - a < 0: an
+  # unstable equilibrium. Under priority effects selection pulls such a pair
+  # together, so there is no singular pair to solve for and the check runs at
+  # +-0.3, which the classifier says is not a singularity.
+  a_of <- function(gamma, b) 1 + gamma * (1 - exp(-(2 * b)^2 / (2 * 0.3^2)))
+  lv <- function(gamma) community_start(bounds(x = c(-2, 2)), trait_scale = "linear",
+                                        harness = lv_gauss_harness(gamma))
+  expect_warning(community_solve_singularity(lv(0.5), x0 = residents_x0(-0.3, 0.3)), "merged")
+
+  strong <- lv(0.5) |>
+    community_add(residents_x0(-0.3, 0.3), birth_rate = c(1, 1)) |>
+    community_demography()
+  expect_true(all(strong$birth_rate > 0))
+  expect_warning(cl <- community_classify_singularity(strong), "not at a singular point")
+  expect_gt(cl$newton_reach, 1e-3)
+  expect_false(cl$protected_coexistence)
+  expect_equal(cl$invasion_fitness, rep(1 - a_of(0.5, 0.3), 2), tolerance = 1e-8)
+  expect_equal(cl$classification, "unprotected")
+  # the threshold is invasion_tol, set apart from the eigenvalue tol
+  expect_warning(cl2 <- community_classify_singularity(strong, invasion_tol = -1), "not at a singular point")
+  expect_true(cl2$protected_coexistence)
+
+  # gamma < 0: the singular pair exists, is protected, and branches
+  pair <- community_solve_singularity(lv(-0.5), x0 = residents_x0(-0.3, 0.3), tol = 1e-10)
+  expect_true(attr(pair, "converged"))
+  b <- as.numeric(pair$traits)[2]
+  expect_equal(as.numeric(pair$traits), c(-b, b), tolerance = 1e-8)
+  weak <- community_classify_singularity(pair)
+  expect_lt(weak$newton_reach, 1e-6)
+  expect_true(weak$protected_coexistence)
+  expect_equal(weak$invasion_fitness, rep(1 - a_of(-0.5, b), 2), tolerance = 1e-8)
+  expect_equal(weak$classification, "branching point")
+})
+
+test_that("a resident left out is tested against where the others settle, not an infeasible equilibrium", {
+  # Three Lotka-Volterra species, K = 1, with a stable interior equilibrium.
+  # Without species 3, solve(A, 1) for species 1 and 2 gives species 2 a
+  # negative density: species 1 excludes it (2 cannot invade 1, 1 - A_21 < 0),
+  # so species 3 meets a monoculture of 1 and its invasion fitness is
+  # 1 - A_31 = 0.3, not the 0.40 it has against the infeasible pair.
+  A <- matrix(c(1.0, 0.3, 0.8,
+                1.6, 1.0, 0.1,
+                0.7, 0.3, 1.0), 3, byrow = TRUE)
+  comm <- lv_matrix_community(A)
+  N <- solve(A, rep(1, 3))
+  expect_equal(as.numeric(comm$birth_rate), N, tolerance = 1e-10)
+  expect_true(all(Re(eigen(-diag(N) %*% A)$values) < 0))
+  pair_12 <- solve(A[1:2, 1:2], c(1, 1))
+  expect_lt(pair_12[2], 0)
+  infeasible <- 1 - sum(A[3, 1:2] * pair_12)
+
+  inv <- coalition_invasion_fitness(comm)
+  others <- function(i) { o <- setdiff(1:3, i); solve(A[o, o], c(1, 1)) }
+  expect_equal(as.numeric(inv),
+               c(1 - sum(A[1, 2:3] * others(1)), 1 - sum(A[2, c(1, 3)] * others(2)), 1 - A[3, 1]),
+               tolerance = 1e-10)
+  expect_false(isTRUE(all.equal(inv[3], infeasible)))
+  # one solve per resident left out, and one re-solve after removing species 2
+  expect_equal(attr(inv, "evaluations"), 4L)
+
+  # When the resident that goes negative is the one that wins (here species 1
+  # beats 2, 1 - A_12 > 0 > 1 - A_21, but det A[1:2, 1:2] < 0 makes species 1
+  # the negative one), removing it leaves a community it can invade back:
+  # where the others settle is undetermined, and so is species 3's fitness.
+  A2 <- matrix(c(1.0, 0.6, 0.8,
+                 1.9, 1.0, 0.2,
+                 0.4, 0.7, 1.0), 3, byrow = TRUE)
+  expect_lt(solve(A2[1:2, 1:2], c(1, 1))[1], 0)
+  inv2 <- coalition_invasion_fitness(lv_matrix_community(A2))
+  expect_true(is.na(inv2[3]))
+  expect_match(attr(inv2, "reasons")[[3]], "invade back")
+})
+
+test_that("protected coexistence that cannot be decided is NA, with a warning, and does not decide the verdict", {
+  # DD99 whose model equilibrium refuses a monoculture: every leave-one-out
+  # solve of a pair fails
+  d <- harness_dd99(sigma_C = 0.4)
+  pairs_only <- harness_explicit(
+    fitness = function(x_mut, x_res, n_res, pars) d$fitness(x_mut, x_res, n_res),
+    equilibrium = function(x_res, pars) {
+      if (length(x_res) < 2L) stop("no monoculture here")
+      d$equilibrium(x_res)
+    },
+    fitness_gradient = function(x_mut, x_res, n_res, pars) d$fitness_gradient(x_mut, x_res, n_res),
+    fitness_hessian = function(x_mut, x_res, n_res, pars) d$fitness_hessian(x_mut, x_res, n_res),
+    pars = list(), trait_names = "x", label = "dd99_pairs_only")
+  comm <- community_start(bounds(x = c(-2, 2)), trait_scale = "linear", harness = pairs_only)
+  pair <- community_solve_singularity(comm, x0 = residents_x0(-0.3, 0.6), tol = 1e-10)
+  expect_warning(cl <- community_classify_singularity(pair), "undetermined")
+  expect_equal(cl$invasion_fitness, c(NA_real_, NA_real_))
+  expect_true(is.na(cl$protected_coexistence))
+  expect_equal(cl$classification, "branching point")
+})
+
+test_that("classifying a solve that did not converge warns", {
+  gm <- community_start(bounds(x = c(0.1, 0.95)), harness = harness_gm99(alpha = 7, beta = 15))
+  stopped <- suppressWarnings(community_solve_singularity(gm, x0 = 0.3, maxit = 1))
+  expect_false(attr(stopped, "converged"))
+  expect_warning(community_classify_singularity(stopped), "not converged")
 })
 
 test_that("the GK98 pair classifies as an evolutionarily stable coalition", {

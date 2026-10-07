@@ -213,12 +213,12 @@ here follow current plant terminology.
 
 ## Test baseline
 
-`devtools::test()` is **green: 1186 pass, 0 fail, 0 skip, 0 warn**. Tests run in
+`devtools::test()` is **green: 1228 pass, 0 fail, 0 skip, 0 warn**. Tests run in
 parallel (`Config/testthat/parallel: true`); the `test-plant-smoke*.R` files
 dominate the wall-clock as they are the only ones that run the real SCM. The
 `test-harness-*.R` and `test-singularity.R` files run no SCM and are fast.
 
-(The count has grown as the toy-harness tier has: 197 → 256 → 401 → 537 → 979 → 1002 → 1052 → 1072 → 1174 → 1186.
+(The count has grown as the toy-harness tier has: 197 → 256 → 401 → 537 → 979 → 1002 → 1052 → 1072 → 1174 → 1186 → 1202 → 1228.
 What matters is that a change moves it up and moves nothing to FAIL.)
 
 Note: the testthat parallel workers may fail to find `plant` on startup in some
@@ -237,7 +237,7 @@ shells; run `TESTTHAT_PARALLEL=FALSE Rscript -e 'devtools::test()'` if so.
   `tidy_assembly` output shape.
 - `helper-assembly.R` (new) — shared `assembly_model_support(max_patch_lifetime
   = 30)` used by the integration tests (previously inlined in test-community.R).
-- `test-singularity.R` — `community_solve_singularity` (1-D, 2-trait, every solver, trait scales, edge/validation branches; coalitions: the DD99 pair in closed form, the DD99 triple and GK98 pair from their closed-form gradients, a two-trait DD99 pair checking the trait-by-trait stacking, GM99 on a log scale, a pair that cannot coexist reported lost) and `community_classify_singularity` (one resident and coalitions, speed-weighted convergence stability on the DD99 triple's unequal densities), against the analytic oracles tabulated under **Singular strategies** below and in `helper-coalition.R`.
+- `test-singularity.R` — `community_solve_singularity` (1-D, 2-trait, every solver, trait scales, edge/validation branches; coalitions: the DD99 pair in closed form, the DD99 triple and GK98 pair from their closed-form gradients, a two-trait DD99 pair checking the trait-by-trait stacking, the asymmetric GM99 pair on a log scale against an independent coding of the model, a pair that cannot coexist reported lost) and `community_classify_singularity` (one resident and coalitions, speed-weighted convergence stability on unequal densities, protected coexistence against closed-form invasion fitness, a priority-effects pair classified unprotected, a resident left out tested against where the others settle rather than an infeasible equilibrium, an undetermined test reported `NA`, the warnings on a non-converged solve and on a point away from a singularity), against the analytic oracles tabulated under **Singular strategies** below and in `helper-coalition.R`.
 - `test-demography-solvers.R` — all five equilibrium solvers on DD99, plus the
   genuine fixed-point tests and the `equilibrium_hybrid` extinct-species
   accept/reject branches built on `helper-harness-map.R`.
@@ -336,8 +336,8 @@ Two dimension-agnostic functions; both go through the harness connectors only, s
     `util_hessian()` in one vectorised call to `fitness_function`
     (`1 + 4k^2` mutant evaluations, cheap).
   - `jacobian` — derivative of the selection gradients w.r.t. the *residents*. Convergence stability is decided on `diag(speeds) J` (`jacobian_weighted_eigen`): for a coalition the residents evolve at different speeds, by default their equilibrium densities as in the canonical equation (`speeds = "density"`, or `"equal"`, or a vector), and a coalition stable at equal speeds can be unstable at the speeds its densities give; for one resident the speed only rescales `J`. A negative definite symmetric part = *strong* convergence stability (any mutational covariance, any speeds). Computed by `util_jacobian()`, `2mk` full equilibrium solves — this dominates the cost. `community_selection_gradient_jacobian()` errors when two residents are within the finite-difference step of each other (the stencil cannot tell them apart).
-  - the four-way `classification`: CSS / branching point / repeller / Garden of
-    Eden, plus `degenerate` when an eigenvalue is within `tol` of zero.
+  - `protected_coexistence` (coalitions): each resident, made rare, invades the community the others settle at without it (`invasion_fitness`, threshold `invasion_tol`), `m` more equilibrium solves; without it the classification is `unprotected`. For two Lotka–Volterra residents this is exactly the stability of their equilibrium (priority effects give positive densities at an unstable one); for three or more it is *stronger* than stability, since a stable coalition can have a resident that, once lost, stays lost. Where the others settle is their equilibrium with any non-positive density removed and the rest re-solved (`community_invasion_when_rare()`): a model's own equilibrium can be infeasible once a resident is left out, and invasion fitness against negative densities can have either sign. A failed solve, or a removed resident that could invade back, makes the test undetermined: `NA`, a warning, and the verdict falls to the second-order conditions. `canonical_branch_rate()` uses the same helper for its invade-back test.
+  - the four-way `classification`: CSS / branching point / repeller / Garden of Eden, plus `degenerate` when an eigenvalue is within `tol` of zero and `unprotected` as above. A community marked as not converged (by the singularity or the equilibrium solve) is classified with a warning, and so is one whose residents a Newton step on the gradients would move by more than 1e-3 of the bounds' width (`newton_reach`): the classifier does not otherwise check that it was handed a singularity.
   - the full eigen-decompositions and, where the point is invadable,
     `branching_direction` — the leading Hessian eigenvector, i.e. the direction
     in trait space the population splits along. In a multi-trait problem that

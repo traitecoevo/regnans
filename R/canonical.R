@@ -243,10 +243,12 @@ with_seed <- function(seed, expr) {
 ## node's invasion fitness and so its establishment probability, and for the
 ## nodes that can invade, one equilibrium solve with the mutant in the
 ## resident's place (warm-started from the residents' densities) says whether
-## the resident can invade it back -- a protected dimorphism. A solve that fails
-## is counted and warned about, not silently taken as "no coexistence".
+## the resident can invade it back -- a protected dimorphism (the same test as
+## the classifier's protected coexistence, community_invasion_when_rare). A
+## test that cannot be decided (a solve that fails) is counted and warned
+## about, not silently taken as "no coexistence".
 ## Returns the rate and the nodes with their success weights, so a distance can
-## be taken (expected or drawn).
+## be taken (expected or drawn), and the equilibrium solves it cost.
 canonical_branch_rate <- function(base, comm, tf, control, zm, i, v, sd_v, weight_i) {
   k <- ncol(zm)
   gh <- gauss_hermite(control$branch_nodes)
@@ -258,24 +260,23 @@ canonical_branch_rate <- function(base, comm, tf, control, zm, i, v, sd_v, weigh
                   pmin(1, control$establishment_factor * s_mut), 0)
   success <- numeric(length(delta))
   failed <- 0L
+  evaluations <- 0L
   n_res <- as.numeric(comm$birth_rate)
   for (j in which(p_est > 0)) {
     z_other <- zm; z_other[i, ] <- z_mut[j, ]
-    other <- tryCatch(
-      base |>
-        community_add(trait_matrix(tf$inv(z_other), base$trait_names), birth_rate = n_res) |>
-        community_demography(),
-      error = function(e) NULL)
-    if (is.null(other) || !isTRUE(attr(other, "converged"))) { failed <- failed + 1L; next }
-    s_back <- as.numeric(community_fitness_function(other)(tf$inv(matrix(zm[i, ], 1, k))))
+    s_back <- community_invasion_when_rare(base, tf$inv(z_other), n_res,
+                                           tf$inv(matrix(zm[i, ], 1, k)))
+    evaluations <- evaluations + attr(s_back, "evaluations")
+    if (is.na(s_back)) { failed <- failed + 1L; next }
     if (is.finite(s_back) && s_back > 0) success[j] <- p_est[j]
   }
   if (failed > 0L) {
-    warning(sprintf("%d of %d coexistence solves failed while computing a branching rate; the rate is a lower bound",
+    warning(sprintf("%d of %d coexistence tests could not be decided while computing a branching rate; the rate is a lower bound",
                     failed, sum(p_est > 0)))
   }
   mass <- wq * success
-  list(rate = control$rate * weight_i * sum(mass), delta = delta, mass = mass, failed = failed)
+  list(rate = control$rate * weight_i * sum(mass), delta = delta, mass = mass, failed = failed,
+       evaluations = evaluations)
 }
 
 ## A phenotype from the immigration pool, on the trait scale.
@@ -451,6 +452,7 @@ canonical_integrate <- function(community, x0, control, tf, range_z, mutation_sd
   outcome <- NULL
   steps <- 0L
   polish_evaluations <- 0L
+  branch_evaluations <- 0L
 
   while (is.null(outcome)) {
     if (t >= control$t_max) { outcome <- "t_max"; break }
@@ -556,6 +558,7 @@ canonical_integrate <- function(community, x0, control, tf, range_z, mutation_sd
         } else {
           sd_v <- sqrt(sum((v * mutation_sd)^2))
           br <- canonical_branch_rate(base, comm, tf, control, zm, i, v, sd_v, weight[i])
+          branch_evaluations <- branch_evaluations + br$evaluations
           if (br$rate <= 0) next
           candidates[[length(candidates) + 1L]] <- list(i = i, v = v, rate = br$rate,
                                                         delta = br$delta, mass = br$mass)
@@ -609,7 +612,7 @@ canonical_integrate <- function(community, x0, control, tf, range_z, mutation_sd
     events = tibble::as_tibble(do.call(rbind, events)),
     community = rhs$last(),
     base = base,
-    evaluations = rhs$evaluations() + polish_evaluations,
+    evaluations = rhs$evaluations() + polish_evaluations + branch_evaluations,
     steps = steps,
     rejections = unname(solver$counts()[["n_rejections"]]),
     immigration_attempts = immigration_attempts,
