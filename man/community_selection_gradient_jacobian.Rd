@@ -41,7 +41,8 @@ equilibrium solves per Richardson level, finite differences across the
 residents until the model supplies equilibrium sensitivities. Each is
 solved from the densities and solver state at the residents, so under a
 \code{future::plan()} with several workers they run in parallel, with the
-same answer.
+same answer, and each to the equilibrium tolerance times the relative step
+(see \code{\link{derivative_control}}).
 }
 \author{
 Daniel Falster

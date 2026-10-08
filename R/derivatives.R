@@ -44,11 +44,15 @@
 ##' solver state at the centre of the stencil, and every point of a parameter
 ##' Jacobian from the residents' densities, so the solves are independent: a
 ##' \code{future::plan()} with several workers solves them in parallel, with
-##' the same answer as without one. A finite difference of an equilibrium
-##' solve is only as accurate as the solve: its error is about the equilibrium
-##' tolerance divided by the step, near 1e-2 relative at the default
-##' \code{equilibrium_eps} and \code{d_second}
-##' (\href{https://github.com/traitecoevo/regnans/issues/80}{#80}).
+##' the same answer as without one. An error in a solve enters a finite
+##' difference divided by the step, so each point is solved to the
+##' community's \code{equilibrium_eps} (\code{\link{demographic_step_control}})
+##' times the stencil's relative step (\code{d_*}, or \code{eps_*} at a trait
+##' or parameter of zero, halved at each further Richardson level): the solves
+##' then add about \code{equilibrium_eps}, relative, to the derivative, as they
+##' do to the gradient, rather than \code{equilibrium_eps} over the step. A
+##' larger step relaxes that tolerance; a model whose demography cannot be
+##' solved that finely warns that the derivative carries the shortfall.
 ##'
 ##' @title Derivative settings
 ##' @param control A list of values to modify from the defaults.
@@ -294,7 +298,8 @@ fd_fitness_hessian <- function(f, y, ctrl) {
 ##' residents until the model supplies equilibrium sensitivities. Each is
 ##' solved from the densities and solver state at the residents, so under a
 ##' \code{future::plan()} with several workers they run in parallel, with the
-##' same answer.
+##' same answer, and each to the equilibrium tolerance times the relative step
+##' (see \code{\link{derivative_control}}).
 ##'
 ##' @title Resident Jacobian of the selection gradient
 ##' @param community A \code{community} with one or more residents, no two of
@@ -355,6 +360,31 @@ resident_jacobian <- function(gradient, x, ctrl) {
                 r = ctrl$r_jacobian, evaluate = attr(gradient, "points"))
 }
 
+## The community a stencil point is solved in: its equilibrium tolerance
+## multiplied by the stencil's relative step. A solve's error enters a finite
+## difference divided by the step, so scaled with the step the solves add
+## about the tolerance itself, relative, to the derivative, as they do to the
+## gradient it differentiates.
+stencil_community <- function(community, step) {
+  community$demography_control$equilibrium_eps <-
+    community$demography_control$equilibrium_eps * step
+  community
+}
+
+## A stencil point whose solve stopped short of its tolerance puts its error,
+## over the step, back into the derivative.
+stencil_check_converged <- function(values, stencil) {
+  n <- sum(!vapply(values, function(v) isTRUE(attr(v, "converged")), logical(1)))
+  if (n > 0L) {
+    warning(sprintf(paste0(
+      "%d of %d finite-difference points did not reach their equilibrium tolerance ",
+      "(%g, equilibrium_eps times the step), so the derivative carries their error over the step; ",
+      "a larger step in derivative_control() relaxes the tolerance, and more equilibrium_nsteps ",
+      "helps a solve that was still converging"),
+      n, length(values), stencil$demography_control$equilibrium_eps), call. = FALSE)
+  }
+}
+
 ##' Jacobian of the selection gradient with respect to model parameters.
 ##'
 ##' How the selection gradients of the residents change as model parameters
@@ -371,9 +401,11 @@ resident_jacobian <- function(gradient, x, ctrl) {
 ##' community from \code{p} will do for another model or for an input that is
 ##' not a harness parameter. Each column is a central difference, two
 ##' equilibrium solves per Richardson level, warm-started from the residents'
-##' densities, with steps from \code{\link{derivative_control}}
-##' (\code{d_parameter}, \code{eps_parameter}, \code{r_parameter}) of the
-##' community. Under a \code{future::plan()} with several workers the solves
+##' densities and solved to the tolerance of the community \code{parameter}
+##' builds times the relative step, with steps from
+##' \code{\link{derivative_control}} (\code{d_parameter},
+##' \code{eps_parameter}, \code{r_parameter}) of the community. Under a
+##' \code{future::plan()} with several workers the solves
 ##' run in parallel, with the same answer, and \code{parameter} runs on the
 ##' workers: under a plan whose workers are separate processes (anything but
 ##' \code{multicore}) it must not hold a solved plant community, whose fitness
@@ -420,12 +452,13 @@ community_selection_gradient_parameter_jacobian <- function(community, parameter
   ## every point starts from the same densities, so they are independent and
   ## go through the parallel map
   evaluations <- 0L
-  evaluate <- function(points) {
+  evaluate <- function(points, step) {
     g <- regnans_map(points, parameter_gradient_point, parameter = parameter,
                      names = names(p), trait_names = community$trait_names, x = x, m = m,
-                     birth_rate = n)
+                     birth_rate = n, step = step)
     evaluations <<- evaluations + sum(vapply(g, attr, integer(1), "evaluations"))
-    lapply(g, as.numeric)
+    stencil_check_converged(g, stencil_community(community, step))
+    g
   }
   G <- util_jacobian(NULL, p, d = ctrl$d_parameter, eps = ctrl$eps_parameter,
                      r = ctrl$r_parameter, evaluate = evaluate)
@@ -436,11 +469,14 @@ community_selection_gradient_parameter_jacobian <- function(community, parameter
 
 ## One point of the parameter Jacobian's stencil: the selection gradient at
 ## the residents x of the community parameter(q) builds, solved from
-## birth_rate, with the solves it took. Runs on a worker under a plan.
-parameter_gradient_point <- function(q, parameter, names, trait_names, x, m, birth_rate) {
+## birth_rate to its tolerance times the stencil's relative step, with the
+## solves it took and whether the last converged. Runs on a worker under a
+## plan.
+parameter_gradient_point <- function(q, parameter, names, trait_names, x, m, birth_rate, step) {
   comm <- parameter_community(parameter, stats::setNames(q, names), trait_names)
-  gradient <- singularity_gradient_fn(comm, m, birth_rate = birth_rate)
-  structure(gradient(x), evaluations = attr(gradient, "evaluations")())
+  gradient <- singularity_gradient_fn(stencil_community(comm, step), m, birth_rate = birth_rate)
+  structure(gradient(x), evaluations = attr(gradient, "evaluations")(),
+            converged = isTRUE(attr(attr(gradient, "last")(), "converged")))
 }
 
 ## The parameter values `community` was built at, as a named numeric vector.

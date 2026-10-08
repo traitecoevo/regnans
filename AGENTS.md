@@ -151,6 +151,7 @@ invasion-fitness closure on the community.
   stencils; the finite-difference machinery (`gradient_points()`,
   `util_hessian()`, `util_jacobian()`) in `R/util_gradient.R` is reached only
   from here, so model-supplied derivatives can slot in later (#50).
+  A finite difference across equilibrium solves (the resident and parameter Jacobians) solves each stencil point to the community's `equilibrium_eps` times the stencil's relative step (`util_jacobian()` hands its `evaluate` the step; `stencil_community()` tightens the tolerance), so the solves add about `equilibrium_eps`, relative, to the derivative rather than `equilibrium_eps / d`; a point whose solve stops short warns (`stencil_check_converged()`) (#80).
 - `R/solve_attractors.R` — `community_selection_gradient()` (a thin wrapper over
   `community_fitness_gradient()`).
 - `R/singularity.R` — `community_solve_singularity()` (root-find on the
@@ -214,12 +215,12 @@ here follow current plant terminology.
 
 ## Test baseline
 
-`devtools::test()` is **green: 1472 pass, 0 fail, 0 skip, 0 warn**. Tests run in
+`devtools::test()` is **green: 1487 pass, 0 fail, 0 skip, 0 warn**. Tests run in
 parallel (`Config/testthat/parallel: true`); the `test-plant-smoke*.R` files
 dominate the wall-clock as they are the only ones that run the real SCM. The
 `test-harness-*.R` and `test-singularity.R` files run no SCM and are fast.
 
-(The count has grown as the toy-harness tier has: 197 → 256 → 401 → 537 → 979 → 1002 → 1052 → 1072 → 1174 → 1186 → 1202 → 1228 → 1363 → 1472.
+(The count has grown as the toy-harness tier has: 197 → 256 → 401 → 537 → 979 → 1002 → 1052 → 1072 → 1174 → 1186 → 1202 → 1228 → 1363 → 1472 → 1487.
 What matters is that a change moves it up and moves nothing to FAIL.)
 
 Note: the testthat parallel workers may fail to find `plant` on startup in some
@@ -256,12 +257,13 @@ shells; run `TESTTHAT_PARALLEL=FALSE Rscript -e 'devtools::test()'` if so.
   iterated GM99 while costing fewer evaluations, `pip_mutual()`,
   `community_tep()` mirror symmetry, the plots, and multicore and multisession
   runs matching the sequential surface.
-- `test-parallel.R` — the parallel map: the routed paths' values pinned to 1e-12 (resident Jacobian, singularity solve, classification, parameter Jacobian, branch rate, on DD99 with the Newton equilibrium solver, where each solve starts matters); two-worker plans being separate processes running the source under test; the caller's RNG untouched by a plan and draws on workers reproducible and plan-independent; the external-pointer refusal under multisession and not under multicore; every routed path, a stochastic canonical run included, bit-identical with identical solve counts under multicore and multisession, with the model's own equilibrium and with an iterated one; the iterated Jacobian reaching the closed form at a tight tolerance; refusals and failed solves under a plan, the finished solves counted.
+- `test-parallel.R` — the parallel map: the routed paths' values pinned to 1e-12 (resident Jacobian, singularity solve, classification, parameter Jacobian, branch rate, on DD99 with the Newton equilibrium solver, where each solve starts matters); two-worker plans being separate processes running the source under test; the caller's RNG untouched by a plan and draws on workers reproducible and plan-independent; the external-pointer refusal under multisession and not under multicore; every routed path, a stochastic canonical run included, bit-identical with identical solve counts under multicore and multisession, with the model's own equilibrium and with an iterated one; refusals and failed solves under a plan, the finished solves counted.
 - `helper-parallel.R` — `with_two_workers(type, code)`: a two-worker `multicore` plan, or a two-process cluster (what `multisession` builds) whose workers `load_all()` this source tree, since a fresh process would otherwise load the installed regnans; it asserts the map sees both workers, so a test cannot pass by falling back to `lapply()`.
 - `test-community-plots.R` — `community_plot_fitness_landscape` and `plot_community` (one and two traits, log and linear scales, step selection), forcing `ggplot_build()` so the aesthetics are actually evaluated and checking each plotted point against the residents.
 - `test-derivatives.R` — `derivative_control`, the dispatch functions in
   `R/derivatives.R` against the DD99 slope/curvature oracles, model-supplied vs
   finite-difference sources, `harness_fd`, `harness_provides`.
+  Finite differences across iterated equilibria (Newton and fixed-point, default `equilibrium_eps`): each stencil point solved to `equilibrium_eps` times the relative step, the resident Jacobian against the DD99 and GM99 closed forms (`helper-coalition.R`) and the parameter Jacobian against DD99's, and the warning when a point stops short of its tolerance.
 - `test-derivatives-contract.R` — `harness_check_derivatives` over every shipped
   harness that advertises a derivative, plus a deliberately wrong provider.
 - `test-canonical.R` — the canonical equation on JJ12 (CSS, rate scaling,

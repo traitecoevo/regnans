@@ -42,11 +42,15 @@ Every point of a resident Jacobian is solved from the densities and
 solver state at the centre of the stencil, and every point of a parameter
 Jacobian from the residents' densities, so the solves are independent: a
 \code{future::plan()} with several workers solves them in parallel, with
-the same answer as without one. A finite difference of an equilibrium
-solve is only as accurate as the solve: its error is about the equilibrium
-tolerance divided by the step, near 1e-2 relative at the default
-\code{equilibrium_eps} and \code{d_second}
-(\href{https://github.com/traitecoevo/regnans/issues/80}{#80}).
+the same answer as without one. An error in a solve enters a finite
+difference divided by the step, so each point is solved to the
+community's \code{equilibrium_eps} (\code{\link{demographic_step_control}})
+times the stencil's relative step (\code{d_*}, or \code{eps_*} at a trait
+or parameter of zero, halved at each further Richardson level): the solves
+then add about \code{equilibrium_eps}, relative, to the derivative, as they
+do to the gradient, rather than \code{equilibrium_eps} over the step. A
+larger step relaxes that tolerance; a model whose demography cannot be
+solved that finely warns that the derivative carries the shortfall.
 }
 \author{
 Daniel Falster

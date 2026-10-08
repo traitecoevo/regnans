@@ -65,6 +65,14 @@ util_fd_step <- function(x, d, eps,
   h
 }
 
+## The smallest step of a stencil relative to the coordinate it moves: `d`,
+## or `eps` at a coordinate that is (numerically) zero, where the absolute
+## step stands in for a relative one; halved at each further Richardson level.
+util_fd_relative_step <- function(x, d, eps, r = 1L,
+                                  zero_tol = sqrt(.Machine$double.eps / 7e-07)) {
+  min(ifelse(abs(x) < zero_tol, eps, d)) / 2^(r - 1L)
+}
+
 ## Richardson extrapolation over a list of estimates computed at successively
 ## halved step sizes (all O(h^2) accurate), as in gradient_extrapolate().
 util_richardson <- function(est) {
@@ -176,7 +184,11 @@ util_hessian <- function(f, x, d = 1e-3, eps = 1e-3, r = 2L) {
 ##' Every point of every level is built first and handed to \code{evaluate} in
 ##' one call, so a caller whose points can be solved apart (in parallel) can
 ##' do so; by default they are evaluated one after another, each level's
-##' columns in turn, the step up before the step down.
+##' columns in turn, the step up before the step down. \code{evaluate} is also
+##' given the stencil's smallest relative step, so that a caller whose
+##' \code{g} is itself the result of a solve can solve each point to a
+##' tolerance in proportion to it: an error in \code{g} enters the Jacobian
+##' divided by the step.
 ##'
 ##' @title Finite-difference Jacobian
 ##' @param g Function taking a numeric vector and returning a numeric vector.
@@ -185,12 +197,13 @@ util_hessian <- function(f, x, d = 1e-3, eps = 1e-3, r = 2L) {
 ##' @param eps Absolute step size, used for coordinates that are ~0.
 ##' @param r Number of successively halved step sizes to extrapolate over.
 ##' @param evaluate Function taking the list of stencil points, in that order,
-##' and returning the list of \code{g} at each.
+##' and the stencil's smallest relative step (\code{util_fd_relative_step()}),
+##' and returning the list of \code{g} at each point.
 ##' @return A matrix with \code{J[i, j] = d g_i / d x_j}.
 ##' @author Daniel Falster
 ##' @noRd
 util_jacobian <- function(g, x, d = 1e-3, eps = 1e-3, r = 1L,
-                          evaluate = function(points) lapply(points, g)) {
+                          evaluate = function(points, step) lapply(points, g)) {
   x <- as.numeric(x)
   n <- length(x)
   h0 <- util_fd_step(x, d, eps)
@@ -204,7 +217,7 @@ util_jacobian <- function(g, x, d = 1e-3, eps = 1e-3, r = 1L,
       points <- c(points, list(x + hj, x - hj))
     }
   }
-  values <- lapply(evaluate(points), as.numeric)
+  values <- lapply(evaluate(points, util_fd_relative_step(x, d, eps, r)), as.numeric)
 
   est <- vector("list", r)
   pos <- 0L
