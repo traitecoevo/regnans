@@ -368,9 +368,10 @@ test_that("the pool can be a matrix or a function, and a zero rate means no arri
 
 test_that("mutation and immigration run together: both kinds of event occur and the run ends", {
   # branching needs the resident to reach stationarity between arrivals, so
-  # the mutation rate must be high relative to the immigration rate here
+  # the mutation rate must be high relative to the immigration rate here; in
+  # some realisations immigrants fill max_residents first
   ce <- community_canonical_equation(dd99(sigma_C = 0.4, x0 = 0), x0 = 0.8,
-    control = canonical_control(list(rate = 200, mutation_sd = 0.1, max_residents = 6, t_max = 80, seed = 1,
+    control = canonical_control(list(rate = 200, mutation_sd = 0.1, max_residents = 6, t_max = 80, seed = 2,
                                      immigration = list(rate = 0.3))))
   expect_true(ce$outcome %in% c("t_max", "max_steps"))
   expect_gt(nrow(events_of(ce, "branch")), 0L)

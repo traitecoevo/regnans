@@ -59,7 +59,11 @@
 ##'     limit is reached) and accepted steps.}
 ##'   \item{\code{rtol}, \code{atol}}{tolerances of the step-size control, on
 ##'     the trait scale: a step is accepted when its error estimate is within
-##'     \code{atol + rtol * abs(z)}.}
+##'     \code{atol + rtol * abs(z)}. The defaults follow the trajectory to
+##'     about 1\% a step: the end point is found by Newton (\code{polish}), so
+##'     a tighter trajectory costs equilibrium solves without moving it, and a
+##'     looser one, which RODAS would take, holds the explicit pairs at their
+##'     stability limit.}
 ##'   \item{\code{dt0}, \code{dt_max}}{initial and largest step; \code{NULL}
 ##'     chooses \code{dt0} from the initial speed.}
 ##'   \item{\code{gradient_tol}}{selection has stopped when every resident's
@@ -128,7 +132,7 @@ canonical_control <- function(control = NULL) {
     rate = 1, vcv = NULL, density = TRUE,
     stepper = "rodas",
     t_max = Inf, max_steps = 2000L,
-    rtol = 1e-3, atol = 1e-5, dt0 = NULL, dt_max = Inf,
+    rtol = 1e-2, atol = 1e-4, dt0 = NULL, dt_max = Inf,
     gradient_tol = 1e-4,
     polish = TRUE, polish_tol = 1e-2,
     branch = "expected", mutation_sd = NULL, branch_nodes = 12L, branch_distance = 0.02,
