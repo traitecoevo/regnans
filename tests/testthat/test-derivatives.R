@@ -219,6 +219,100 @@ test_that("derivative settings on the community change the finite-difference ste
   expect_equal(g_coarse, reference, tolerance = 0.25)
 })
 
+# ---- finite differences across iterated equilibria ---------------------------
+# A solve's error enters a finite difference divided by the step, and a
+# central difference is itself only good to about the square of its step, so
+# every stencil point is solved to the cube of the stencil's relative step.
+# The equilibria here are iterated on the one-generation map rather than taken
+# from the model, at the default equilibrium_eps; the oracles are the
+# closed-form gradients and densities of helper-coalition.R.
+iterated_coalition <- function(harness, x, solver, bounds, birth_rate, r = 1L) {
+  community_start(bounds, trait_scale = "linear", birth_rate_initial = birth_rate,
+                  demography_control = demographic_step_control(list(equilibrium_solver_name = solver)),
+                  derivative_control = derivative_control(list(r_jacobian = r, r_parameter = r)),
+                  harness = harness) |>
+    community_add(trait_matrix(x, "x"), birth_rate = rep(birth_rate, length(x))) |>
+    community_demography()
+}
+iterated_solvers <- c("equilibrium_solve_newton", "equilibrium_iteration")
+
+test_that("each stencil point is solved to the cube of the stencil's relative step", {
+  expect_equal(util_fd_relative_step(c(0.5, -2), d = 1e-3, eps = 1e-2), 1e-3)
+  # a coordinate at zero takes the absolute step, which stands in for a relative one
+  expect_equal(util_fd_relative_step(c(0, 0.5), d = 1e-3, eps = 1e-4), 1e-4)
+  expect_equal(util_fd_relative_step(c(0.5, -2), d = 1e-3, eps = 1e-2, r = 3), 2.5e-4)
+
+  comm <- iterated_coalition(harness_dd99(sigma_C = 0.4), c(-0.3, 0.6), "equilibrium_iteration",
+                             bounds(x = c(-2, 2)), 300)
+  expect_equal(stencil_community(comm, 1e-2)$demography_control$equilibrium_eps, 1e-6)
+  # never looser than the community's own tolerance
+  expect_equal(stencil_community(comm, 0.1)$demography_control$equilibrium_eps, 1e-5)
+
+  tol <- numeric(0)
+  solve <- singularity_solve_point
+  local_mocked_bindings(singularity_solve_point = function(x, base, ...) {
+    tol <<- c(tol, base$demography_control$equilibrium_eps)
+    solve(x, base, ...)
+  })
+  community_selection_gradient_jacobian(comm)
+  expect_equal(tol, rep(1e-9, 4))
+  tol <- numeric(0)
+  community_selection_gradient_parameter_jacobian(comm, community_parameter_map(comm, c("x0", "sigma_K")))
+  expect_equal(tol, rep(1e-9, 4))
+  # the solves that are not stencil points keep the community's tolerance
+  expect_equal(comm$demography_control$equilibrium_eps, 1e-5)
+})
+
+test_that("the resident Jacobian across iterated equilibria reaches the closed form", {
+  # DD99: a central difference at the default step is good to ~3e-7 here
+  x <- c(-0.3, 0.6)
+  for (solver in iterated_solvers) {
+    for (r in 1:2) {
+      J <- community_selection_gradient_jacobian(
+        iterated_coalition(harness_dd99(sigma_C = 0.4), x, solver, bounds(x = c(-2, 2)), 300, r = r))
+      expect_equal(unname(J[, ]), oracle_jacobian(dd99_coalition_gradient, x), tolerance = 1e-6,
+                   info = paste(solver, r))
+      # the densities differentiated by the same solves
+      expect_equal(unname(attr(J, "birth_rate_jacobian")), oracle_jacobian(dd99_coalition_density, x),
+                   tolerance = 3e-6, info = paste(solver, r))
+      expect_equal(dimnames(attr(J, "birth_rate_jacobian")),
+                   list(c("birth_rate[1]", "birth_rate[2]"), c("x[1]", "x[2]")))
+    }
+  }
+  # GM99's gradient is far more sensitive to its densities; its central
+  # difference at the default step is good to ~3e-6
+  x <- c(0.25, 0.65)
+  oracle <- oracle_jacobian(function(x) gm99_coalition_gradient(x, alpha = 7, beta = 15), x, h = 1e-5)
+  oracle_n <- oracle_jacobian(function(x) gm99_coalition_density(x, alpha = 7, beta = 15), x, h = 1e-5)
+  for (solver in iterated_solvers) {
+    J <- community_selection_gradient_jacobian(
+      iterated_coalition(harness_gm99(alpha = 7, beta = 15), x, solver, bounds(x = c(0.1, 0.95)), 1))
+    expect_equal(unname(J[, ]), oracle, tolerance = 1e-5, info = solver)
+    expect_equal(unname(attr(J, "birth_rate_jacobian")), oracle_n, tolerance = 1e-5, info = solver)
+  }
+})
+
+test_that("the parameter Jacobian across iterated equilibria reaches the closed form", {
+  x <- c(-0.3, 0.6)
+  oracle <- oracle_jacobian(function(p) dd99_coalition_gradient(x, x0 = p[1], sigma_K = p[2]), c(0, 1))
+  for (solver in iterated_solvers) {
+    comm <- iterated_coalition(harness_dd99(sigma_C = 0.4), x, solver, bounds(x = c(-2, 2)), 300)
+    G <- community_selection_gradient_parameter_jacobian(comm, community_parameter_map(comm, c("x0", "sigma_K")))
+    expect_equal(unname(G[, ]), oracle, tolerance = 5e-6, info = solver)
+  }
+})
+
+test_that("a stencil point whose solve stops short of its tolerance is reported", {
+  comm <- iterated_coalition(harness_dd99(sigma_C = 0.4), c(-0.3, 0.6), "equilibrium_iteration",
+                             bounds(x = c(-2, 2)), 300)
+  # enough steps for the community's own tolerance, too few for the stencil's
+  comm$demography_control$equilibrium_nsteps <- 2
+  expect_warning(community_selection_gradient_jacobian(comm),
+                 "4 of 4 finite-difference points did not reach their equilibrium tolerance \\(1e-09")
+  expect_warning(community_selection_gradient_parameter_jacobian(comm, community_parameter_map(comm, "x0")),
+                 "2 of 2 finite-difference points did not reach")
+})
+
 # ---- model-supplied derivatives and the finite-difference fill --------------
 
 test_that("harnesses advertise what they can differentiate", {

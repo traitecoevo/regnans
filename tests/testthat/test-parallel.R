@@ -4,42 +4,42 @@
 # equilibrium, so that where each solve starts from matters to its answer,
 # and started near its densities (K0 = 500): from the default 1e-3 the capped
 # Newton steps stall.
-dd99_newton <- function(r_jacobian = 1L, equilibrium_eps = 1e-5) {
+dd99_newton <- function(r_jacobian = 1L) {
   community_start(bounds(x = c(-2, 2)), trait_scale = "linear", birth_rate_initial = 300,
-                  demography_control = demographic_step_control(list(equilibrium_solver_name = "equilibrium_solve_newton",
-                                                                     equilibrium_eps = equilibrium_eps)),
+                  demography_control = demographic_step_control(list(equilibrium_solver_name = "equilibrium_solve_newton")),
                   derivative_control = derivative_control(list(r_jacobian = r_jacobian)),
                   harness = harness_dd99(sigma_C = 0.4))
 }
-dd99_newton_off <- function(r_jacobian = 1L, equilibrium_eps = 1e-5) {
-  dd99_newton(r_jacobian, equilibrium_eps) |>
+dd99_newton_off <- function(r_jacobian = 1L) {
+  dd99_newton(r_jacobian) |>
     community_add(trait_matrix(c(-0.3, 0.6), "x"), birth_rate = c(300, 300)) |>
     community_demography()
 }
 
 # ---- the routed paths are pinned ----------------------------------------------
-# Where each stencil solve starts from moves these values far beyond 1e-12 but
-# within the oracle tolerances of the other tests, so they are pinned here:
-# every point of a resident Jacobian starts from the centre's densities and
-# solver state, which is also what makes the answer the same under any plan.
+# Where each stencil solve starts from, and the tolerance it is solved to, move
+# these values far beyond 1e-12 but within the oracle tolerances of the other
+# tests, so they are pinned here: every point of a resident Jacobian starts
+# from the centre's densities and solver state, which is also what makes the
+# answer the same under any plan.
 
 test_that("the resident Jacobian, singularity solve and classification are pinned", {
   J <- community_selection_gradient_jacobian(dd99_newton_off(r_jacobian = 2L))
-  expect_equal(as.numeric(J), c(-2.3199177767398202, 2.1534069407784515, 1.6746437567052102, -2.6885700094040796),
+  expect_equal(as.numeric(J), c(-2.3204972883295425, 2.152488812964005, 1.6746455139368679, -2.6885672273740524),
                tolerance = 1e-12)
   expect_identical(attr(J, "evaluations"), 8L)
 
   pair <- community_solve_singularity(dd99_newton(), x0 = trait_matrix(c(-0.3, 0.6), "x"),
                                       birth_rate = c(300, 300))
   expect_true(attr(pair, "converged"))
-  expect_equal(as.numeric(pair$traits), c(-0.44202687307708149, 0.44202688697437725), tolerance = 1e-12)
+  expect_equal(as.numeric(pair$traits), c(-0.44202687274337538, 0.44202688729386219), tolerance = 1e-12)
   expect_identical(attr(pair, "evaluations"), 10L)
 
   cl <- community_classify_singularity(pair)
   expect_equal(as.numeric(cl$jacobian),
-               c(-2.532962320265121, 1.9609547172176698, 1.9609546864155276, -2.5329623458146249),
+               c(-2.5329623179117324, 1.9609547197743851, 1.9609546961720856, -2.5329623360081825),
                tolerance = 1e-12)
-  expect_equal(as.numeric(cl$invasion_fitness), c(0.91304347861650459, 0.91304347754816051), tolerance = 1e-12)
+  expect_equal(as.numeric(cl$invasion_fitness), c(0.91304347863477864, 0.91304347751622095), tolerance = 1e-12)
   expect_identical(cl$evaluations, 6L)
   expect_equal(cl$classification, "branching point")
 })
@@ -47,7 +47,7 @@ test_that("the resident Jacobian, singularity solve and classification are pinne
 test_that("the parameter Jacobian and the canonical branching rate are pinned", {
   off <- dd99_newton_off()
   G <- community_selection_gradient_parameter_jacobian(off, community_parameter_map(off, c("x0", "sigma_K")))
-  expect_equal(as.numeric(G), c(0.64585173892039993, 0.53607837136718239, -0.70624586226180475, 1.0608255501970212),
+  expect_equal(as.numeric(G), c(0.64585172568761351, 0.53607835036222762, -0.70624583870345503, 1.0608255874899122),
                tolerance = 1e-12)
   expect_identical(attr(G, "evaluations"), 4L)
 
@@ -162,14 +162,6 @@ test_that("every routed path gives the sequential answer and cost under each pla
   }
 })
 
-# A finite difference of an equilibrium solve is only as accurate as the
-# solve: at a tight equilibrium tolerance the stencil reaches the closed-form
-# Jacobian to its truncation error.
-test_that("the resident Jacobian of an iterated equilibrium reaches the closed form at a tight tolerance", {
-  J <- community_selection_gradient_jacobian(dd99_newton_off(r_jacobian = 2L, equilibrium_eps = 1e-9))
-  expect_equal(as.numeric(J), as.numeric(oracle_jacobian(dd99_coalition_gradient, c(-0.3, 0.6))), tolerance = 1e-5)
-})
-
 test_that("a stencil point that merges two residents is refused under a plan as it is sequentially", {
   # 8e-4 apart at x ~ 0.5, inside two finite-difference steps (1e-3 |x| each)
   close <- dd99_model() |>
@@ -196,6 +188,6 @@ test_that("a stencil solve that fails still counts the solves that finished", {
     if (x[2] > 0.6) stop("the solve failed")
     solve(x, ...)
   })
-  expect_error(attr(gradient, "points")(list(c(-0.3, 0.59), c(-0.3, 0.61), c(-0.31, 0.6))), "the solve failed")
+  expect_error(attr(gradient, "points")(list(c(-0.3, 0.59), c(-0.3, 0.61), c(-0.31, 0.6)), 1e-3), "the solve failed")
   expect_identical(attr(gradient, "evaluations")(), 2L)
 })

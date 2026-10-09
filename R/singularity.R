@@ -58,8 +58,9 @@ resident_labels <- function(trait_names, m) {
 ## each solved from the densities and solver state of the last solve here
 ## (the stencil's centre), not from the previous point, so the points are
 ## independent and go through the parallel map, and the answer is the same
-## with or without a plan. The centre remains the starting point of the next
-## call.
+## with or without a plan. Each is solved to the stencil's tolerance
+## (stencil_community()) and carries its equilibrium birth rates. The centre
+## remains the starting point of the next call.
 singularity_gradient_fn <- function(community, m = 1L, birth_rate = NULL) {
   base <- community_clear_residents(community)
   trait_names <- community$trait_names
@@ -86,16 +87,18 @@ singularity_gradient_fn <- function(community, m = 1L, birth_rate = NULL) {
     evaluations <<- evaluations + 1L
     remember(x, out)
   }
-  points <- function(points) {
+  points <- function(points, step) {
     points <- lapply(points, as.numeric)
     merged <- vapply(points, function(x) nrow(residents_merged(x, m, k, ctrl)) > 0L, logical(1))
-    out <- rep(list(rep(NA_real_, m * k)), length(points))
-    out[!merged] <- regnans_map(points[!merged], singularity_gradient_point, base = base, m = m,
+    out <- rep(list(structure(rep(NA_real_, m * k), birth_rate = rep(NA_real_, m))), length(points))
+    stencil <- stencil_community(base, step)
+    out[!merged] <- regnans_map(points[!merged], singularity_gradient_point, base = stencil, m = m,
                                 birth_rate = seed_birth_rate, state = state)
     failed <- vapply(out, inherits, logical(1), "error")
     refused <<- refused + sum(merged)
     evaluations <<- evaluations + sum(!merged & !failed)
     if (any(failed)) stop(out[[which(failed)[1L]]])
+    stencil_check_converged(out[!merged], stencil)
     out
   }
   ## keep a solved community as the answer at x and carry its equilibrium
@@ -141,12 +144,16 @@ singularity_solve_point <- function(x, base, m, birth_rate, state) {
     community_selection_gradient()
 }
 
-## The same for a stencil point, perhaps on a worker, returning only the
-## gradient (a solved plant community cannot cross back to this process), or
-## the error, so that the solves which did finish are still counted.
+## The same for a stencil point, perhaps on a worker, returning only numbers
+## -- the gradient, with the equilibrium birth rates and whether the solve
+## converged (a solved plant community cannot cross back to this process) --
+## or the error, so that the solves which did finish are still counted.
 singularity_gradient_point <- function(x, base, m, birth_rate, state) {
-  tryCatch(as.numeric(singularity_solve_point(x, base, m, birth_rate, state)$selection_gradient),
-           error = function(e) e)
+  tryCatch({
+    comm <- singularity_solve_point(x, base, m, birth_rate, state)
+    structure(as.numeric(comm$selection_gradient), birth_rate = as.numeric(comm$birth_rate),
+              converged = isTRUE(attr(comm, "converged")))
+  }, error = function(e) e)
 }
 
 ## Has this community been solved to a demographic equilibrium that can stand
