@@ -18,14 +18,18 @@
 # closure, steps once at a time up to a bound (so branching and immigration
 # clocks are landed on exactly), re-seeds the state at a new length when the
 # community changes, and offers explicit embedded pairs or RODAS for the stiff
-# case of many traits or species (#43), whose Jacobian of the right-hand side
-# is by finite differences over the residents today and exact once the model
-# supplies equilibrium sensitivities. RODAS is the default because trait
-# models are stiff as a rule -- selection on different traits and species runs
-# on widely separated time scales, and near a coalition an explicit pair is
-# held at its stability limit -- while on smooth stretches it costs 1.5-2x the
-# explicit pairs in equilibrium solves (scripts/canonical-stepper-benchmark.R),
-# a price an exact Jacobian removes.
+# case of many traits or species (#43). RODAS's Jacobian of the right-hand side
+# comes from the derivative layer (canonical_jacobian()): the residents'
+# gradients and densities differenced across the residents, each point solved
+# finely enough for the difference (odelia's own forward difference of a
+# right-hand side that is itself a solve is too noisy for its step-size
+# control), and exact once the model supplies equilibrium sensitivities. RODAS
+# is the default because trait models are stiff as a rule -- selection on
+# different traits and species runs on widely separated time scales, and near
+# a coalition an explicit pair is held at its stability limit -- while on
+# smooth stretches it costs about twice the explicit pairs in equilibrium
+# solves (scripts/canonical-stepper-benchmark.R), a price an exact Jacobian
+# removes.
 
 ##' Control the canonical equation.
 ##'
@@ -44,11 +48,12 @@
 ##'     population size).}
 ##'   \item{\code{stepper}}{an \code{odelia} stepper: \code{"rodas"} (linearly
 ##'     implicit RODAS4(3), the default: trait models are stiff as a rule, and
-##'     an L-stable step is not held at a stability limit; its Jacobian is
-##'     formed by finite differences across the residents, one equilibrium
-##'     solve per unknown), \code{"rkck"} (explicit Cash--Karp 4(5), the
-##'     cheapest on smooth stretches) or \code{"dopri"} (explicit
-##'     Dormand--Prince 5(4)). See \code{\link[odelia]{OdeSolver}}.}
+##'     an L-stable step is not held at a stability limit; its Jacobian comes
+##'     from \code{\link{community_selection_gradient_jacobian}}, central
+##'     differences across the residents of their gradients and densities,
+##'     two equilibrium solves per unknown), \code{"rkck"} (explicit
+##'     Cash--Karp 4(5), the cheapest on smooth stretches) or \code{"dopri"}
+##'     (explicit Dormand--Prince 5(4)). See \code{\link[odelia]{OdeSolver}}.}
 ##'   \item{\code{t_max}, \code{max_steps}}{limits on evolutionary time
 ##'     (\code{Inf} by default: a run ends when the coalition is stable or a
 ##'     limit is reached) and accepted steps.}
@@ -183,6 +188,8 @@ canonical_control <- function(control = NULL) {
 ## the same map in the (t, y) form the solver calls; an evaluation whose
 ## equilibrium did not converge or whose speed is not finite is refused with
 ## odelia::domain_error(), which rejects the step and retries it smaller.
+## `jac` is its Jacobian for the implicit stepper, which asks for it at the
+## state of the last evaluation; its solves are counted with the rest.
 canonical_rhs <- function(base, tf, control, k, n_total0, V) {
   birth_rate <- NULL
   state <- NULL
@@ -203,7 +210,7 @@ canonical_rhs <- function(base, tf, control, k, n_total0, V) {
     g_z <- if (identical(tf$scale, "log")) g * x else g           # w.r.t. the trait scale
     weight <- if (control$density) n / n_total0 else rep(1, m)
     speed <- 0.5 * control$rate * weight * (g_z %*% V)
-    last <<- list(f = as.numeric(speed), g_z = g_z, n = n, community = comm)
+    last <<- list(z = as.numeric(z), f = as.numeric(speed), g_z = g_z, n = n, community = comm)
   }
   ode <- function(t, y) {
     out <- f(y)
@@ -212,8 +219,48 @@ canonical_rhs <- function(base, tf, control, k, n_total0, V) {
     }
     out$f
   }
-  list(f = f, ode = ode, last = function() last, evaluations = function() evaluations,
+  jac <- function(t, y) {
+    if (!identical(last$z, as.numeric(y))) ode(t, y)
+    J <- canonical_jacobian(last$community, tf, control, n_total0, V)
+    evaluations <<- evaluations + attr(J, "evaluations")
+    J
+  }
+  list(f = f, ode = ode, jac = jac, last = function() last, evaluations = function() evaluations,
        reset = function() { birth_rate <<- NULL; state <<- NULL })
+}
+
+## The Jacobian of the canonical equation's right-hand side at a solved
+## community, on the trait scale, from the derivative layer: the residents'
+## gradients and equilibrium densities differentiated with respect to every
+## resident's traits (community_selection_gradient_jacobian(), whose stencil
+## gives both), carried through the speed 0.5 rate w_i (g_z V)_i with
+## w_i = n_i / n_total0. On a log scale x = exp(z), so d(g_a x_a)/dz_b =
+## x_a J_ab x_b + [a = b] g_a x_a and dn/dz_b = dn/dx_b x_b. Two residents
+## within the finite-difference step of each other are refused, as the
+## derivative layer refuses them: the run stops with that error.
+canonical_jacobian <- function(community, tf, control, n_total0, V) {
+  J <- community_selection_gradient_jacobian(community)
+  x <- as.numeric(community$traits)
+  m <- nrow(community$traits)
+  k <- ncol(community$traits)
+  g <- attr(J, "selection_gradient")
+  log_scale <- identical(tf$scale, "log")
+  dxdz <- if (log_scale) x else rep(1, m * k)
+  Jz <- unname(J[, ]) * outer(dxdz, dxdz)
+  if (log_scale) diag(Jz) <- diag(Jz) + g * dxdz
+  Dz <- sweep(unname(attr(J, "birth_rate_jacobian")), 2, dxdz, "*")
+  n <- as.numeric(community$birth_rate)
+  weight <- if (control$density) n / n_total0 else rep(1, m)
+  gV <- matrix(g * dxdz, m, k) %*% V
+  out <- matrix(0, m * k, m * k)
+  for (cc in seq_len(k)) {
+    dgV <- matrix(0, m, m * k)
+    for (d in seq_len(k)) dgV <- dgV + V[d, cc] * Jz[(d - 1L) * m + seq_len(m), , drop = FALSE]
+    block <- weight * dgV
+    if (control$density) block <- block + gV[, cc] * Dz / n_total0
+    out[(cc - 1L) * m + seq_len(m), ] <- 0.5 * control$rate * block
+  }
+  structure(out, evaluations = attr(J, "evaluations"))
 }
 
 ## Gauss-Hermite nodes and weights for int exp(-x^2) f(x) dx, from the Jacobi
@@ -412,8 +459,8 @@ canonical_integrate <- function(community, x0, control, tf, range_z, mutation_sd
   lineage <- seq_len(m)
   next_lineage <- m + 1L
   t <- 0
-  solver <- odelia::OdeSolver$new(rhs$ode, z, t0 = t, method = control$stepper, autonomous = TRUE,
-                                  control = canonical_ode_control(control))
+  solver <- odelia::OdeSolver$new(rhs$ode, z, t0 = t, jac = rhs$jac, method = control$stepper,
+                                  autonomous = TRUE, control = canonical_ode_control(control))
   k1 <- rhs$last()
   restart_step <- function(k) if (is.null(control$dt0)) min(control$dt_max, 0.01 * max(range_z) / max(max(abs(k$f)), 1e-12)) else control$dt0
   solver$set_step_size(restart_step(k1))

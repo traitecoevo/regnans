@@ -25,7 +25,7 @@ dd99_newton_off <- function(r_jacobian = 1L) {
 
 test_that("the resident Jacobian, singularity solve and classification are pinned", {
   J <- community_selection_gradient_jacobian(dd99_newton_off(r_jacobian = 2L))
-  expect_equal(as.numeric(J), c(-2.3204972883327541, 2.1524888129590094, 1.6746455137339302, -2.6885672276952843),
+  expect_equal(as.numeric(J), c(-2.3204972883295425, 2.152488812964005, 1.6746455139368679, -2.6885672273740524),
                tolerance = 1e-12)
   expect_identical(attr(J, "evaluations"), 8L)
 
@@ -37,7 +37,7 @@ test_that("the resident Jacobian, singularity solve and classification are pinne
 
   cl <- community_classify_singularity(pair)
   expect_equal(as.numeric(cl$jacobian),
-               c(-2.5329623198889788, 1.9609547177981892, 1.9609546953174599, -2.5329623368624841),
+               c(-2.5329623179117324, 1.9609547197743851, 1.9609546961720856, -2.5329623360081825),
                tolerance = 1e-12)
   expect_equal(as.numeric(cl$invasion_fitness), c(0.91304347863477864, 0.91304347751622095), tolerance = 1e-12)
   expect_identical(cl$evaluations, 6L)
@@ -47,7 +47,7 @@ test_that("the resident Jacobian, singularity solve and classification are pinne
 test_that("the parameter Jacobian and the canonical branching rate are pinned", {
   off <- dd99_newton_off()
   G <- community_selection_gradient_parameter_jacobian(off, community_parameter_map(off, c("x0", "sigma_K")))
-  expect_equal(as.numeric(G), c(0.64585172568761351, 0.53607835036222762, -0.70624586393160793, 1.0608255475494446),
+  expect_equal(as.numeric(G), c(0.64585172568761351, 0.53607835036222762, -0.70624583870345503, 1.0608255874899122),
                tolerance = 1e-12)
   expect_identical(attr(G, "evaluations"), 4L)
 

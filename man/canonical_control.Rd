@@ -21,11 +21,12 @@ canonical_control(control = NULL)
     population size).}
   \item{\code{stepper}}{an \code{odelia} stepper: \code{"rodas"} (linearly
     implicit RODAS4(3), the default: trait models are stiff as a rule, and
-    an L-stable step is not held at a stability limit; its Jacobian is
-    formed by finite differences across the residents, one equilibrium
-    solve per unknown), \code{"rkck"} (explicit Cash--Karp 4(5), the
-    cheapest on smooth stretches) or \code{"dopri"} (explicit
-    Dormand--Prince 5(4)). See \code{\link[odelia]{OdeSolver}}.}
+    an L-stable step is not held at a stability limit; its Jacobian comes
+    from \code{\link{community_selection_gradient_jacobian}}, central
+    differences across the residents of their gradients and densities,
+    two equilibrium solves per unknown), \code{"rkck"} (explicit
+    Cash--Karp 4(5), the cheapest on smooth stretches) or \code{"dopri"}
+    (explicit Dormand--Prince 5(4)). See \code{\link[odelia]{OdeSolver}}.}
   \item{\code{t_max}, \code{max_steps}}{limits on evolutionary time
     (\code{Inf} by default: a run ends when the coalition is stable or a
     limit is reached) and accepted steps.}

@@ -81,6 +81,55 @@ test_that("the rate scales evolutionary time and Cash-Karp agrees with RODAS", {
   expect_equal(final(ros)$x, final(slow)$x, tolerance = 1e-3)
 })
 
+test_that("RODAS takes the right-hand side's Jacobian from the derivative layer", {
+  # the speed (rate / 2) (n_i / n_total0) V g_i in closed form
+  # (helper-coalition.R), differentiated on the trait scale; with the model's
+  # own equilibrium what is left is the stencil's truncation error, ~5e-7 on
+  # DD99 and ~3e-6 on GM99
+  V <- matrix(0.05^2)
+  n0 <- 400
+  x <- c(-0.3, 0.6)
+  for (density in c(TRUE, FALSE)) {
+    ctrl <- canonical_control(list(density = density, rate = 2))
+    speed <- function(z) (if (density) dd99_coalition_density(z) / n0 else 1) * dd99_coalition_gradient(z) * V[1]
+    for (solver in c("model", "equilibrium_solve_newton")) {
+      comm <- community_start(bounds(x = c(-2, 2)), trait_scale = "linear", birth_rate_initial = 300,
+                              demography_control = demographic_step_control(list(equilibrium_solver_name = solver)),
+                              harness = harness_dd99(sigma_C = 0.4)) |>
+        community_add(trait_matrix(x, "x"), birth_rate = c(300, 300)) |>
+        community_demography()
+      J <- canonical_jacobian(comm, community_trait_transform(comm), ctrl, n0, V)
+      expect_equal(J, oracle_jacobian(speed, x), tolerance = 2e-6, ignore_attr = TRUE,
+                   info = paste(density, solver))
+      expect_identical(attr(J, "evaluations"), 4L)
+    }
+  }
+  # on a log scale z = log x, and the speed is in g x
+  xg <- c(0.25, 0.65)
+  gm <- community_start(bounds(x = c(0.1, 0.95)), harness = harness_gm99(alpha = 7, beta = 15)) |>
+    community_add(trait_matrix(xg, "x"), birth_rate = c(1, 1)) |>
+    community_demography()
+  speed <- function(z) {
+    x <- exp(z)
+    gm99_coalition_density(x, alpha = 7, beta = 15) / 2 * gm99_coalition_gradient(x, alpha = 7, beta = 15) * x * V[1]
+  }
+  J <- canonical_jacobian(gm, community_trait_transform(gm), canonical_control(list(rate = 2)), 2, V)
+  expect_equal(J, oracle_jacobian(speed, log(xg), h = 1e-5), tolerance = 1e-5, ignore_attr = TRUE)
+
+  # the implicit stepper asks for it, the explicit pairs do not
+  calls <- 0L
+  jacobian <- canonical_jacobian
+  local_mocked_bindings(canonical_jacobian = function(...) {
+    calls <<- calls + 1L
+    jacobian(...)
+  })
+  community_canonical_equation(jj12(), x0 = -1.5)
+  expect_gt(calls, 0L)
+  calls <- 0L
+  community_canonical_equation(jj12(), x0 = -1.5, control = canonical_control(list(stepper = "rkck")))
+  expect_identical(calls, 0L)
+})
+
 test_that("DD99 with a wide competition kernel converges to x0 and is stable", {
   ce <- community_canonical_equation(dd99(sigma_C = 1.5, x0 = 0.3), x0 = -1)
   expect_equal(ce$outcome, "stable")

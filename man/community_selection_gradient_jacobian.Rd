@@ -19,8 +19,10 @@ the solve at the residents.}
 An \code{mk} by \code{mk} matrix, rows and columns named by trait
 (and \code{[i]} for resident \code{i} when there are several), with the
 stacked selection gradient at the residents in
-\code{attr(., "selection_gradient")} and the equilibrium solves it cost in
-\code{attr(., "evaluations")}.
+\code{attr(., "selection_gradient")}, the \code{m} by \code{mk} Jacobian
+of the residents' equilibrium birth rates (densities, for the reference
+models) from the same solves in \code{attr(., "birth_rate_jacobian")},
+and the equilibrium solves it cost in \code{attr(., "evaluations")}.
 }
 \description{
 Jacobian of the selection gradient with respect to the resident traits.
@@ -41,8 +43,8 @@ equilibrium solves per Richardson level, finite differences across the
 residents until the model supplies equilibrium sensitivities. Each is
 solved from the densities and solver state at the residents, so under a
 \code{future::plan()} with several workers they run in parallel, with the
-same answer, and each to the equilibrium tolerance times the relative step
-(see \code{\link{derivative_control}}).
+same answer, and each to the cube of the relative step (see
+\code{\link{derivative_control}}).
 }
 \author{
 Daniel Falster

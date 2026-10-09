@@ -43,14 +43,17 @@ solver state at the centre of the stencil, and every point of a parameter
 Jacobian from the residents' densities, so the solves are independent: a
 \code{future::plan()} with several workers solves them in parallel, with
 the same answer as without one. An error in a solve enters a finite
-difference divided by the step, so each point is solved to the
+difference divided by the step, and a central difference is itself only
+good to about the square of its step, so each point is solved to the cube
+of the stencil's relative step (\code{d_*}, or \code{eps_*} at a trait or
+parameter of zero, halved at each further Richardson level), or to the
 community's \code{equilibrium_eps} (\code{\link{demographic_step_control}})
-times the stencil's relative step (\code{d_*}, or \code{eps_*} at a trait
-or parameter of zero, halved at each further Richardson level): the solves
-then add about \code{equilibrium_eps}, relative, to the derivative, as they
-do to the gradient, rather than \code{equilibrium_eps} over the step. A
-larger step relaxes that tolerance; a model whose demography cannot be
-solved that finely warns that the derivative carries the shortfall.
+where that is tighter: the derivative's error is then set by its step,
+not by the equilibrium tolerance. With Richardson levels that is the
+error of a single difference at the finest step; a tighter
+\code{equilibrium_eps} lets the extrapolation go further. A larger step
+relaxes the tolerance; a model whose demography cannot be solved that
+finely warns that the derivative carries the shortfall.
 }
 \author{
 Daniel Falster

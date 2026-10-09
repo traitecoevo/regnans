@@ -52,8 +52,7 @@ a model with an explicit harness, and any function that rebuilds the
 community from \code{p} will do for another model or for an input that is
 not a harness parameter. Each column is a central difference, two
 equilibrium solves per Richardson level, warm-started from the residents'
-densities and solved to the tolerance of the community \code{parameter}
-builds times the relative step, with steps from
+densities and solved to the cube of the relative step, with steps from
 \code{\link{derivative_control}} (\code{d_parameter},
 \code{eps_parameter}, \code{r_parameter}) of the community. Under a
 \code{future::plan()} with several workers the solves
