@@ -130,6 +130,21 @@ test_that("RODAS takes the right-hand side's Jacobian from the derivative layer"
   expect_identical(calls, 0L)
 })
 
+test_that("two residents too close to tell apart merge, the rarer going extinct", {
+  # 4e-4 apart at x ~ 0.5, inside two finite-difference steps (1e-3 |x| each),
+  # where the resident Jacobian RODAS needs is undefined
+  for (stepper in c("rodas", "rkck")) {
+    ce <- community_canonical_equation(dd99(sigma_C = 1.5, x0 = 0.3), x0 = matrix(c(0.5, 0.5004), ncol = 1),
+                                       control = canonical_control(list(stepper = stepper)))
+    merges <- events_of(ce, "merge")
+    expect_equal(nrow(merges), 1L, info = stepper)
+    expect_equal(merges$time, 0, info = stepper)
+    expect_equal(ce$outcome, "stable", info = stepper)
+    expect_equal(nrow(final(ce)), 1L, info = stepper)
+    expect_equal(final(ce)$x, 0.3, tolerance = 1e-3, info = stepper)
+  }
+})
+
 test_that("DD99 with a wide competition kernel converges to x0 and is stable", {
   ce <- community_canonical_equation(dd99(sigma_C = 1.5, x0 = 0.3), x0 = -1)
   expect_equal(ce$outcome, "stable")

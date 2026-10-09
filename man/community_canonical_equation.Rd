@@ -26,7 +26,8 @@ gradient columns \code{gradient_<trait>} on the trait scale, one row per
 resident per accepted step), \code{events} (\code{time}, \code{event} ---
 \code{"branch"}, \code{"immigrant"}, \code{"immigrant_refused"} (it
 could have established but the community is at \code{max_residents}),
-\code{"extinct"}, \code{"polish"}, \code{"stable"}, \code{"t_max"},
+\code{"extinct"}, \code{"merge"} (the rarer of two merged residents went
+extinct), \code{"polish"}, \code{"stable"}, \code{"t_max"},
 \code{"max_steps"}, \code{"max_residents"} --- and \code{lineage}),
 \code{community} (the final solved community), \code{evaluations} (how
 many equilibrium solves it cost), \code{steps} and \code{rejections}
@@ -55,7 +56,10 @@ clocks, and whichever comes first happens. When every resident is at a
 fitness maximum the coalition is evolutionarily stable and the run stops
 (unless immigration is on, in which case it runs to \code{t_max}). A
 resident whose density falls below \code{extinct_fraction} of the total is
-removed.
+removed, and of two residents within two finite-difference steps of each
+other (\code{\link{derivative_control}}), too close for the resident
+Jacobian to tell apart, the rarer goes extinct: the converse of a
+branching.
 }
 \author{
 Daniel Falster

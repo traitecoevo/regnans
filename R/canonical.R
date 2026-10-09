@@ -235,9 +235,9 @@ canonical_rhs <- function(base, tf, control, k, n_total0, V) {
 ## resident's traits (community_selection_gradient_jacobian(), whose stencil
 ## gives both), carried through the speed 0.5 rate w_i (g_z V)_i with
 ## w_i = n_i / n_total0. On a log scale x = exp(z), so d(g_a x_a)/dz_b =
-## x_a J_ab x_b + [a = b] g_a x_a and dn/dz_b = dn/dx_b x_b. Two residents
-## within the finite-difference step of each other are refused, as the
-## derivative layer refuses them: the run stops with that error.
+## x_a J_ab x_b + [a = b] g_a x_a and dn/dz_b = dn/dx_b x_b. The derivative
+## layer refuses residents within its step of each other; the integration
+## merges them before every step, so none reach it.
 canonical_jacobian <- function(community, tf, control, n_total0, V) {
   J <- community_selection_gradient_jacobian(community)
   x <- as.numeric(community$traits)
@@ -398,7 +398,10 @@ canonical_ode_control <- function(control) {
 ##' fitness maximum the coalition is evolutionarily stable and the run stops
 ##' (unless immigration is on, in which case it runs to \code{t_max}). A
 ##' resident whose density falls below \code{extinct_fraction} of the total is
-##' removed.
+##' removed, and of two residents within two finite-difference steps of each
+##' other (\code{\link{derivative_control}}), too close for the resident
+##' Jacobian to tell apart, the rarer goes extinct: the converse of a
+##' branching.
 ##'
 ##' @title Canonical equation with branching
 ##' @param community A \code{community}; its residents (or \code{x0}) are the
@@ -412,7 +415,8 @@ canonical_ode_control <- function(control) {
 ##' resident per accepted step), \code{events} (\code{time}, \code{event} ---
 ##' \code{"branch"}, \code{"immigrant"}, \code{"immigrant_refused"} (it
 ##' could have established but the community is at \code{max_residents}),
-##' \code{"extinct"}, \code{"polish"}, \code{"stable"}, \code{"t_max"},
+##' \code{"extinct"}, \code{"merge"} (the rarer of two merged residents went
+##' extinct), \code{"polish"}, \code{"stable"}, \code{"t_max"},
 ##' \code{"max_steps"}, \code{"max_residents"} --- and \code{lineage}),
 ##' \code{community} (the final solved community), \code{evaluations} (how
 ##' many equilibrium solves it cost), \code{steps} and \code{rejections}
@@ -446,6 +450,7 @@ canonical_integrate <- function(community, x0, control, tf, range_z, mutation_sd
   if (ncol(x0) != k) stop("x0 must have ", k, " column(s)")
   m <- nrow(x0)
   base <- community_clear_residents(community)
+  dctrl <- community_derivative_control(community)
   V <- if (is.null(control$vcv)) diag(mutation_sd^2, k) else control$vcv
   immigrating <- !is.null(control$immigration) && control$immigration$rate > 0
 
@@ -540,6 +545,22 @@ canonical_integrate <- function(community, x0, control, tf, range_z, mutation_sd
       }
       next_arrival <- t + stats::rexp(1, control$immigration$rate)
       next
+    }
+
+    ## two residents closer than the resident Jacobian can tell apart (two
+    ## finite-difference steps) are one phenotype: the rarer goes extinct, the
+    ## converse of a branching, one at a time until none are that close
+    repeat {
+      mm <- length(lineage)
+      close <- residents_merged(as.numeric(tf$inv(matrix(z, mm, k))), mm, k, dctrl, reach = 2)
+      if (nrow(close) == 0L) break
+      involved <- sort(unique(as.vector(close)), decreasing = TRUE)   # a tie takes the newer
+      i <- involved[which.min(k1$n[involved])]
+      event(t, "merge", lineage[i])
+      z <- as.numeric(matrix(z, mm, k)[-i, , drop = FALSE])
+      lineage <- lineage[-i]
+      changed()
+      record(t, z, k1)
     }
 
     ## one error-controlled step, stopping at whichever comes first: a
