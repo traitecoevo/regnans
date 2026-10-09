@@ -32,7 +32,11 @@ canonical_control(control = NULL)
     limit is reached) and accepted steps.}
   \item{\code{rtol}, \code{atol}}{tolerances of the step-size control, on
     the trait scale: a step is accepted when its error estimate is within
-    \code{atol + rtol * abs(z)}.}
+    \code{atol + rtol * abs(z)}. The defaults follow the trajectory to
+    about 1\% a step: the end point is found by Newton (\code{polish}), so
+    a tighter trajectory costs equilibrium solves without moving it, and a
+    looser one, which RODAS would take, holds the explicit pairs at their
+    stability limit.}
   \item{\code{dt0}, \code{dt_max}}{initial and largest step; \code{NULL}
     chooses \code{dt0} from the initial speed.}
   \item{\code{gradient_tol}}{selection has stopped when every resident's
