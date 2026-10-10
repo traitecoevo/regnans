@@ -68,8 +68,13 @@ plant_community_parameters <- function(community) {
   if (!is.null(community$model_support$node_schedule_times)) {
     p$node_schedule_times <- community$model_support$node_schedule_times
   }
+  # times and step sizes together replay the equilibrium run exactly; times
+  # alone would let the controller choose its own sub-steps
   if (!is.null(community$model_support$node_schedule_ode_times)) {
     p$ode_times <- community$model_support$node_schedule_ode_times
+    if (!is.null(community$model_support$node_schedule_ode_step_sizes)) {
+      p$ode_step_sizes <- community$model_support$node_schedule_ode_step_sizes
+    }
   }
 
   p
@@ -121,6 +126,10 @@ plant_community_make_demography_runner <- function(community) {
     # plant migration: build_schedule() removed; run_scm(refine_schedule = TRUE)
     # returns the SCM object carrying both the refined parameters and
     # offspring_production (previously a build_schedule() attribute).
+    # run_scm() replays any ODE schedule p carries, and the one recorded at
+    # the previous birth rates is stale, so integrate freely.
+    p$ode_times <- numeric(0)
+    p$ode_step_sizes <- numeric(0)
     scm <- run_scm(p, ctrl = ctrl, refine_schedule = TRUE)
     p_new <- scm$parameters
     offspring_production <- scm$offspring_production
@@ -178,6 +187,7 @@ plant_community_demography_runner_cleanup <- function(community, runner, converg
   community$birth_rate <- e$last_offspring_production
   community$model_support$node_schedule_times <- p$node_schedule_times
   community$model_support$node_schedule_ode_times <- p$ode_times
+  community$model_support$node_schedule_ode_step_sizes <- p$ode_step_sizes
   community$fitness_points <- NULL
 
   attr(community, "progress") <- util_rbind_list(e$history)
@@ -200,12 +210,11 @@ plant_community_update_fitness_function <- function(community) {
   hyperpar <- plant_community_hyperpar(community)
 
   ctrl <- community$model_support$plant_control
-  ctrl$save_RK45_cache <- T
-  
+
   if (length(p$strategies) > 0L) {
-    # if there's a resident, use the saved environment to calculate mutant fitness
-    scm <- run_scm(p, ctrl = ctrl,
-      use_ode_times = length(p$ode_times) > 0)
+    # if there's a resident, use the saved environment to calculate mutant
+    # fitness; run_scm() replays the resident's schedule when p carries one
+    scm <- run_scm(p, ctrl = ctrl)
     community$resident_fitness <- log(scm$net_reproduction_ratios)
     } else {
     community$resident_fitness <- numeric()
@@ -222,8 +231,11 @@ plant_community_update_fitness_function <- function(community) {
         scm$run_mutant(p_mutants)
         ret <- log(scm$net_reproduction_ratios)
       } else {
-        # otherwise just run mutants with zero birth rate
-        scm <- run_scm(p_mutants, ctrl = ctrl, use_ode_times = 0)
+        # otherwise just run mutants with zero birth rate, integrating freely
+        # (run_scm() would otherwise take any schedule p carries)
+        p_mutants$ode_times <- numeric(0)
+        p_mutants$ode_step_sizes <- numeric(0)
+        scm <- run_scm(p_mutants, ctrl = ctrl)
         ret <- log(scm$net_reproduction_ratios)
       }
       
