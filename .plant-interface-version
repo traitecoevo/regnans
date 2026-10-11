@@ -1,6 +1,6 @@
-migrated_on: 2026-10-07
+migrated_on: 2026-10-10
 plant_version: 2.0.0.9002
-plant_ref: develop@6cc5da4 (2026-10-07, plant#652; odelia 0.6.0 @815a54f and phylloptim 0.9.1 @08104af)
+plant_ref: develop@8657b3a (2026-10-08, plant#648; odelia 0.7.0 @6d32329 and phylloptim 0.10.0 @b019e5d)
 applied_breaking_changes:
   - scm-consolidation        # build_schedule -> run_scm(refine_schedule=TRUE); run_scm_collect -> run_scm(collect=TRUE)
   - control-defaults         # scm_base_control() -> control(); fast settings now the Control() default
@@ -8,6 +8,8 @@ applied_breaking_changes:
   - strategy-default-pars    # strategy_default traits moved under $pars: strategy_default[trait] -> strategy_default$pars[trait] [2026-06-28]
   - unknown-trait-error      # generate_strategy()/add_mutant() refuse a trait that is not a model parameter (plant#636) [2026-10-07]
   - tf24-leaf-renames        # TF24_Pars p_50 -> stem_P50, c -> stem_c, b -> stem_b, beta2 -> TF24_beta2, g1_TF24 -> TF24_cost_scale (plant#634) [2026-10-07]
+  - run-scm-ode-schedule     # run_scm(use_ode_times=) removed: p$ode_times (+ p$ode_step_sizes) are always replayed; refine_schedule records both (plant#648) [2026-10-10]
+  - save-rk45-cache-removed  # Control$save_RK45_cache removed; run_mutant() keeps what it needs itself (plant#648) [2026-10-10]
 non_breaking_changes:
   - ff16-allocation-reaction-norm  # FF16_Pars gains a_f4 (shade delay) and a_f5 (shade cap), both defaulting to 0 [2026-08-13]
 notes: >-
@@ -32,3 +34,16 @@ notes: >-
   then naming one is an error rather than a silent no-op. tf24-leaf-renames:
   regnans names no TF24 parameter; harness_plant(model = "TF24") is metadata
   only. The odelia pin (815a54f) is the one plant pins, as pak requires.
+
+  2026-10-10: plant#648. Dropping the use_ode_times argument was not enough on
+  its own, because run_scm() now replays any schedule p carries.
+  The equilibrium runner fed each refinement's p (which now records ode_times
+  and ode_step_sizes) back into the next iteration, so each refinement replayed
+  the previous birth rate's steps. The runner now clears both before refining,
+  so it integrates freely as before. The resident run for mutant fitness
+  replayed ode_times alone, which lets the controller sub-step. That run no
+  longer matched the equilibrium run (resident fitness -0.016, not 0), so
+  model_support now carries node_schedule_ode_step_sizes alongside
+  node_schedule_ode_times. community_add() clears both. The empty-community
+  mutant run clears both to integrate freely (was use_ode_times = 0).
+  save_RK45_cache was dropped from the resident control.

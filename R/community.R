@@ -182,6 +182,8 @@ community_reset <- function(community) {
   community$demography_state <- NULL
 
   community$model_support$node_schedule_times <- NULL
+  community$model_support$node_schedule_ode_times <- NULL
+  community$model_support$node_schedule_ode_step_sizes <- NULL
 
   community
 }
