@@ -5,6 +5,7 @@
 * Finite differences across equilibrium solves (the resident Jacobian and the parameter Jacobian, and through them classification, the singularity solver, sensitivity and continuation) solve each stencil point to the cube of the stencil's relative step, or to `equilibrium_eps` where that is tighter, so their error is set by the step rather than by `equilibrium_eps` over the step (#80). On iterated equilibria they move towards their closed forms (DD99 from 3e-4 to 5e-7, GM99 from 5e-2 to 4e-6 relative); a stencil point whose solve stops short of its tolerance warns.
 * The canonical equation's RODAS stepper takes the right-hand side's Jacobian from `community_selection_gradient_jacobian()` instead of odelia's forward difference, which was too noisy for its step-size control on an iterated equilibrium: such a run now costs what it does with the model's own equilibrium (120-238 solves on the reference cases, not 427-2178).
 * Of two residents in a canonical run within two finite-difference steps of each other, the rarer goes extinct, recorded as a `"merge"` event: the converse of a branching.
+* `canonical_control()` defaults to `rtol = 1e-2` and `atol = 1e-4` (were 1e-3 and 1e-5): a run's end point is found by Newton, so the tighter trajectory cost RODAS 25-30% more equilibrium solves without moving it. The time at which a run reports reaching a stable point can move by up to one step.
 
 ## New features
 
