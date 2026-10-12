@@ -228,6 +228,8 @@ plant_community_update_fitness_function <- function(community) {
         birth_rate = rep(0, nrow(traits)))
       
       if (length(p$strategies) > 0L) {
+        # A value needs no record; the gradient below asks for one when it runs.
+        scm$record_trajectory <- FALSE
         scm$run_mutant(p_mutants)
         ret <- log(scm$net_reproduction_ratios)
       } else {
@@ -242,7 +244,53 @@ plant_community_update_fitness_function <- function(community) {
     ret
   }
 
+  ## The mutant gradient from plant's reverse sweep, where the harness offers
+  ## it and there is a resident to stand in. An empty community's fitness is a
+  ## free run with no recorded field, which the sweep does not serve; finite
+  ## differences fill it in there (harness_fd()).
+  if (harness_provides(community$harness, "fitness_gradient") &&
+      length(p$strategies) > 0L) {
+    community$fitness_derivatives <- list(
+      gradient = plant_community_fitness_gradient(scm, p, hyperpar,
+                                                  community$trait_names))
+  }
+
   community
+}
+
+## d log R0 / d y for each mutant row of `y`, by one reverse sweep of the
+## invasion replay per mutant, with the canopy held at the recorded resident
+## (plant#650 E2). The derivative is the total through the hyperparameter
+## function the mutants are built with, which is what a difference of the
+## fitness function sees. Any refusal is raised with plant's reason: a NaN row
+## here would be taken for a gradient.
+plant_community_fitness_gradient <- function(scm, p, hyperpar, trait_names) {
+  function(y, control) {
+    traits <- trait_matrix(y, trait_names)
+    n <- nrow(traits)
+    p_mutants <- plant::add_mutant(p, traits, hyperpar, birth_rate = rep(0, n))
+    scm$record_trajectory <- TRUE
+    scm$run_mutant(p_mutants)
+    metrics <- paste0(seq_len(n), ".net_reproduction_ratio")
+    columns <- paste0(rep(seq_len(n), each = length(trait_names)), ".",
+                      rep(trait_names, n))
+    g <- plant::stand_gradient(scm, metrics = metrics, traits = columns,
+                               hyperpar = hyperpar)
+    refused <- plant::stand_gradient_refused(g)
+    if (any(refused)) {
+      why <- g$refusal[[which(refused)[[1]]]]
+      stop("plant refused the fitness gradient of ",
+           paste(names(refused)[refused], collapse = ", "), ": ", why$reason)
+    }
+    R0 <- as.numeric(g$value)
+    out <- matrix(NA_real_, n, length(trait_names),
+                  dimnames = list(NULL, trait_names))
+    for (i in seq_len(n)) {
+      out[i, ] <- g$gradient[metrics[[i]], paste0(i, ".", trait_names)] / R0[[i]]
+    }
+    attr(out, "value") <- log(R0)
+    out
+  }
 }
 
 ##' Check low-abundance strategies for viability.

@@ -147,16 +147,26 @@ harness_fd <- function(harness) {
 ##'
 ##' @title plant model harness
 ##' @param model plant physiological model: "FF16" or "TF24"
+##' @param derivatives Whether the harness advertises plant's own mutant
+##' gradient (\code{fitness_gradient}, a reverse-mode sweep of the invasion
+##' replay with the canopy held at the recorded resident). FF16 only, and the
+##' community's plant control must set \code{node_density_in_birth_date = TRUE};
+##' with \code{FALSE} the gradient is finite-differenced as before.
 ##' @param version plant package version (defaults to the installed version)
 ##' @return a `harness` object
 ##' @author Daniel Falster
 ##' @export
 harness_plant <- function(model = c("FF16", "TF24"),
-                          version = as.character(utils::packageVersion("plant"))) {
+                          version = as.character(utils::packageVersion("plant")),
+                          derivatives = model == "FF16") {
   model <- match.arg(model)
   h <- list(
     model   = model,
     version = version,
+    ## plant's reverse sweep supplies the mutant gradient for FF16 (plant#650
+    ## E2); it runs on the birth-date coordinate, so a community that advertises
+    ## it needs `node_density_in_birth_date = TRUE` in its plant control.
+    provides = if (isTRUE(derivatives)) "fitness_gradient" else character(0),
     equilibrium_solver_default = "equilibrium_iteration",
     fns = list(
       parameters                    = plant_community_parameters,
