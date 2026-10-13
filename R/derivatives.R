@@ -679,7 +679,7 @@ boundary_point <- function(x, base, m, birth_rate, state, probe) {
   }, error = function(e) e)
 }
 
-## One point of its parameter stencil: the free parameter at q, the residents
+## One point of its parameter stencil: the free parameters at q, the residents
 ## held at x and solved from the centre's densities.
 boundary_parameter_point <- function(q, parameter, p, free, trait_names, x, m, birth_rate, step, probe) {
   tryCatch({
@@ -706,7 +706,9 @@ boundary_stencil_values <- function(values, stencil, count) {
 ## state, through the parallel map; the marginal mutant's exactly, from the
 ## mutant-direction derivatives at the centre (no solves; the selection
 ## gradients do not depend on it); the free parameter's by the parameter
-## stencil. The equilibrium solves it cost are in attr(., "evaluations").
+## stencil, one column per free parameter (one for a point, two for the
+## rectangular Jacobian a continuation takes its tangent from). The
+## equilibrium solves it cost are in attr(., "evaluations").
 community_boundary_jacobian <- function(residual, u) {
   info <- attr(residual, "info")
   residual(u)

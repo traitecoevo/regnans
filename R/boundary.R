@@ -66,6 +66,33 @@
 ##'   \item{\code{bisect_tol}}{\code{\link{boundary_bisect}} halves each
 ##'     bracket until it is this short, as a fraction of the ray.}
 ##' }
+##' For \code{\link{community_continue_boundary}}:
+##' \describe{
+##'   \item{\code{ds}, \code{ds_min}, \code{ds_max}}{the first, smallest
+##'     and largest pseudo-arclength step, in the units of the unknowns
+##'     (traits and the two free parameters together).}
+##'   \item{\code{max_steps}}{steps in each direction before stopping.}
+##'   \item{\code{tangent_tol}}{a step whose tangent turns so that its dot
+##'     product with the last falls below this is rejected and the step
+##'     halved: the corrector has jumped to another branch.}
+##'   \item{\code{corrector_tol}, \code{corrector_maxit}}{the corrector's
+##'     tolerance on every residual and its iteration limit.}
+##'   \item{\code{density_tol}, \code{merge_tol}}{the test functions'
+##'     thresholds: a resident whose share of the density falls below
+##'     \code{density_tol} is going extinct, and two residents (or a resident
+##'     and the marginal mutant) closer than \code{merge_tol} of the bounds'
+##'     width have merged.}
+##'   \item{\code{n_landscape}}{grid points on which the landscape is
+##'     searched for another peak (one trait).}
+##'   \item{\code{event_tol}}{an event is located by bisecting the step
+##'     until it is bracketed this finely in arclength.}
+##'   \item{\code{verify_every}, \code{verify_offset}, \code{verify_tol}}{every
+##'     \code{verify_every} points (and the last) the branch is verified cold:
+##'     the residual re-solved from the model's initial densities must be within
+##'     \code{verify_tol}, and the labels a relative \code{verify_offset}
+##'     either side of the curve, across it in the plane of the free
+##'     parameters, must be \code{n} and \code{n + 1} species, both stable.}
+##' }
 ##' @return A list with those elements.
 ##' @author Daniel Falster
 ##' @export
@@ -80,7 +107,16 @@ boundary_control <- function(control = NULL) {
     evolve_tol    = 1e-6,
     max_rounds    = 20L,
     trait_tol     = 1e-3,
-    bisect_tol    = 1e-6
+    bisect_tol    = 1e-6,
+    ## continuation
+    ds = 0.05, ds_min = 1e-5, ds_max = 0.2,
+    max_steps = 200L,
+    tangent_tol = 0.9,
+    corrector_tol = 1e-8, corrector_maxit = 10L,
+    density_tol = 1e-6, merge_tol = 1e-2,
+    n_landscape = 101L,
+    event_tol = 1e-6,
+    verify_every = 15L, verify_offset = 1e-3, verify_tol = 1e-6
   )
   control <- as.list(control)
   extra <- setdiff(names(control), names(defaults))
@@ -89,14 +125,16 @@ boundary_control <- function(control = NULL) {
   }
   ret <- modifyList(defaults, control)
   ret$evolve <- match.arg(ret$evolve, c("newton", "canonical"))
-  for (nm in c("max_residents", "max_rounds")) {
+  for (nm in c("max_residents", "max_rounds", "max_steps", "corrector_maxit", "n_landscape", "verify_every")) {
     v <- ret[[nm]]
     if (!is.numeric(v) || length(v) != 1L || !is.finite(v) || v < 1 || v != round(v)) {
       stop(nm, " must be a positive whole number")
     }
     ret[[nm]] <- as.integer(v)
   }
-  for (nm in c("edge_tol", "branch_offset", "eps_too_close", "evolve_tol", "trait_tol", "bisect_tol")) {
+  for (nm in c("edge_tol", "branch_offset", "eps_too_close", "evolve_tol", "trait_tol", "bisect_tol",
+               "ds", "ds_min", "ds_max", "corrector_tol", "density_tol", "merge_tol", "event_tol",
+               "verify_offset", "verify_tol")) {
     v <- ret[[nm]]
     if (!is.numeric(v) || length(v) != 1L || !is.finite(v) || v <= 0) {
       stop(nm, " must be a single positive number")
@@ -104,6 +142,12 @@ boundary_control <- function(control = NULL) {
   }
   if (!is.numeric(ret$fitness_tol) || length(ret$fitness_tol) != 1L || !is.finite(ret$fitness_tol)) {
     stop("fitness_tol must be a single finite number")
+  }
+  if (!(ret$ds_min <= ret$ds && ret$ds <= ret$ds_max)) {
+    stop("the steps must satisfy ds_min <= ds <= ds_max")
+  }
+  if (!is.numeric(ret$tangent_tol) || length(ret$tangent_tol) != 1L || !(ret$tangent_tol > 0 && ret$tangent_tol < 1)) {
+    stop("tangent_tol must be a single number between 0 and 1")
   }
   ret
 }
@@ -851,12 +895,14 @@ boundary_check_away <- function(community, y, what, stop = TRUE) {
 }
 
 ## The unknowns of a boundary solve, split: residents' traits x, the
-## marginal mutant y (invasion only) and the parameters with the free one set.
+## marginal mutant y (invasion only) and the parameters with the free ones
+## set (one for a point, two for a continuation), last in u.
 boundary_unknowns <- function(u, info) {
   mk <- info$m * info$k
   y <- if (identical(info$type, "invasion")) u[mk + seq_len(info$k)] else NULL
   p <- info$p
-  p[info$free] <- u[length(u)]
+  nf <- length(info$free)
+  p[info$free] <- u[length(u) - nf + seq_len(nf)]
   list(x = u[seq_len(mk)], y = y, p = p)
 }
 
@@ -866,7 +912,8 @@ boundary_probe_spec <- function(info, y) {
 }
 
 ## The residual of a boundary solve: unknowns u -> the residents' selection
-## gradients and the marginal conditions, the community solved to
+## gradients and the marginal conditions (free: the parameters in u, one or
+## two), the community solved to
 ## equilibrium at the residents under parameter(p), warm-started from the
 ## previous evaluation's densities and solver state. A call at the previous
 ## unknowns returns that answer without solving.

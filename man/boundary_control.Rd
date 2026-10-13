@@ -37,6 +37,33 @@ boundary_control(control = NULL)
     whose routes end on different ones has found hysteresis).}
   \item{\code{bisect_tol}}{\code{\link{boundary_bisect}} halves each
     bracket until it is this short, as a fraction of the ray.}
+}
+For \code{\link{community_continue_boundary}}:
+\describe{
+  \item{\code{ds}, \code{ds_min}, \code{ds_max}}{the first, smallest
+    and largest pseudo-arclength step, in the units of the unknowns
+    (traits and the two free parameters together).}
+  \item{\code{max_steps}}{steps in each direction before stopping.}
+  \item{\code{tangent_tol}}{a step whose tangent turns so that its dot
+    product with the last falls below this is rejected and the step
+    halved: the corrector has jumped to another branch.}
+  \item{\code{corrector_tol}, \code{corrector_maxit}}{the corrector's
+    tolerance on every residual and its iteration limit.}
+  \item{\code{density_tol}, \code{merge_tol}}{the test functions'
+    thresholds: a resident whose share of the density falls below
+    \code{density_tol} is going extinct, and two residents (or a resident
+    and the marginal mutant) closer than \code{merge_tol} of the bounds'
+    width have merged.}
+  \item{\code{n_landscape}}{grid points on which the landscape is
+    searched for another peak (one trait).}
+  \item{\code{event_tol}}{an event is located by bisecting the step
+    until it is bracketed this finely in arclength.}
+  \item{\code{verify_every}, \code{verify_offset}, \code{verify_tol}}{every
+    \code{verify_every} points (and the last) the branch is verified cold:
+    the residual re-solved from the model's initial densities must be within
+    \code{verify_tol}, and the labels a relative \code{verify_offset}
+    either side of the curve, across it in the plane of the free
+    parameters, must be \code{n} and \code{n + 1} species, both stable.}
 }}
 }
 \value{

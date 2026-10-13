@@ -165,15 +165,6 @@ test_that("scouting validates its inputs and names a point that fails", {
   expect_error(boundary_scout(broken, c(0.7, 1.5)), "failed at p = 1.5: no model here")
 })
 
-# The map runs on the workers, which load the package and not the test
-# helpers, so it is written with package functions only.
-gk98_by_d_kappa <- function(p) {
-  community_start(bounds(x = c(-4, 4)), trait_scale = "linear",
-                  harness = harness_gk98(sigma = 1, mu = c(-p[1], 0, p[1]), K = c(1, p[2], 1)),
-                  demography_control = demographic_step_control(list(equilibrium_extinct_birth_rate = 1e-8))) |>
-    community_add(trait_matrix(0.5, "x"), birth_rate = 1)
-}
-
 test_that("scouting is the same, in answer and cost, under each plan", {
   by <- gk98_by_d_kappa
   des <- boundary_design(bounds(d = c(1, 2.6), kappa = c(0.5, 2)), 3)

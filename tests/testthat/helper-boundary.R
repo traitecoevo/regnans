@@ -146,3 +146,41 @@ dip_start <- function(h = 0.95) {
     community_add(trait_matrix(0, "x"), birth_rate = 1) |>
     community_demography()
 }
+
+## GK98 through (d, kappa) as a parameter map. It runs on the workers of a
+## plan, which load the package and not these helpers, so it is written with
+## package functions only.
+gk98_by_d_kappa <- function(p) {
+  community_start(bounds(x = c(-4, 4)), trait_scale = "linear",
+                  harness = harness_gk98(sigma = 1, mu = c(-p[1], 0, p[1]), K = c(1, p[2], 1)),
+                  demography_control = demographic_step_control(list(equilibrium_extinct_birth_rate = 1e-8))) |>
+    community_add(trait_matrix(0.5, "x"), birth_rate = 1)
+}
+
+## Where the GK98 boundaries end. The single resident at 0 has
+##   S(y) = -y^2 / 2 + log(sum_j c_j exp(y mu_j)),
+## minus y^2/2 plus the cumulant generating function of the optima under the
+## capacities c. On the 1 -> 2 locus the second cumulant is 1, so the quartic
+## term is the fourth cumulant, (2 + kappa) / 2 - 3: the pitchfork is
+## supercritical (a pair emerges) for kappa < 4 and subcritical beyond, where
+## the locus stops being a coexistence boundary and the 2 -> 3 boundary ends
+## on it, at (sqrt(3), 4).
+gk98_locus_fitness <- function(y, kappa) {
+  d <- sqrt((2 + kappa) / 2)
+  -y^2 / 2 + log((2 * cosh(y * d) + kappa) / (2 + kappa))
+}
+## the 2 -> 3 boundary's pair reaches half-separation `a` (where a
+## continuation's separation test fires) at this kappa
+gk98_merge_kappa <- function(a) {
+  stats::uniroot(function(k) gk98_kappa_pair_root(gk98_kappa_boundaries(k)[["c2"]], k) - a,
+                 c(3.5, 3.98), tol = 1e-13)$root
+}
+## on the 1 -> 2 locus, the highest fitness farther than `reach` from the
+## resident reaches `fitness_tol` at this kappa
+gk98_subcritical_kappa <- function(reach, fitness_tol) {
+  high <- function(k) {
+    y <- seq(reach, 4, length.out = 4001)
+    max(gk98_locus_fitness(y, k))
+  }
+  stats::uniroot(function(k) high(k) - fitness_tol, c(4 + 1e-6, 4.5), tol = 1e-13)$root
+}
