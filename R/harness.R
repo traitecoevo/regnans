@@ -164,18 +164,37 @@ harness_fd <- function(harness) {
 ##' metadata and a hook for model-specific dispatch (TF24 support depends on the
 ##' installed `plant`).
 ##'
+##' The fitness gradient in the mutant direction is a finite difference of
+##' the fitness function by default. With \code{fitness_gradient = "model"} it
+##' is plant's own (\code{plant::stand_gradient()} on the mutants' replay in
+##' the recorded resident canopy, through the hyperparameter function), exact
+##' on the replay's discretisation, with a finite difference wherever plant
+##' refuses a point; it needs the birth-date coordinate
+##' (\code{\link{plant_default_assembly_control}}) and FF16. On FF16 a sweep
+##' costs about 30 replays (plant#677), so it is slower than the finite
+##' difference for fewer than about a dozen traits.
+##'
 ##' @title plant model harness
 ##' @param model plant physiological model: "FF16" or "TF24"
 ##' @param version plant package version (defaults to the installed version)
+##' @param fitness_gradient \code{"fd"} (the default) or \code{"model"}: where
+##' the fitness gradient comes from.
 ##' @return a `harness` object
 ##' @author Daniel Falster
 ##' @export
 harness_plant <- function(model = c("FF16", "TF24"),
-                          version = as.character(utils::packageVersion("plant"))) {
+                          version = as.character(utils::packageVersion("plant")),
+                          fitness_gradient = c("fd", "model")) {
   model <- match.arg(model)
+  fitness_gradient <- match.arg(fitness_gradient)
+  if (fitness_gradient == "model" && model != "FF16") {
+    stop("plant differentiates FF16's fitness only; use fitness_gradient = \"fd\" for ", model)
+  }
   h <- list(
     model   = model,
     version = version,
+    fitness_gradient = fitness_gradient,
+    provides = if (fitness_gradient == "model") "fitness_gradient" else character(0),
     equilibrium_solver_default = "equilibrium_iteration",
     fns = list(
       parameters                    = plant_community_parameters,
