@@ -42,7 +42,7 @@ the recorded resident canopy, through the hyperparameter function), exact
 on the replay's discretisation, with a finite difference wherever plant
 refuses a point; it needs the birth-date coordinate
 (\code{\link{plant_default_assembly_control}}) and FF16. On FF16 a sweep
-costs about 30 replays (plant#677), so it is slower than the finite
+costs about 26 mutant replays (plant#677), so it is slower than the finite
 difference for fewer than about a dozen traits.
 }
 \author{
