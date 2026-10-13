@@ -296,7 +296,53 @@ plant_community_update_fitness_function <- function(community) {
     ret
   }
 
+  ## plant's rare-mutant derivative (plant#650 E2), where the harness asks for
+  ## it and there is a resident to hold the canopy at; harness_fd() fills the
+  ## finite difference otherwise
+  community$fitness_derivatives <- list()
+  if (identical(community$harness$fitness_gradient, "model") && length(p$strategies) > 0L) {
+    f <- community$fitness_function
+    trait_names <- community$trait_names
+    community$fitness_derivatives$gradient <- function(y, control) {
+      plant_mutant_gradient(scm, p, hyperpar, y, trait_names, f, control)
+    }
+  }
+
   community
+}
+
+## The gradient of log invasion fitness at the mutants y (one per row) in the
+## resident's recorded canopy, from plant's reverse sweep: the mutants share
+## one replay, each the invader numbered by its row, and each costs one sweep.
+## Taken through the hyperparameter function, so a column is the total
+## derivative by the trait as the fitness function sets it (without it, lma's
+## column is a partial, 5x off on FF16). A row plant refuses (a mutant with
+## fewer than two cohorts, say) or answers non-finitely is a finite
+## difference of the fitness function instead. plant refuses the height
+## coordinate itself, by name.
+plant_mutant_gradient <- function(scm, p, hyperpar, y, trait_names, f, control) {
+  n <- nrow(y)
+  k <- length(trait_names)
+  p_mutants <- plant::add_mutant(p, trait_matrix(y, trait_names), hyperpar, birth_rate = rep(0, n))
+  scm$record_trajectory <- TRUE
+  scm$run_mutant(p_mutants)
+  metrics <- paste0(seq_len(n), ".net_reproduction_ratio")
+  columns <- paste0(rep(seq_len(n), each = k), ".", rep(trait_names, n))
+  sg <- plant::stand_gradient(scm, metrics = metrics, traits = columns, hyperpar = hyperpar)
+  r0 <- as.numeric(sg$value[metrics])
+  out <- matrix(NA_real_, n, k)
+  for (i in seq_len(n)) {
+    out[i, ] <- sg$gradient[metrics[i], paste0(i, ".", trait_names)] / r0[i]
+  }
+  value <- log(r0)
+  bad <- plant::stand_gradient_refused(sg)[metrics] | !is.finite(rowSums(out)) | !is.finite(value)
+  if (any(bad)) {
+    fd <- fd_fitness_gradient(f, y[bad, , drop = FALSE], control)
+    out[bad, ] <- fd
+    value[bad] <- as.numeric(f(y[bad, , drop = FALSE]))
+  }
+  attr(out, "value") <- value
+  out
 }
 
 ##' Check low-abundance strategies for viability.
