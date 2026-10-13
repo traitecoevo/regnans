@@ -449,3 +449,127 @@ test_that("GK98, JJ12 and GM99 derivatives reproduce their closed-form oracles",
                -1 / y + 2 * 25 * e / s, tolerance = 1e-12)
   expect_true(is.na(as.numeric(community_fitness_gradient(gm, 0.01))))
 })
+
+# ---- the resident Jacobian by implicit differentiation -----------------------
+# resident_jacobian = "implicit" differentiates the equilibrium condition
+# s(x, n*) = 0 rather than differencing across equilibrium solves; its blocks
+# are central differences at a fixed environment, so it meets the same
+# closed forms with the same truncation error and no stencil solves.
+implicit <- function(community) {
+  community$derivative_control <- derivative_control(list(resident_jacobian = "implicit"))
+  community
+}
+
+test_that("derivative_control chooses how the resident Jacobian is differentiated", {
+  expect_equal(derivative_control()$resident_jacobian, "stencil")
+  expect_equal(derivative_control(list(resident_jacobian = "implicit"))$resident_jacobian, "implicit")
+  expect_error(derivative_control(list(resident_jacobian = "adjoint")), "should be one of")
+})
+
+test_that("the implicit resident Jacobian matches the closed forms with no stencil solves", {
+  x <- c(-0.5, 0.1, 0.7)
+  comm <- community_start(bounds(x = c(-2, 2)), trait_scale = "linear",
+                          harness = harness_dd99(sigma_C = 0.4)) |>
+    community_add(trait_matrix(x, "x"), birth_rate = c(100, 100, 100)) |>
+    community_demography() |>
+    implicit()
+  J <- community_selection_gradient_jacobian(comm)
+  expect_equal(unname(J[, ]), oracle_jacobian(dd99_coalition_gradient, x), tolerance = 1e-5)
+  expect_equal(unname(attr(J, "birth_rate_jacobian")), oracle_jacobian(dd99_coalition_density, x),
+               tolerance = 1e-5)
+  expect_equal(as.numeric(attr(J, "selection_gradient")), dd99_coalition_gradient(x), tolerance = 1e-8)
+  expect_equal(dimnames(J), dimnames(community_selection_gradient_jacobian(implicit(comm))))
+  # a solved centre costs nothing; each of the m(k + 1) coordinates two runs
+  expect_equal(attr(J, "evaluations"), 0L)
+  expect_equal(attr(J, "environments"), 2L * 3L * 2L)
+  J_from <- community_selection_gradient_jacobian(comm, birth_rate = c(90, 90, 90))
+  expect_equal(attr(J_from, "evaluations"), 1L)
+  expect_equal(unname(J_from[, ]), unname(J[, ]), tolerance = 1e-8)
+
+  # two traits, stacked trait by trait as the stencil stacks them
+  two <- community_start(bounds(x1 = c(-2, 2), x2 = c(-2, 2)), trait_scale = "linear",
+                         harness = harness_dd99_nd(sigma_C = c(0.4, 0.5))) |>
+    community_add(trait_matrix(rbind(c(-0.4, 0.2), c(0.5, -0.3)), c("x1", "x2")),
+                  birth_rate = c(100, 100)) |>
+    community_demography()
+  S2 <- community_selection_gradient_jacobian(two)
+  J2 <- community_selection_gradient_jacobian(implicit(two))
+  expect_equal(dimnames(J2), dimnames(S2))
+  expect_equal(unname(J2[, ]), unname(S2[, ]), tolerance = 1e-5)
+  expect_equal(attr(J2, "environments"), 2L * 2L * 3L)
+
+  # JJ12: g(x) = (1 - p) (-(x - x_opt)/sigma^2 - a), so dg/dx = -(1 - p)/sigma^2
+  jj <- community_start(bounds(x = c(-3, 3)), trait_scale = "linear",
+                        harness = harness_jj12(a = 0.1, x_opt = 0.5, sigma = 1.4, p = 0.5)) |>
+    community_add(trait_matrix(0.2, "x"), birth_rate = 1) |>
+    community_demography() |>
+    implicit()
+  expect_equal(as.numeric(community_selection_gradient_jacobian(jj)), -0.5 / 1.4^2, tolerance = 1e-6)
+})
+
+test_that("the implicit resident Jacobian across iterated equilibria reaches the closed form", {
+  # the stencil needs every point solved to the cube of its step for this; the
+  # implicit route solves only the centre, at the community's own tolerance
+  x <- c(-0.3, 0.6)
+  for (solver in iterated_solvers) {
+    J <- community_selection_gradient_jacobian(
+      implicit(iterated_coalition(harness_dd99(sigma_C = 0.4), x, solver, bounds(x = c(-2, 2)), 300)))
+    expect_equal(unname(J[, ]), oracle_jacobian(dd99_coalition_gradient, x), tolerance = 1e-5, info = solver)
+    expect_equal(unname(attr(J, "birth_rate_jacobian")), oracle_jacobian(dd99_coalition_density, x),
+                 tolerance = 1e-5, info = solver)
+  }
+  # GM99's asymmetric dimorphism, its gradient far more sensitive to its
+  # densities. The Jacobian carries the error of the centre's densities (not
+  # that error over the step): fixed-point iteration stops on the size of a
+  # step, leaving them ~4e-5 off at the default tolerance, and a tighter
+  # tolerance brings the Jacobian down to the difference's own error, ~3e-6
+  x <- c(0.25, 0.65)
+  oracle <- oracle_jacobian(function(x) gm99_coalition_gradient(x, alpha = 7, beta = 15), x, h = 1e-5)
+  oracle_n <- oracle_jacobian(function(x) gm99_coalition_density(x, alpha = 7, beta = 15), x, h = 1e-5)
+  gm99_at <- function(solver, eps = 1e-5) {
+    comm <- iterated_coalition(harness_gm99(alpha = 7, beta = 15), x, solver, bounds(x = c(0.1, 0.95)), 1)
+    comm$demography_control$equilibrium_eps <- eps
+    community_selection_gradient_jacobian(implicit(community_demography(comm)))
+  }
+  J <- gm99_at("equilibrium_solve_newton")
+  expect_equal(unname(J[, ]), oracle, tolerance = 1e-5)
+  expect_equal(unname(attr(J, "birth_rate_jacobian")), oracle_n, tolerance = 1e-5)
+  expect_equal(unname(gm99_at("equilibrium_iteration")[, ]), oracle, tolerance = 5e-5)
+  J <- gm99_at("equilibrium_iteration", eps = 1e-7)
+  expect_equal(unname(J[, ]), oracle, tolerance = 1e-5)
+  expect_equal(unname(attr(J, "birth_rate_jacobian")), oracle_n, tolerance = 1e-5)
+  # GK98 pair, against the stencil
+  gk <- community_start(bounds(x = c(-3, 3)), trait_scale = "linear",
+                        harness = harness_gk98(d = 1.5, sigma = 1)) |>
+    community_add(trait_matrix(c(-0.8, 0.9), "x"), birth_rate = c(1, 1)) |>
+    community_demography()
+  expect_equal(unname(community_selection_gradient_jacobian(implicit(gk))[, ]),
+               unname(community_selection_gradient_jacobian(gk)[, ]), tolerance = 1e-5)
+})
+
+test_that("the implicit resident Jacobian refuses what it cannot differentiate", {
+  # residents too close to tell apart are refused as by the stencil, whether
+  # the equilibrium keeps both (a mirror pair about x0, within the absolute
+  # step at zero) or drives one out (a pair off x0)
+  for (x in list(c(-1e-5, 1e-5), c(0.5, 0.5008))) {
+    near <- community_start(bounds(x = c(-2, 2)), trait_scale = "linear",
+                            harness = harness_dd99(sigma_C = 0.4)) |>
+      community_add(trait_matrix(x, "x"), birth_rate = c(100, 100)) |>
+      community_demography() |>
+      implicit()
+    expect_error(community_selection_gradient_jacobian(near),
+                 "residents 1 and 2 are within the finite-difference step", info = x[2])
+  }
+
+  # a resident at zero density is not held at s = 0 by the equilibrium
+  comm <- community_start(bounds(x = c(-2, 2)), trait_scale = "linear",
+                          harness = harness_dd99(sigma_C = 0.4)) |>
+    community_add(trait_matrix(c(-0.3, 0.6), "x"), birth_rate = c(100, 100)) |>
+    community_demography() |>
+    implicit()
+  gradient <- singularity_gradient_fn(comm, 2L)
+  comm$birth_rate[2] <- 0
+  attr(gradient, "prime")(comm)
+  expect_error(implicit_resident_jacobian(gradient, as.numeric(comm$traits), comm$derivative_control),
+               "resident\\(s\\) 2 are at zero")
+})
