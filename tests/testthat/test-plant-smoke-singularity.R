@@ -137,3 +137,36 @@ test_that("a singularity is followed along a plant parameter, its sensitivity ma
   expect_true(all(miss < 0.25 * abs(diff(x))))
   expect_true(all(path$classification %in% c("CSS", "branching point")))
 })
+
+test_that("the resident Jacobian's stencil is solved on its centre's discretisation (SCM)", {
+  # Each stencil point would otherwise refine its own node schedule and ODE
+  # steps, and the change of steps over the step swamps the derivative: at
+  # lma 0.15 the free difference of the selection gradient read -1619, 193
+  # and 107 at steps 1e-2, 1e-3 and 1e-4. On the centre's discretisation it is
+  # one number to the difference's truncation error.
+  comm <- community_start(bounds(lma = c(0.02, 0.6)),
+                          model_support = list(p = plant_default_assembly_pars(hmat = 10, max_patch_lifetime = 30),
+                                               plant_control = plant_default_assembly_control())) |>
+    community_add(trait_matrix(0.15, "lma"), birth_rate = 10) |>
+    community_demography()
+  disc <- community_discretisation(comm)
+  expect_named(disc, c("node_schedule_times", "ode_times", "ode_step_sizes"))
+  expect_gt(length(disc$ode_times), 0L)
+  frozen <- stencil_community(comm, 1e-3, disc)
+  expect_identical(frozen$model_support$frozen, disc)
+  expect_equal(frozen$model_support$plant_control$offspring_production_tol, 1e-9)
+  # a frozen discretisation survives a change of residents, so a stencil point
+  # built by community_add() replays it
+  moved <- community_add(community_clear_residents(frozen), trait_matrix(0.151, "lma"), birth_rate = 80)
+  expect_identical(plant_community_parameters(moved)$ode_times, disc$ode_times)
+
+  jacobian <- function(d) {
+    comm$derivative_control <- derivative_control(list(d_second = d, eps_second = d))
+    community_selection_gradient_jacobian(comm)[1, 1]
+  }
+  coarse <- jacobian(1e-2)
+  fine <- jacobian(1e-3)
+  expect_lt(coarse, 0)
+  expect_lt(fine, 0)
+  expect_equal(coarse, fine, tolerance = 0.25)
+})
