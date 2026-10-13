@@ -652,3 +652,102 @@ derivative_check_points <- function(community, n) {
   colnames(y) <- trait_names
   y
 }
+
+## The marginal quantities of a coexistence boundary at a solved community
+## (community_solve_boundary()): for an invasion boundary the fitness gradient
+## and the fitness at the marginal mutant y, for a branching boundary the
+## determinant of resident `which`'s Hessian, which crosses zero with any of
+## its eigenvalues and is smooth where they cross.
+boundary_probe <- function(community, probe) {
+  if (identical(probe$type, "invasion")) {
+    G <- community_fitness_gradient(community, matrix(probe$y, nrow = 1L))
+    c(as.numeric(G), attr(G, "value"))
+  } else {
+    det(community_fitness_hessian(community, community$traits[probe$which, , drop = FALSE]))
+  }
+}
+
+## One point of a boundary Jacobian's resident stencil, on a worker: the
+## residents at x solved in `base` (to the stencil's tolerance) from the
+## centre's densities and solver state, the selection gradients and the probe
+## there, or the error.
+boundary_point <- function(x, base, m, birth_rate, state, probe) {
+  tryCatch({
+    comm <- singularity_solve_point(x, base, m, birth_rate, state)
+    structure(c(as.numeric(comm$selection_gradient), boundary_probe(comm, probe)),
+              converged = isTRUE(attr(comm, "converged")))
+  }, error = function(e) e)
+}
+
+## One point of its parameter stencil: the free parameter at q, the residents
+## held at x and solved from the centre's densities.
+boundary_parameter_point <- function(q, parameter, p, free, trait_names, x, m, birth_rate, step, probe) {
+  tryCatch({
+    p[free] <- q
+    base <- community_clear_residents(stencil_community(parameter_community(parameter, p, trait_names), step))
+    comm <- singularity_solve_point(x, base, m, birth_rate, NULL)
+    structure(c(as.numeric(comm$selection_gradient), boundary_probe(comm, probe)),
+              converged = isTRUE(attr(comm, "converged")))
+  }, error = function(e) e)
+}
+
+## Stencil values with any failed solve raised, after the others are counted.
+boundary_stencil_values <- function(values, stencil, count) {
+  failed <- vapply(values, inherits, logical(1), "error")
+  count(sum(!failed))
+  if (any(failed)) stop(values[[which(failed)[1L]]])
+  stencil_check_converged(values, stencil)
+  values
+}
+
+## The Jacobian of a coexistence boundary's residual (boundary_residual_fn())
+## at the unknowns u: the residents' columns by the resident stencil, each
+## point solved to the cube of the step from the centre's densities and solver
+## state, through the parallel map; the marginal mutant's exactly, from the
+## mutant-direction derivatives at the centre (no solves; the selection
+## gradients do not depend on it); the free parameter's by the parameter
+## stencil. The equilibrium solves it cost are in attr(., "evaluations").
+community_boundary_jacobian <- function(residual, u) {
+  info <- attr(residual, "info")
+  residual(u)
+  centre <- attr(residual, "last")()
+  v <- boundary_unknowns(u, info)
+  probe <- boundary_probe_spec(info, v$y)
+  ctrl <- community_derivative_control(centre)
+  m <- info$m
+  seed <- as.numeric(centre$birth_rate)
+  state <- centre$demography_state
+  base <- community_clear_residents(centre)
+  evaluations <- 0L
+  count <- function(n) evaluations <<- evaluations + n
+
+  Jx <- util_jacobian(NULL, v$x, d = ctrl$d_second, eps = ctrl$eps_second, r = ctrl$r_jacobian,
+    evaluate = function(points, step) {
+      stencil <- stencil_community(base, step)
+      boundary_stencil_values(
+        regnans_map(points, boundary_point, base = stencil, m = m, birth_rate = seed,
+                    state = state, probe = probe),
+        stencil, count)
+    })
+  Jp <- util_jacobian(NULL, v$p[info$free], d = ctrl$d_parameter, eps = ctrl$eps_parameter,
+                      r = ctrl$r_parameter,
+    evaluate = function(points, step) {
+      boundary_stencil_values(
+        regnans_map(points, boundary_parameter_point, parameter = info$parameter, p = v$p,
+                    free = info$free, trait_names = info$trait_names, x = v$x, m = m,
+                    birth_rate = seed, step = step, probe = probe),
+        stencil_community(centre, step), count)
+    })
+  J <- if (identical(info$type, "invasion")) {
+    k <- info$k
+    y <- matrix(v$y, nrow = 1L)
+    G <- community_fitness_gradient(centre, y)
+    Jy <- rbind(matrix(0, m * k, k), community_fitness_hessian(centre, y), matrix(as.numeric(G), 1L, k))
+    cbind(Jx, Jy, Jp)
+  } else {
+    cbind(Jx, Jp)
+  }
+  dimnames(J) <- list(info$residual_names, info$unknown_names)
+  attr(J, "evaluations") <- evaluations
+  J
+}

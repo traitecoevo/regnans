@@ -311,3 +311,164 @@ test_that("a sweep finds no hysteresis where the stable community is unique", {
   expect_equal(sw$cold_n, c(1L, 2L, 3L, 3L))
   expect_error(boundary_sweep(gk98_by_d_kappa, cbind(1, 1)), "at least two points")
 })
+
+# ---- community_solve_boundary ------------------------------------------------------
+
+# the community on the side of a bisected crossing with fewer species, and
+# the newcomer on the other side: the trait farthest from those residents
+boundary_seed <- function(parameter, row) {
+  p <- unlist(row[setdiff(names(row), c("ray", "t_lo", "t_hi", "n_lo", "status_lo", "n_hi", "status_hi",
+                                        "resolved", "reason", "traits_lo", "birth_rate_lo", "traits_hi",
+                                        "birth_rate_hi"))])
+  lo <- as.numeric(row$traits_lo[[1]])
+  hi <- as.numeric(row$traits_hi[[1]])
+  comm <- parameter(p) |> community_clear_residents() |>
+    community_add(trait_matrix(lo, "x"), birth_rate = row$birth_rate_lo[[1]])
+  list(community = comm, p = p, y = hi[which.max(vapply(hi, function(h) min(abs(h - lo)), 0))])
+}
+
+test_that("Newton on the augmented system lands on GK98's 2 -> 3 boundary from a bisected seed", {
+  # the pair +-a* with a peak at y* = 0 exactly marginal: d = c2 and a* in
+  # closed form. With every residual solved to 1e-10 and the boundary's
+  # slopes order 0.1-1, d*, a* and y* are good to ~1e-9.
+  by <- gk98_by_d_kappa
+  bp <- boundary_bisect(by, c(1, 1), c(2.6, 1), boundary_control(list(bisect_tol = 1e-4)))
+  seed <- boundary_seed(by, bp[bp$n_lo == 2L, ])
+  at <- community_solve_boundary(seed$community, by, y = seed$y, p = seed$p, tol = 1e-10)
+  b <- attr(at, "boundary")
+  c2 <- gk98_kappa_boundaries(1)[["c2"]]
+  expect_true(b$converged)
+  expect_equal(b$type, "invasion")
+  expect_equal(b$free, "p[1]")
+  expect_equal(b$p, c(`p[1]` = c2, `p[2]` = 1), tolerance = 1e-9)
+  expect_equal(sort(as.numeric(at$traits)), c(-1, 1) * gk98_kappa_pair_root(c2), tolerance = 1e-9)
+  expect_lt(abs(b$y), 1e-9)
+  expect_lt(max(abs(b$residual)), 1e-10)
+  expect_equal(names(b$residual), c("g:x[1]", "g:x[2]", "ds/dx(y)", "s(y)"))
+  # quadratic from the bracket's midpoint: one Jacobian (2mk + 2 solves)
+  # and a residual per step
+  expect_identical(b$iterations, 2L)
+  expect_identical(b$evaluations, 9L)
+  # the boundary is what it says: 1e-3 either side the labels are 2 and 3
+  label <- function(d) attr(community_label(by(c(d, 1))), "label")[c("n", "status")]
+  expect_equal(label(c2 - 1e-3), list(n = 2L, status = "stable"))
+  expect_equal(label(c2 + 1e-3), list(n = 3L, status = "stable"))
+})
+
+test_that("every column of the boundary Jacobian matches a finer difference of the residual", {
+  # The layer's columns are central differences at the derivative steps
+  # (1e-3 relative), good to ~1e-6; the reference is a central difference of
+  # the whole residual at 1e-5, with GK98's equilibrium iterated to 1e-12,
+  # good to ~1e-7. Away from the boundary, so no column is degenerate.
+  by <- gk98_by_d_kappa
+  a <- gk98_kappa_pair_root(1.8, 1.3)
+  pair <- by(c(1.8, 1.3)) |> community_clear_residents() |>
+    community_add(trait_matrix(c(-a, a + 0.05), "x"), birth_rate = c(1.6, 1.6))
+  p <- c(`p[1]` = 1.8, `p[2]` = 1.3)
+  for (free in 1:2) {
+    residual <- boundary_residual_fn(pair, by, p, free, "invasion", 1L)
+    u <- c(-a, a + 0.05, 0.1, p[[free]])
+    J <- community_boundary_jacobian(residual, u)
+    reference <- oracle_jacobian(residual, u, h = 1e-5)
+    expect_equal(dim(J), c(4L, 4L))
+    expect_equal(colnames(J), c("x[1]", "x[2]", "y:x", names(p)[free]))
+    expect_lt(max(abs(unname(J) - reference)), 2e-6)
+    # 2mk solves for the residents and two for the parameter
+    expect_identical(attr(J, "evaluations"), 6L)
+  }
+  # the branching residual's: the determinant of a resident's Hessian
+  dd <- dd99_start(sigma_C = 0.9) |> community_clear_residents() |>
+    community_add(trait_matrix(c(-0.3, 0.4), "x"), birth_rate = c(200, 200))
+  by_dd <- community_parameter_map(dd, c("sigma_C", "sigma_K"))
+  residual <- boundary_residual_fn(dd, by_dd, community_parameter_values(dd, by_dd), 1L, "branching", 2L)
+  u <- c(-0.3, 0.4, 0.9)
+  J <- community_boundary_jacobian(residual, u)
+  expect_equal(rownames(J), c("g:x[1]", "g:x[2]", "det(H[2])"))
+  expect_lt(max(abs(unname(J) - oracle_jacobian(residual, u, h = 1e-5))), 2e-6 * max(abs(J)))
+})
+
+test_that("the branching type lands on DD99's and GK98's pitchforks", {
+  # DD99: x* = x0 = 0 and H = 1/sigma_C^2 - 1/sigma_K^2, zero at sigma_C =
+  # sigma_K exactly. Seeded from bisection's stable side.
+  by <- community_parameter_map(dd99_start(), c("sigma_C", "sigma_K"))
+  bp <- boundary_bisect(by, c(1.5, 1), c(0.5, 1), boundary_control(list(bisect_tol = 1e-3)))
+  seed <- by(c(bp$sigma_C, 1)) |> community_clear_residents() |>
+    community_add(trait_matrix(bp$traits_lo[[1]] + 0.1, "x"), birth_rate = 400)
+  at <- community_solve_boundary(seed, by, type = "branching", free = "sigma_C", tol = 1e-10)
+  b <- attr(at, "boundary")
+  expect_true(b$converged)
+  expect_null(b$y)
+  expect_equal(b$p, c(sigma_C = 1, sigma_K = 1), tolerance = 1e-9)
+  expect_lt(abs(as.numeric(at$traits)), 1e-9)
+  expect_equal(attr(community_label(by(c(1 + 1e-3, 1))), "label")$status, "stable")
+  expect_equal(attr(community_label(by(c(1 - 1e-3, 1))), "label")$status, "edge")
+
+  # GK98 at kappa = 2: S''(0) = 2 d^2 / (2 + kappa) - 1, zero at d = sqrt(2)
+  gk <- gk98_by_d_kappa
+  one <- gk(c(1.3, 2)) |> community_clear_residents() |> community_add(trait_matrix(0.05, "x"), birth_rate = 4)
+  at <- community_solve_boundary(one, gk, type = "branching", p = c(1.3, 2), tol = 1e-10)
+  expect_equal(attr(at, "boundary")$p[[1]], sqrt(2), tolerance = 1e-9)
+  label <- function(d) attr(community_label(gk(c(d, 2))), "label")$n
+  expect_equal(c(label(sqrt(2) - 1e-3), label(sqrt(2) + 1e-3)), c(1L, 2L))
+})
+
+test_that("a marginal mutant at a resident is refused, before and after the solve", {
+  by <- gk98_by_d_kappa
+  a <- gk98_kappa_pair_root(1.95)
+  pair <- by(c(1.95, 1)) |> community_clear_residents() |>
+    community_add(trait_matrix(c(-a, a), "x"), birth_rate = c(1.5, 1.5))
+  # the triple handed over as the residents, its middle resident as y
+  triple <- by(c(1.95, 1)) |> community_clear_residents() |>
+    community_add(trait_matrix(c(-a, 0, a), "x"), birth_rate = c(1.4, 0.2, 1.4))
+  expect_error(community_solve_boundary(triple, by, y = 0, p = c(1.95, 1)),
+               "y starts at resident 2: .*side with fewer species")
+  # from between a resident and the middle peak Newton runs onto the
+  # resident, where both conditions hold for any spacing
+  expect_warning(out <- community_solve_boundary(pair, by, y = 0.62, p = c(1.95, 1), tol = 1e-10),
+                 "converged onto a resident")
+  expect_false(attr(out, "boundary")$converged)
+})
+
+test_that("a boundary point whose marginal mutant is not a peak warns", {
+  # helper-boundary.R's dip: the minimum near the dip crosses zero as the dip
+  # fills; Newton finds that point, which is no new peak
+  start <- dip_start(0.95)
+  by <- community_parameter_map(start, "h")
+  expect_warning(at <- community_solve_boundary(start, by, y = 1.5, tol = 1e-10),
+                 "not a strict maximum of invasion fitness")
+  b <- attr(at, "boundary")
+  expect_true(b$converged)
+  expect_gt(as.numeric(community_fitness_hessian(at, matrix(b$y, 1))), 0)
+})
+
+test_that("community_solve_boundary validates its arguments and reports a solve that stops short", {
+  by <- gk98_by_d_kappa
+  a <- gk98_kappa_pair_root(1.95)
+  pair <- by(c(1.95, 1)) |> community_clear_residents() |>
+    community_add(trait_matrix(c(-a, a), "x"), birth_rate = c(1.5, 1.5))
+  expect_error(community_solve_boundary(pair, by, p = c(1.95, 1)), "needs y")
+  expect_error(community_solve_boundary(pair, by, y = c(0, 1), p = c(1.95, 1)), "one value per trait")
+  expect_error(community_solve_boundary(pair, by, y = 0, type = "branching", p = c(1.95, 1)), "takes no y")
+  expect_error(community_solve_boundary(pair, by, type = "branching", which = 3, p = c(1.95, 1)),
+               "one of the 2 residents")
+  expect_error(community_solve_boundary(pair, by, y = 0, free = "kappa", p = c(1.95, 1)),
+               "free must be one of the parameters, p\\[1\\], p\\[2\\]")
+  expect_error(community_solve_boundary(community_clear_residents(pair), by, y = 0, p = c(1.95, 1)),
+               "at least one")
+  expect_warning(out <- community_solve_boundary(pair, by, y = 0.05, p = c(1.95, 1), maxit = 1),
+                 "did not converge")
+  expect_false(attr(out, "boundary")$converged)
+})
+
+test_that("a boundary solve is the same, in answer and cost, under each plan", {
+  by <- gk98_by_d_kappa
+  a <- gk98_kappa_pair_root(1.95)
+  pair <- by(c(1.95, 1)) |> community_clear_residents() |>
+    community_add(trait_matrix(c(-a, a), "x"), birth_rate = c(1.5, 1.5))
+  sequential <- community_solve_boundary(pair, by, y = 0.05, p = c(1.95, 1), tol = 1e-10)
+  for (type in c("multicore", "multisession")) {
+    parallel <- with_two_workers(type, community_solve_boundary(pair, by, y = 0.05, p = c(1.95, 1), tol = 1e-10))
+    expect_identical(attr(parallel, "boundary"), attr(sequential, "boundary"))
+    expect_identical(parallel$traits, sequential$traits)
+  }
+})

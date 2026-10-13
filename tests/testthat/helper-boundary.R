@@ -128,3 +128,21 @@ bistable_start <- function(q = 0, gamma = 1, s = 0.3, w = 0.3, x = 0.5) {
                     equilibrium_eps = 1e-10))) |>
     community_add(trait_matrix(x, "x"), birth_rate = 0.5)
 }
+
+## A carrying capacity with a dip of depth h at y = 1.5, and a narrow
+## competition kernel, so the landscape of a resident at 0 has a minimum
+## near the dip that crosses zero as the dip fills: an invasion-type
+## boundary point at which y* is a minimum, not a peak.
+dip_start <- function(h = 0.95) {
+  K <- function(y, h) exp(-y^2 / 2) * (1 - h * exp(-(y - 1.5)^2 / (2 * 0.1^2)))
+  hr <- harness_explicit(
+    fitness = function(x_mut, x_res, n_res, pars) {
+      C <- exp(-outer(x_mut, x_res, "-")^2 / (2 * 0.5^2))
+      1 - as.numeric(C %*% n_res) / K(x_mut, pars$h)
+    },
+    equilibrium = function(x_res, pars) K(x_res, pars$h),
+    pars = list(h = h), trait_names = "x", label = "dip")
+  community_start(bounds(x = c(-3, 3)), trait_scale = "linear", harness = hr) |>
+    community_add(trait_matrix(0, "x"), birth_rate = 1) |>
+    community_demography()
+}

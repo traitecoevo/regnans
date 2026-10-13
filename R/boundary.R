@@ -13,6 +13,10 @@
 #   boundary_sweep()     the labels along a path, cold and carried from the
 #                        previous point in each direction: where they
 #                        disagree the model has alternative attractors
+#   community_solve_boundary()
+#                        a boundary point solved for: the residents at their
+#                        singular coalition and a marginal condition, one
+#                        parameter free, by Newton on the augmented system
 #
 # The label is the end state of assembly by immigration and evolution: the
 # residents evolve to the singular coalition they form together, an immigrant
@@ -679,4 +683,230 @@ print.boundary_sweep <- function(x, ...) {
   cat(sprintf("<boundary_sweep: %d points, %d with hysteresis>\n", nrow(x), sum(x$hysteresis)))
   cat(sprintf("  equilibrium solves: %d\n", attr(x, "evaluations")))
   invisible(x)
+}
+
+##' Solve for a point on a coexistence boundary.
+##'
+##' A boundary between regions supporting \eqn{n} and \eqn{n + 1} species is
+##' the solution set of an augmented system: the \eqn{n} residents at their
+##' singular coalition, each at demographic equilibrium, and a condition that
+##' makes the community marginal. Two kinds of boundary:
+##' \describe{
+##'   \item{\code{"invasion"}}{a new peak of the fitness landscape, away from
+##'     the residents, crossing zero: a mutant \eqn{y^*} at a critical point of
+##'     invasion fitness, \eqn{\partial s / \partial y (y^*) = 0}, with
+##'     \eqn{s(y^*) = 0}. Unknowns: the residents' traits, \eqn{y^*} and one
+##'     parameter; \eqn{nk + k + 1} equations in as many unknowns.}
+##'   \item{\code{"branching"}}{a resident becoming a branching point, where
+##'     the pair it branches into emerges from it (a pitchfork): the
+##'     determinant of resident \code{which}'s Hessian in the mutant direction
+##'     is zero. Unknowns: the residents' traits and one parameter.}
+##' }
+##' With the other parameters fixed the system is square and is solved by
+##' the package's Newton iteration (\code{\link{util_nlsolve}}, \code{solver
+##' = "newton"}), the densities solved to equilibrium
+##' inside each evaluation (\code{\link{community_demography}}). Its Jacobian
+##' comes from the derivative layer: the residents' columns by finite
+##' differences across the residents, each point solved to the cube of its
+##' step and the points through the parallel map, the marginal mutant's from
+##' the exact mutant-direction derivatives, the free parameter's by finite
+##' differences across the parameter; so \code{2nk + 2} equilibrium solves per
+##' Jacobian until the model supplies equilibrium sensitivities.
+##'
+##' The start is a boundary point found by \code{\link{boundary_bisect}}: the
+##' community at the side with fewer species, \code{y} the newcomer's trait
+##' on the other side, and the bracket's midpoint as \code{p}. \eqn{y^*} must
+##' stay away from the residents: at a resident the conditions hold for any
+##' parameter (its own fitness is zero, and its gradient too at a singular
+##' coalition), so a start or an answer there is refused. An answer at which
+##' \eqn{y^*} is not a strict maximum of fitness warns: there the boundary is
+##' not where a new peak crosses zero.
+##'
+##' Traits and parameters are solved in raw units, whatever the community's
+##' trait scale.
+##'
+##' @title Solve for a coexistence boundary point
+##' @param community A \code{community} whose residents start the solve (their
+##' densities, if positive, seed the first equilibrium), built by
+##' \code{parameter(p)}.
+##' @param parameter A function \code{p -> community}; see
+##' \code{\link{community_parameter_map}}.
+##' @param y For \code{type = "invasion"}, the marginal mutant's starting
+##' traits, one value per trait.
+##' @param type \code{"invasion"} or \code{"branching"}.
+##' @param free The parameter solved for, by name or position in \code{p};
+##' the others are held.
+##' @param which For \code{type = "branching"}, the resident becoming a
+##' branching point.
+##' @param p The parameter values \code{community} was built at, the free
+##' one's starting value among them. Read from the community for a map from
+##' \code{\link{community_parameter_map}}.
+##' @param tol,maxit Passed to \code{\link{util_nlsolve}}: the tolerance on
+##' every residual and the iteration limit.
+##' @return The community at the boundary point, solved to demographic
+##' equilibrium at the parameters found, with \code{attr(., "boundary")}: a list
+##' of \code{type}, \code{p} (all the parameters, named), \code{free},
+##' \code{y} (\code{NULL} for a branching boundary), \code{residual},
+##' \code{converged}, \code{message}, \code{iterations} and
+##' \code{evaluations} (equilibrium solves).
+##' @examples
+##' gk <- function(p) {
+##'   community_start(bounds(x = c(-4, 4)), trait_scale = "linear",
+##'                   harness = harness_gk98(mu = c(-p[1], 0, p[1]))) |>
+##'     community_add(trait_matrix(0.5, "x"), birth_rate = 1)
+##' }
+##' # the pair of specialists on the outer patches, and the middle patch's
+##' # peak, near the spacing at which a third species invades
+##' pair <- community_start(bounds(x = c(-4, 4)), trait_scale = "linear",
+##'                         harness = harness_gk98(mu = c(-1.95, 0, 1.95))) |>
+##'   community_add(trait_matrix(c(-1.3, 1.3), "x"), birth_rate = c(1.5, 1.5))
+##' at <- community_solve_boundary(pair, gk, y = 0, p = 1.95)
+##' attr(at, "boundary")$p
+##' @author Daniel Falster
+##' @export
+community_solve_boundary <- function(community, parameter, y = NULL,
+                                     type = c("invasion", "branching"), free = 1L,
+                                     which = 1L, p = NULL, tol = 1e-8, maxit = 50) {
+  type <- match.arg(type)
+  p <- check_parameter_values(parameter, p, community)
+  trait_names <- community$trait_names
+  k <- length(trait_names)
+  m <- nrow(community$traits)
+  if (m < 1L) {
+    stop("community_solve_boundary needs the residents of the side with fewer species, at least one")
+  }
+  if (length(free) != 1L || is.na(free)) {
+    stop("free names one parameter to solve for")
+  }
+  free <- if (is.character(free)) match(free, names(p)) else as.integer(free)
+  if (is.na(free) || free < 1L || free > length(p)) {
+    stop("free must be one of the parameters, ", paste(names(p), collapse = ", "))
+  }
+  if (type == "invasion") {
+    if (is.null(y) || length(y) != k || !all(is.finite(y))) {
+      stop("an invasion boundary needs y, the marginal mutant's starting traits, one value per trait (", k, ")")
+    }
+    y <- as.numeric(y)
+    boundary_check_away(community, y, "y starts")
+  } else {
+    if (!is.null(y)) stop("a branching boundary takes no y")
+    if (length(which) != 1L || !which %in% seq_len(m)) {
+      stop("which must name one of the ", m, " residents")
+    }
+  }
+
+  residual <- boundary_residual_fn(community, parameter, p, free, type, which)
+  info <- attr(residual, "info")
+  u0 <- c(as.numeric(community$traits), y, p[[free]])
+  jacobian_solves <- 0L
+  jac <- function(u) {
+    J <- community_boundary_jacobian(residual, u)
+    jacobian_solves <<- jacobian_solves + attr(J, "evaluations")
+    unname(J)
+  }
+  ## the package's Newton, which recomputes the Jacobian when a Broyden-updated
+  ## one fails its line search; nleqslv keeps updating it, and on the GK98
+  ## oracle its update turns singular two steps from the root
+  sol <- util_nlsolve(u0, residual, tol = tol, maxit = maxit, solver = "newton",
+                      require_converged = FALSE, jac = jac)
+  r <- residual(as.numeric(sol))
+  out <- attr(residual, "last")()
+  v <- boundary_unknowns(as.numeric(sol), info)
+  converged <- isTRUE(attr(sol, "converged"))
+  message <- attr(sol, "message")
+  if (type == "invasion") {
+    if (converged && !boundary_check_away(out, v$y, "y ended", stop = FALSE)) {
+      converged <- FALSE
+      message <- "the marginal mutant converged onto a resident, where the conditions hold trivially"
+    }
+    H <- community_fitness_hessian(out, matrix(v$y, nrow = 1L))
+    if (converged && !all(eigen(H, symmetric = TRUE, only.values = TRUE)$values < 0)) {
+      warning("community_solve_boundary: y* is not a strict maximum of invasion fitness, ",
+              "so this is not where a new peak crosses zero")
+    }
+  }
+  if (!converged) {
+    warning(sprintf("community_solve_boundary did not converge (%s)", message))
+  }
+  attr(out, "boundary") <- list(
+    type = type, p = v$p, free = names(p)[free], y = v$y,
+    residual = stats::setNames(r, info$residual_names), converged = converged, message = message,
+    iterations = attr(sol, "iter"),
+    evaluations = attr(residual, "evaluations")() + jacobian_solves)
+  out
+}
+
+## Is y more than two finite-difference steps from every resident? Errors,
+## naming the fix, unless stop = FALSE.
+boundary_check_away <- function(community, y, what, stop = TRUE) {
+  m <- nrow(community$traits)
+  k <- length(community$trait_names)
+  x <- rbind(community$traits, y, deparse.level = 0)
+  near <- residents_merged(as.numeric(x), m + 1L, k, community_derivative_control(community), reach = 2)
+  near <- near[near[, 2] == m + 1L, , drop = FALSE]
+  if (nrow(near) == 0L) return(TRUE)
+  if (!stop) return(FALSE)
+  stop(what, " at resident ", near[1, 1], ": the marginal peak must be away from the residents. ",
+       "Give the residents of the side with fewer species, and as y the newcomer's traits from the other side")
+}
+
+## The unknowns of a boundary solve, split: residents' traits x, the
+## marginal mutant y (invasion only) and the parameters with the free one set.
+boundary_unknowns <- function(u, info) {
+  mk <- info$m * info$k
+  y <- if (identical(info$type, "invasion")) u[mk + seq_len(info$k)] else NULL
+  p <- info$p
+  p[info$free] <- u[length(u)]
+  list(x = u[seq_len(mk)], y = y, p = p)
+}
+
+## What boundary_probe() evaluates at a solved community.
+boundary_probe_spec <- function(info, y) {
+  list(type = info$type, y = y, which = info$which)
+}
+
+## The residual of a boundary solve: unknowns u -> the residents' selection
+## gradients and the marginal conditions, the community solved to
+## equilibrium at the residents under parameter(p), warm-started from the
+## previous evaluation's densities and solver state. A call at the previous
+## unknowns returns that answer without solving.
+boundary_residual_fn <- function(community, parameter, p, free, type, which) {
+  trait_names <- community$trait_names
+  k <- length(trait_names)
+  m <- nrow(community$traits)
+  labels <- resident_labels(trait_names, m)
+  info <- list(m = m, k = k, type = type, which = which, p = p, free = free,
+               parameter = parameter, trait_names = trait_names,
+               residual_names = c(paste0("g:", labels),
+                                  if (type == "invasion") c(paste0("ds/d", trait_names, "(y)"), "s(y)")
+                                  else sprintf("det(H[%d])", which)),
+               unknown_names = c(labels, if (type == "invasion") paste0("y:", trait_names), names(p)[free]))
+  seed <- singularity_seed_birth_rate(community, m)
+  state <- NULL
+  last_u <- NULL
+  last_r <- NULL
+  last_community <- NULL
+  evaluations <- 0L
+  fn <- function(u) {
+    u <- as.numeric(u)
+    if (identical(u, last_u)) {
+      return(last_r)
+    }
+    v <- boundary_unknowns(u, info)
+    base <- community_clear_residents(parameter_community(parameter, v$p, trait_names))
+    comm <- singularity_solve_point(v$x, base, m, seed, state)
+    evaluations <<- evaluations + 1L
+    r <- c(as.numeric(comm$selection_gradient), boundary_probe(comm, boundary_probe_spec(info, v$y)))
+    br <- as.numeric(comm$birth_rate)
+    if (length(br) == m && all(is.finite(br) & br > 0)) seed <<- br
+    state <<- comm$demography_state
+    last_u <<- u
+    last_r <<- r
+    last_community <<- comm
+    r
+  }
+  attr(fn, "info") <- info
+  attr(fn, "last") <- function() last_community
+  attr(fn, "evaluations") <- function() evaluations
+  fn
 }
