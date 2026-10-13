@@ -88,7 +88,9 @@ through `community$harness` (see **Model harnesses** below).
   `Parameters`. **Important:** it regenerates `node_schedule_times_default` to
   match `max_patch_lifetime` (otherwise the default schedule spans the original
   ~105 and the SCM errors with "time_max must be greater than current time").
-- `plant_default_assembly_control(...)` — wrapper around `plant::control()`.
+- `plant_default_assembly_control(...)` — wrapper around `plant::control()`, on the birth-date coordinate (`node_density_in_birth_date = TRUE`) unless overridden: plant's gradients exist only there.
+- `plant_community_discretisation()` / `plant_community_freeze_discretisation()` — the harness's `community_discretisation()` and `community_freeze_discretisation()`: a solved community's node schedule and ODE steps as plain numbers, and a community solved on them (`model_support$frozen`, which `community_reset()` keeps, so stencil points built by `community_add()` replay it; the runner never refines under it; the offspring tolerance goes to the cube of the step). `stencil_community()` applies it to every finite difference across equilibria. ⚠️ Without it, plant's resident Jacobian changes sign with the step (plant#653).
+- `plant_mutant_gradient()` — with `harness_plant(fitness_gradient = "model")`, the fitness gradient from `plant::stand_gradient()` on the mutants' replay, through `hyperpar`, mutants numbered by row; a refused point falls back to the finite difference. Off by default (plant#677).
 - `plant_community_parameters(community)` — builds a `plant` `Parameters` from
   the community (strategies via `plant::generate_strategy`, restores cached schedule
   times).
@@ -194,7 +196,9 @@ the older `seed_rain`).
 
 - `.plant-interface-version` records which of plant's breaking changes this
   package has absorbed. plant's `NEWS.md` "Breaking changes" section has the
-  old→new maps.
+  old→new maps. The installed version stays
+  `2.0.0.9002` across develop commits, so compare
+  `packageDescription("plant")$RemoteSha` to tell two builds apart.
 - Key migrated calls: `scm_base_control()`→`control()`;
   `run_scm_collect(p)`→`run_scm(p, collect=TRUE)`; `build_schedule(p, ctrl)` +
   `attr(., "offspring_production")` → `run_scm(p, ctrl, refine_schedule=TRUE)`
@@ -269,7 +273,7 @@ shells; run `TESTTHAT_PARALLEL=FALSE Rscript -e 'devtools::test()'` if so.
 - `test-boundary.R` — `boundary_control()`, `community_label()` on GK98 (one, two or three species as the patches move apart, residents at the closed-form pair and triple, by Newton and by the canonical equation; capped; unresolved on a Garden of Eden, whose dynamics the fallback integrates), DD99 (one species above the diagonal, `edge` below, a first immigrant into the empty community exempt), bounds not finite on the trait scale refused (and no edge on an unbounded trait), `boundary_design()`, `boundary_scout()` (the DD99 plane by the diagonal, the one-parameter case, a design's columns matched to the map's by name, input validation and a failing point named, bit-identical in answer and cost under multicore and multisession), `boundary_bisect()` (DD99's diagonal to 1e-6; GK98's pitchfork and transversal boundaries against their closed forms, with the offset `fitness_tol` predicts; an unresolved bracket left unrefined; bit-identical under both plans) `boundary_sweep()` (the bistable band `|q| < 1/3` of a two-peaked Lotka–Volterra model flagged exactly; none on GK98; an unresolved route leaving the flag `NA`; every route searching the box a narrowing harness gives the cold label) and `community_solve_boundary()` (GK98's 2→3 point from a bisected seed to 1e-9 in two iterations; every Jacobian column against a finer difference of the residual, invasion and branching; the branching type on DD99's and GK98's pitchforks; labels 1e-3 either side; a marginal mutant at a resident refused; merged residents outside the residual's domain and a start there refused; a minimum warned; bit-identical under both plans). Oracles in `helper-boundary.R`.
 - `test-boundary-branch.R` — continuation: DD99's branching locus through a map that makes it the unit circle (closure, radius to 1e-8, Hermite to 1e-6, labels either side), GK98's 2→3 boundary against `c2(κ)` to its `separation` event at the closed form, the switch to the 1→2 locus against `√((2+κ)/2)` and its `other_peak` event where the pitchfork turns subcritical, an event beyond the box not recorded, the other-peak search keeping every neighbourhood's edges, the rectangular Jacobian's columns against a finer difference, tangent rejection, bit-identical under both plans, a failed verification warned, the switch for each kind of event, validation. Oracles in `helper-boundary.R`.
 - `test-plant-smoke-boundary.R` — the label on the SCM's lma community (reference-free: the resident singular, the status agreeing with the classification) and a two-point `hmat` scout identical under multisession.
-- `test-plant-smoke-singularity.R` — the SCM anchor for the above: the
+- `test-plant-smoke-singularity.R` — the SCM anchor for the above: the resident Jacobian's stencil on its centre's discretisation (one sign and size at two steps), plant's own mutant gradient against the finite difference and the contract check, the
   alternative equilibrium solvers agreeing with the iteration, and the N-D
   solver plus classifier running on the real model (under multicore and
   multisession plans too: the same Jacobian, cost and verdict bit for bit; a
