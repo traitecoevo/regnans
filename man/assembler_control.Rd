@@ -45,14 +45,14 @@ maximum-fitness birth is an immigrant into an evolutionarily stationary
 community and the assembly ends at an evolutionarily stable community
 (\code{\link{community_label}}). \code{"newton"} solves for the coalition
 with \code{\link{community_solve_singularity}} (to \code{evolve_tol}) and
-classifies it with \code{\link{community_classify_singularity}}; a
-resident lost on the way (extinct, or merged with another, the rarer of
-the two) is dropped and the survivors re-solved, and a root the dynamics
-does not reach (not convergence stable, or without protected coexistence)
-is replaced by integrating the dynamics from where the residents were.
-\code{"canonical"} always integrates: \code{\link{community_canonical_equation}}
-to its first stationary coalition (\code{branch = "none"}, polished),
-which only reaches attractors, at the cost of an ODE integration. Either
+classifies it with \code{\link{community_classify_singularity}}; where
+that solve fails, or finds a root the dynamics does not reach (not
+convergence stable, or without protected coexistence), the dynamics are
+integrated instead from where the residents were. \code{"canonical"}
+always integrates: \code{\link{community_canonical_equation}} to its
+first stationary coalition (\code{branch = "none"}, polished to
+\code{evolve_tol}), which only reaches attractors and drops residents
+that go extinct or merge, at the cost of an ODE integration. Either
 way an evolution that fails ends the assembly, reported in
 \code{$evolved}. A maximum of fitness within
 \code{eps_too_close} of a resident is then that resident at a branching

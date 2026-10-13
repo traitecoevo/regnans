@@ -101,3 +101,30 @@ garden_of_eden_start <- function(c = 1) {
   community_start(bounds(x = c(-1, 1)), trait_scale = "linear", harness = h) |>
     community_add(trait_matrix(0.3, "x"), birth_rate = 1)
 }
+
+## Two resource peaks at -1 and +1 of heights 1 - q and 1 + q, and
+## competition between species stronger than within them (gamma > 0), so a
+## monoculture on one peak resists a newcomer on the other: alternative
+## stable communities. A monoculture at x (a CSS, at its peak) has
+## N = K(x), and a newcomer at y has fitness 1 - A(y, x) K(x) / K(y), with
+## A(y, x) ~ 1 + gamma between the peaks. So the monoculture on the -1 peak
+## resists invasion iff (1 - q) / (1 + q) > 1 / (1 + gamma), that on +1 iff
+## (1 + q) / (1 - q) > 1 / (1 + gamma): both, with gamma = 1, for
+## |q| < 1/3. Equilibria by iterating the one-generation map, so a newcomer
+## that wins excludes the resident as the dynamics would.
+bistable_start <- function(q = 0, gamma = 1, s = 0.3, w = 0.3, x = 0.5) {
+  h <- harness_explicit(
+    fitness = function(x_mut, x_res, n_res, pars) {
+      K <- function(y) (1 + pars$q) * exp(-(y - 1)^2 / (2 * pars$s^2)) +
+        (1 - pars$q) * exp(-(y + 1)^2 / (2 * pars$s^2))
+      A <- 1 + pars$gamma * (1 - exp(-outer(x_mut, x_res, "-")^2 / (2 * pars$w^2)))
+      1 - as.numeric(A %*% n_res) / K(x_mut)
+    },
+    equilibrium = function(x_res, pars) stop("iterate the map"),
+    pars = list(q = q, gamma = gamma, s = s, w = w), trait_names = "x", label = "bistable")
+  community_start(bounds(x = c(-2, 2)), trait_scale = "linear", harness = h,
+                  demography_control = demographic_step_control(list(
+                    equilibrium_solver_name = "equilibrium_iteration", equilibrium_nsteps = 500,
+                    equilibrium_eps = 1e-10))) |>
+    community_add(trait_matrix(x, "x"), birth_rate = 0.5)
+}

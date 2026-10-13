@@ -33,7 +33,10 @@ boundary_control(control = NULL)
     label is given up as \code{"unresolved"}.}
   \item{\code{trait_tol}}{two communities of the same size whose sorted
     traits differ by less than this fraction of the bounds' width are the
-    same community (a round that returns to one is a cycle).}
+    same community (a round that returns to one is a cycle, and a sweep
+    whose routes end on different ones has found hysteresis).}
+  \item{\code{bisect_tol}}{\code{\link{boundary_bisect}} halves each
+    bracket until it is this short, as a fraction of the ray.}
 }}
 }
 \value{

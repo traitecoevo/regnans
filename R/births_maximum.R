@@ -30,9 +30,15 @@ community_new_types_maximum_fitness <- function(sys, control) {
         plant_log_max_fitness("Best point too close to existing")
         return(empty(sys, ret))
       }
-      ## the residents are singular, so a maximum beside one is that
-      ## resident at a branching point: the birth is its daughter, placed a
-      ## step away on the side of the maximum
+      ## the residents are singular, so a maximum beside one is either that
+      ## resident's own peak (an ESS: what lies above its fitness of zero is
+      ## the error of its solve) or the resident at a branching point, whose
+      ## daughter is born a step away on the side of the maximum
+      H <- community_fitness_hessian(sys, sys$traits[i, , drop = FALSE])
+      if (all(eigen(H, symmetric = TRUE, only.values = TRUE)$values < 0)) {
+        plant_log_max_fitness(sprintf("Best point beside resident %d, an ESS", i))
+        return(empty(sys, ret))
+      }
       plant_log_max_fitness(sprintf("Best point beside resident %d, a branching point", i))
       ret <- branch_daughter(sys, ret, i, control$branch_offset, tf)
     }

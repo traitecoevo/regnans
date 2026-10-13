@@ -64,14 +64,14 @@ assembler_start <- function(community, control=assembler_control(control), filen
 ##' community and the assembly ends at an evolutionarily stable community
 ##' (\code{\link{community_label}}). \code{"newton"} solves for the coalition
 ##' with \code{\link{community_solve_singularity}} (to \code{evolve_tol}) and
-##' classifies it with \code{\link{community_classify_singularity}}; a
-##' resident lost on the way (extinct, or merged with another, the rarer of
-##' the two) is dropped and the survivors re-solved, and a root the dynamics
-##' does not reach (not convergence stable, or without protected coexistence)
-##' is replaced by integrating the dynamics from where the residents were.
-##' \code{"canonical"} always integrates: \code{\link{community_canonical_equation}}
-##' to its first stationary coalition (\code{branch = "none"}, polished),
-##' which only reaches attractors, at the cost of an ODE integration. Either
+##' classifies it with \code{\link{community_classify_singularity}}; where
+##' that solve fails, or finds a root the dynamics does not reach (not
+##' convergence stable, or without protected coexistence), the dynamics are
+##' integrated instead from where the residents were. \code{"canonical"}
+##' always integrates: \code{\link{community_canonical_equation}} to its
+##' first stationary coalition (\code{branch = "none"}, polished to
+##' \code{evolve_tol}), which only reaches attractors and drops residents
+##' that go extinct or merge, at the cost of an ODE integration. Either
 ##' way an evolution that fails ends the assembly, reported in
 ##' \code{$evolved}. A maximum of fitness within
 ##' \code{eps_too_close} of a resident is then that resident at a branching
@@ -181,20 +181,33 @@ assembler_initialise <- function(obj, community) {
 }
 
 ## Move the residents to the singular coalition they form together, for an
-## assembly with evolve other than "none". A coalition the dynamics would not
-## reach, or one that cannot be solved, ends the assembly: $evolved says why.
+## assembly with evolve other than "none". Two residents the evolution brings
+## within two finite-difference steps of each other have merged, as at a
+## pitchfork from the side where the pair no longer exists: the rarer is
+## dropped and the survivors evolve again, as the canonical equation's merge
+## does. A coalition the evolution cannot reach ends the assembly: $evolved
+## says why.
 assembler_evolve <- function(obj) {
   ctrl <- obj$control
   if (ctrl$evolve == "none" || length(obj$community) == 0L) {
     return(obj)
   }
-  plant_log_assembler(sprintf("Evolving %d residents to their singular coalition (%s)",
-                              length(obj$community), ctrl$evolve))
-  res <- switch(ctrl$evolve,
-                newton = evolve_newton(obj$community, ctrl),
-                canonical = evolve_canonical(obj$community, ctrl))
+  route <- switch(ctrl$evolve, newton = evolve_newton, canonical = evolve_canonical)
+  community <- obj$community
+  for (attempt in seq_len(length(community))) {
+    plant_log_assembler(sprintf("Evolving %d residents to their singular coalition (%s)",
+                                length(community), ctrl$evolve))
+    res <- route(community, ctrl)
+    obj$evaluations <- obj$evaluations + res$evaluations
+    merged <- if (res$converged) evolve_merged(res$community) else integer(0)
+    if (length(merged) == 0L) {
+      break
+    }
+    plant_log_assembler(sprintf("Residents %s merged; dropping the rarer", paste(merged, collapse = ", ")))
+    community <- community_drop(res$community, merged)
+    obj$evaluations <- obj$evaluations + 1L
+  }
   obj$community <- res$community
-  obj$evaluations <- obj$evaluations + res$evaluations
   obj$evolved <- res[c("converged", "classification", "reason")]
   if (!res$converged) {
     obj$done <- TRUE
@@ -202,78 +215,68 @@ assembler_evolve <- function(obj) {
   obj
 }
 
-## Solve for the coalition, dropping residents lost on the way (extinct, or
-## the rarer of a merged pair) and re-solving the survivors, then classify it:
-## the assembly's next birth is only meaningful into a community the dynamics
-## reaches, a convergence-stable coalition with protected coexistence.
-evolve_newton <- function(community, ctrl) {
-  start <- community
-  evaluations <- 0L
-  caught <- character(0)
-  quietly <- function(expr) {
-    withCallingHandlers(expr, warning = function(w) {
-      caught <<- c(caught, conditionMessage(w))
-      invokeRestart("muffleWarning")
-    })
-  }
-  for (attempt in seq_len(length(community) + 1L)) {
-    sol <- quietly(community_solve_singularity(community, tol = ctrl$evolve_tol))
-    evaluations <- evaluations + attr(sol, "evaluations")
-    if (isTRUE(attr(sol, "converged"))) {
-      break
-    }
-    lost <- evolve_lost_residents(sol)
-    if (length(lost) == 0L) {
-      return(list(community = sol, converged = FALSE, classification = NA_character_,
-                  reason = paste(c("the coalition could not be solved", caught), collapse = "; "),
-                  evaluations = evaluations))
-    }
-    plant_log_assembler(sprintf("Dropping resident(s) %s lost by the coalition",
-                                paste(lost, collapse = ", ")))
-    community <- community_drop(sol, lost)
-    evaluations <- evaluations + 1L
-    if (length(community) == 0L) {
-      return(list(community = community, converged = FALSE, classification = NA_character_,
-                  reason = "every resident was lost by the coalition", evaluations = evaluations))
-    }
-  }
-  cl <- quietly(community_classify_singularity(sol))
-  evaluations <- evaluations + cl$evaluations
-  if (cl$classification %in% c("CSS", "branching point")) {
-    return(list(community = sol, converged = TRUE, classification = cl$classification,
-                reason = NULL, evaluations = evaluations))
-  }
-  ## a root the dynamics does not reach: integrate the dynamics instead, from
-  ## where the residents were
-  plant_log_assembler(sprintf("The singular coalition found is %s; integrating the canonical equation",
-                              cl$classification))
-  out <- evolve_canonical(start, ctrl)
-  out$evaluations <- out$evaluations + evaluations
-  out
+## The rarer resident of each pair within two finite-difference steps of
+## each other, the converse of a branching.
+evolve_merged <- function(community) {
+  m <- nrow(community$traits)
+  pairs <- residents_merged(as.numeric(community$traits), m, length(community$trait_names),
+                            community_derivative_control(community), reach = 2)
+  n <- as.numeric(community$birth_rate)
+  sort(unique(apply(pairs, 1, function(p) p[which.min(n[p])])))
 }
 
-## The residents a failed coalition solve lost: those at a non-positive
-## density, and of two that merged the rarer. Empty when none can be named,
-## so the failure is the solve's.
-evolve_lost_residents <- function(sol) {
-  m <- nrow(sol$traits)
-  n <- as.numeric(sol$birth_rate)
-  lost <- which(!is.finite(n) | n <= 0)
-  merged <- residents_merged(as.numeric(sol$traits), m, length(sol$trait_names),
-                             community_derivative_control(sol), reach = 2)
-  for (i in seq_len(nrow(merged))) {
-    pair <- merged[i, ]
-    lost <- c(lost, pair[which.min(n[pair])])
+## Solve for the coalition and classify it. Newton from the residents is
+## fast but local: from an immigrant's starting point it can leave the bounds,
+## collapse two residents onto a single resident's root, or land on a root the
+## dynamics flees (a repeller, a Garden of Eden, an unprotected coalition).
+## In all of these the dynamics themselves are integrated instead, from where
+## the residents were: the assembly's next birth is only meaningful into a
+## community the dynamics reaches.
+evolve_newton <- function(community, ctrl) {
+  quietly <- function(expr) suppressWarnings(expr)
+  sol <- tryCatch(quietly(community_solve_singularity(community, tol = ctrl$evolve_tol)),
+                  error = function(e) e)
+  evaluations <- if (inherits(sol, "error")) {
+    if (is.null(sol$evaluations)) 0L else sol$evaluations
+  } else {
+    attr(sol, "evaluations")
   }
-  sort(unique(lost))
+  why <- if (inherits(sol, "error")) {
+    conditionMessage(sol)
+  } else if (!isTRUE(attr(sol, "converged"))) {
+    "the coalition solve did not converge"
+  } else if (length(evolve_merged(sol)) > 0L) {
+    ## a pair collapsed onto one point passes as a root and cannot be
+    ## classified; the caller merges it
+    return(list(community = sol, converged = TRUE, classification = NA_character_,
+                reason = NULL, evaluations = evaluations))
+  } else {
+    cl <- quietly(community_classify_singularity(sol))
+    evaluations <- evaluations + cl$evaluations
+    if (cl$classification %in% c("CSS", "branching point")) {
+      return(list(community = sol, converged = TRUE, classification = cl$classification,
+                  reason = NULL, evaluations = evaluations))
+    }
+    sprintf("the singular coalition found is %s", cl$classification)
+  }
+  plant_log_assembler(paste0(why, "; integrating the canonical equation"))
+  out <- evolve_canonical(community, ctrl)
+  out$evaluations <- out$evaluations + evaluations
+  out
 }
 
 ## Integrate the canonical equation to its first stationary coalition: the
 ## route that only reaches attractors.
 evolve_canonical <- function(community, ctrl) {
-  ce <- community_canonical_equation(community, x0 = community$traits, control = canonical_control(list(
-    branch = "none", polish = TRUE, polish_tol = ctrl$evolve_tol,
-    max_residents = length(community))))
+  ## the polish solves the gradients to a tenth of gradient_tol
+  ce <- tryCatch(community_canonical_equation(community, x0 = community$traits, control = canonical_control(list(
+    branch = "none", polish = TRUE, gradient_tol = 10 * ctrl$evolve_tol,
+    max_residents = length(community)))), error = function(e) e)
+  if (inherits(ce, "error")) {
+    return(list(community = community, converged = FALSE, classification = NA_character_,
+                reason = paste("the canonical equation failed:", conditionMessage(ce)),
+                evaluations = 0L))
+  }
   stable <- identical(ce$outcome, "stable")
   ## the community at the end of the trajectory, solved again at its
   ## polished traits (the run's last right-hand side predates the polish)

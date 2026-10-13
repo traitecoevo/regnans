@@ -8,6 +8,11 @@
 #   boundary_design()    well-spread points in a parameter box
 #   boundary_scout()     the label at each point of a design, through the
 #                        parallel map
+#   boundary_bisect()    where the label changes along rays from a point,
+#                        each ray bisected on a worker
+#   boundary_sweep()     the labels along a path, cold and carried from the
+#                        previous point in each direction: where they
+#                        disagree the model has alternative attractors
 #
 # The label is the end state of assembly by immigration and evolution: the
 # residents evolve to the singular coalition they form together, an immigrant
@@ -52,7 +57,10 @@
 ##'     label is given up as \code{"unresolved"}.}
 ##'   \item{\code{trait_tol}}{two communities of the same size whose sorted
 ##'     traits differ by less than this fraction of the bounds' width are the
-##'     same community (a round that returns to one is a cycle).}
+##'     same community (a round that returns to one is a cycle, and a sweep
+##'     whose routes end on different ones has found hysteresis).}
+##'   \item{\code{bisect_tol}}{\code{\link{boundary_bisect}} halves each
+##'     bracket until it is this short, as a fraction of the ray.}
 ##' }
 ##' @return A list with those elements.
 ##' @author Daniel Falster
@@ -67,7 +75,8 @@ boundary_control <- function(control = NULL) {
     evolve        = "newton",
     evolve_tol    = 1e-6,
     max_rounds    = 20L,
-    trait_tol     = 1e-3
+    trait_tol     = 1e-3,
+    bisect_tol    = 1e-6
   )
   control <- as.list(control)
   extra <- setdiff(names(control), names(defaults))
@@ -83,7 +92,7 @@ boundary_control <- function(control = NULL) {
     }
     ret[[nm]] <- as.integer(v)
   }
-  for (nm in c("edge_tol", "branch_offset", "eps_too_close", "evolve_tol", "trait_tol")) {
+  for (nm in c("edge_tol", "branch_offset", "eps_too_close", "evolve_tol", "trait_tol", "bisect_tol")) {
     v <- ret[[nm]]
     if (!is.numeric(v) || length(v) != 1L || !is.finite(v) || v <= 0) {
       stop(nm, " must be a single positive number")
@@ -348,6 +357,326 @@ print.boundary_labels <- function(x, ...) {
   cat(sprintf("<boundary_labels: %d points over %s>\n", nrow(x), paste(pars, collapse = ", ")))
   tab <- table(label = sprintf("%d %s", x$n, x$status))
   for (nm in names(tab)) cat(sprintf("  %s: %d point%s\n", nm, tab[[nm]], if (tab[[nm]] == 1L) "" else "s"))
+  cat(sprintf("  equilibrium solves: %d\n", attr(x, "evaluations")))
+  invisible(x)
+}
+
+## The label as a string, for telling two labels apart: the count and its
+## status. NA for an unresolved label, which is not known to differ from
+## anything.
+label_string <- function(row) {
+  if (identical(row$status, "unresolved")) NA_character_ else sprintf("%d %s", as.integer(row$n), row$status)
+}
+
+##' Find where the coexistence label changes along rays.
+##'
+##' Each ray runs from \code{from} to one row of \code{to} in parameter
+##' space, \eqn{p(t) = from + t (to - from)} for \eqn{t} in \eqn{[0, 1]}, and
+##' is labelled at both ends (\code{\link{community_label}}). Where the labels
+##' differ the ray is bisected: the label at the midpoint decides which half
+##' holds a change, and a midpoint whose label differs from both ends puts a
+##' change in each half, until a bracket is shorter than \code{bisect_tol}. A
+##' label that only counts upwards along a ray, as nested regions make it
+##' from an interior point, has one change per pair of labels, and bisection
+##' cannot then pick the wrong one. A censored label is a label like any other
+##' here (its count and status), so a change into or out of one is reported
+##' with both labels and is a boundary of the search rather than of the model
+##' unless both are \code{"stable"}; an unresolved label is not known to
+##' differ from anything, so a bracket with one at an end, or meeting one at
+##' its midpoint, is reported unrefined, with \code{resolved = FALSE}.
+##'
+##' Every label is assembled cold from the community \code{parameter} builds,
+##' so the points are independent: each ray is one job of the parallel map,
+##' with the same answer under any \code{future::plan()}. The rays' residents
+##' either side of each change are what a solve for the boundary point starts
+##' from.
+##'
+##' @title Bisect coexistence boundaries along rays
+##' @param parameter A function \code{p -> community}; see
+##' \code{\link{community_parameter_map}}.
+##' @param from The parameter values every ray starts from: typically inside
+##' the region of fewest species.
+##' @param to The far end of each ray, one row per ray (a vector is one ray).
+##' @param control See \code{\link{boundary_control}}.
+##' @return A data frame of class \code{boundary_points}, one row per change
+##' found: \code{ray}, the parameters at the bracket's midpoint, \code{t_lo}
+##' and \code{t_hi} (the bracket along the ray), \code{n_lo}, \code{status_lo},
+##' \code{n_hi}, \code{status_hi}, \code{resolved}, \code{reason}, and the list
+##' columns \code{traits_lo}, \code{birth_rate_lo}, \code{traits_hi},
+##' \code{birth_rate_hi}. \code{attr(., "rays")} has one row per ray with its
+##' labels at the ends, its changes and its equilibrium solves, whose total is
+##' \code{attr(., "evaluations")}.
+##' @examples
+##' comm <- community_start(bounds(x = c(-2, 2)), trait_scale = "linear",
+##'                         harness = harness_dd99()) |>
+##'   community_add(trait_matrix(0.5, "x"), birth_rate = 100)
+##' by <- community_parameter_map(comm, c("sigma_C", "sigma_K"))
+##' # from wide competition, where one species is stable, towards narrow
+##' boundary_bisect(by, c(1.5, 1), rbind(c(0.5, 1.2), c(1.5, 2)),
+##'                 boundary_control(list(bisect_tol = 1e-4)))
+##' @author Daniel Falster
+##' @export
+boundary_bisect <- function(parameter, from, to, control = boundary_control()) {
+  control <- boundary_control(control)
+  if (!is.function(parameter)) {
+    stop("parameter must be a function p -> community; ",
+         "community_parameter_map() builds one for an explicit harness")
+  }
+  from <- boundary_check_design(matrix(from, nrow = 1L), parameter)
+  if (!is.matrix(to)) {
+    to <- matrix(as.numeric(to), nrow = 1L)
+  }
+  if (ncol(to) != ncol(from)) {
+    stop("to must have one column per parameter (", ncol(from), ")")
+  }
+  to <- boundary_check_design(to, parameter)
+  colnames(to) <- colnames(from)
+  if (any(rowSums(abs(sweep(to, 2, from[1, ]))) == 0)) {
+    stop("a ray must end away from where it starts")
+  }
+  ends <- lapply(seq_len(nrow(to)), function(i) to[i, ])
+  rays <- regnans_map(ends, boundary_ray, from = from[1, ], parameter = parameter, control = control)
+  failed <- vapply(rays, inherits, logical(1), "error")
+  if (any(failed)) {
+    stop("boundary_bisect failed on ray ", which(failed)[1], ": ", conditionMessage(rays[[which(failed)[1]]]))
+  }
+  boundary_points(from[1, ], to, rays)
+}
+
+## One ray, on a worker: its labels bisected wherever they change. Returns
+## numbers only, or the error.
+boundary_ray <- function(to, from, parameter, control) {
+  tryCatch({
+    evaluations <- 0L
+    label <- function(t) {
+      r <- boundary_label_point(from + t * (to - from), parameter, control)
+      if (inherits(r, "error")) stop(r)
+      evaluations <<- evaluations + as.integer(r$evaluations)
+      r
+    }
+    changes <- list()
+    record <- function(t_lo, lo, t_hi, hi, resolved, reason = NA_character_) {
+      changes[[length(changes) + 1L]] <<- list(t_lo = t_lo, t_hi = t_hi, lo = lo, hi = hi,
+                                               resolved = resolved, reason = reason)
+    }
+    search <- function(t_lo, lo, t_hi, hi) {
+      a <- label_string(lo)
+      b <- label_string(hi)
+      if (!is.na(a) && !is.na(b) && a == b) {
+        return(invisible())
+      }
+      if (is.na(a) || is.na(b)) {
+        return(record(t_lo, lo, t_hi, hi, FALSE, "an end of the bracket is unresolved"))
+      }
+      if (t_hi - t_lo <= control$bisect_tol) {
+        return(record(t_lo, lo, t_hi, hi, TRUE))
+      }
+      t_mid <- (t_lo + t_hi) / 2
+      mid <- label(t_mid)
+      m <- label_string(mid)
+      if (is.na(m)) {
+        return(record(t_lo, lo, t_hi, hi, FALSE,
+                      sprintf("the label is unresolved at t = %s inside the bracket: %s",
+                              signif(t_mid, 6), mid$reason)))
+      }
+      search(t_lo, lo, t_mid, mid)
+      search(t_mid, mid, t_hi, hi)
+    }
+    start <- label(0)
+    end <- label(1)
+    search(0, start, 1, end)
+    list(start = start, end = end, changes = changes, evaluations = evaluations)
+  }, error = function(e) e)
+}
+
+## The data frame boundary_bisect() returns.
+boundary_points <- function(from, to, rays) {
+  pars <- colnames(to)
+  rows <- list()
+  for (i in seq_along(rays)) {
+    for (ch in rays[[i]]$changes) {
+      t <- (ch$t_lo + ch$t_hi) / 2
+      p <- from + t * (to[i, ] - from)
+      rows[[length(rows) + 1L]] <- c(list(ray = i), as.list(stats::setNames(p, pars)),
+        list(t_lo = ch$t_lo, t_hi = ch$t_hi,
+             n_lo = as.integer(ch$lo$n), status_lo = ch$lo$status,
+             n_hi = as.integer(ch$hi$n), status_hi = ch$hi$status,
+             resolved = ch$resolved, reason = ch$reason,
+             traits_lo = list(ch$lo$traits), birth_rate_lo = list(ch$lo$birth_rate),
+             traits_hi = list(ch$hi$traits), birth_rate_hi = list(ch$hi$birth_rate)))
+    }
+  }
+  scalar <- c("ray", pars, "t_lo", "t_hi", "n_lo", "status_lo", "n_hi", "status_hi", "resolved", "reason")
+  listcols <- c("traits_lo", "birth_rate_lo", "traits_hi", "birth_rate_hi")
+  out <- if (length(rows) == 0L) {
+    df <- data.frame(ray = integer(0))
+    for (nm in pars) df[[nm]] <- numeric(0)
+    df$t_lo <- numeric(0); df$t_hi <- numeric(0)
+    df$n_lo <- integer(0); df$status_lo <- character(0)
+    df$n_hi <- integer(0); df$status_hi <- character(0)
+    df$resolved <- logical(0); df$reason <- character(0)
+    for (nm in listcols) df[[nm]] <- I(list())
+    df
+  } else {
+    df <- as.data.frame(lapply(stats::setNames(scalar, scalar), function(nm) {
+      v <- lapply(rows, `[[`, nm)
+      unlist(v)
+    }), stringsAsFactors = FALSE, check.names = FALSE)
+    for (nm in listcols) df[[nm]] <- I(lapply(rows, function(r) r[[nm]][[1L]]))
+    df
+  }
+  summary <- data.frame(
+    ray = seq_along(rays),
+    n_start = vapply(rays, function(r) as.integer(r$start$n), integer(1)),
+    status_start = vapply(rays, function(r) r$start$status, character(1)),
+    n_end = vapply(rays, function(r) as.integer(r$end$n), integer(1)),
+    status_end = vapply(rays, function(r) r$end$status, character(1)),
+    changes = vapply(rays, function(r) length(r$changes), integer(1)),
+    evaluations = vapply(rays, function(r) as.integer(r$evaluations), integer(1)),
+    stringsAsFactors = FALSE)
+  attr(out, "rays") <- summary
+  attr(out, "evaluations") <- sum(summary$evaluations)
+  class(out) <- c("boundary_points", "data.frame")
+  out
+}
+
+##' @param x A \code{boundary_points} object.
+##' @param ... Ignored.
+##' @rdname boundary_bisect
+##' @export
+print.boundary_points <- function(x, ...) {
+  rays <- attr(x, "rays")
+  cat(sprintf("<boundary_points: %d change%s on %d ray%s>\n", nrow(x), if (nrow(x) == 1L) "" else "s",
+              nrow(rays), if (nrow(rays) == 1L) "" else "s"))
+  pars <- setdiff(names(x), c("ray", "t_lo", "t_hi", "n_lo", "status_lo", "n_hi", "status_hi", "resolved",
+                              "reason", "traits_lo", "birth_rate_lo", "traits_hi", "birth_rate_hi"))
+  for (i in seq_len(nrow(x))) {
+    cat(sprintf("  ray %d at %s: %d %s -> %d %s%s\n", x$ray[i],
+                paste(pars, signif(unlist(x[i, pars]), 6), sep = " = ", collapse = ", "),
+                x$n_lo[i], x$status_lo[i], x$n_hi[i], x$status_hi[i],
+                if (x$resolved[i]) "" else " (unresolved)"))
+  }
+  cat(sprintf("  equilibrium solves: %d\n", attr(x, "evaluations")))
+  invisible(x)
+}
+
+##' Look for alternative attractors along a path in parameter space.
+##'
+##' Where a model has alternative stable communities the label is not a
+##' function of the parameters alone: which community is reached depends on
+##' where the assembly started. A sweep labels each point of a path three
+##' ways: cold, from the community \code{parameter} builds
+##' (\code{\link{boundary_scout}}); and carried, from the community the
+##' previous point ended on, along the path forward and back. Each carried
+##' label starts from its predecessor's residents and densities, so it
+##' follows an attractor for as long as it persists, as a slowly changing
+##' environment would. A point whose three labels differ in count or status,
+##' or whose communities differ in the residents' sorted traits by more than
+##' \code{trait_tol} of the bounds' width, is flagged: the history decided.
+##'
+##' The cold labels are independent jobs of the parallel map; each carried
+##' direction is one job (a chain, sequential by nature). The answer does not
+##' depend on the plan.
+##'
+##' @title Sweep a path for hysteresis
+##' @param parameter A function \code{p -> community}; see
+##' \code{\link{community_parameter_map}}.
+##' @param p The path, one row per point in order (a vector for one
+##' parameter).
+##' @param control See \code{\link{boundary_control}}.
+##' @return A data frame of class \code{boundary_sweep}, one row per point:
+##' the parameters, then \code{n} and \code{status} for each route
+##' (\code{cold_n}, \code{cold_status}, \code{forward_n}, ...,
+##' \code{backward_status}), \code{hysteresis}, the list columns
+##' \code{cold_traits}, \code{forward_traits} and \code{backward_traits}, and
+##' \code{evaluations} (equilibrium solves, all three routes), whose total is
+##' \code{attr(., "evaluations")}.
+##' @examples
+##' comm <- community_start(bounds(x = c(-2, 2)), trait_scale = "linear",
+##'                         harness = harness_dd99()) |>
+##'   community_add(trait_matrix(0.5, "x"), birth_rate = 100)
+##' # one stable community at every point: nothing to flag
+##' boundary_sweep(community_parameter_map(comm, "sigma_C"), c(1.2, 1.4, 1.6))
+##' @author Daniel Falster
+##' @export
+boundary_sweep <- function(parameter, p, control = boundary_control()) {
+  control <- boundary_control(control)
+  if (!is.function(parameter)) {
+    stop("parameter must be a function p -> community; ",
+         "community_parameter_map() builds one for an explicit harness")
+  }
+  p <- boundary_check_design(p, parameter)
+  if (nrow(p) < 2L) {
+    stop("a sweep needs a path of at least two points")
+  }
+  points <- lapply(seq_len(nrow(p)), function(i) p[i, ])
+  cold <- regnans_map(points, boundary_label_point, parameter = parameter, control = control)
+  chains <- regnans_map(list(points, rev(points)), boundary_chain, parameter = parameter, control = control)
+  for (r in c(cold, chains)) {
+    if (inherits(r, "error")) stop("boundary_sweep failed: ", conditionMessage(r))
+  }
+  forward <- chains[[1L]]
+  backward <- rev(chains[[2L]])
+
+  base <- parameter(p[1L, ])
+  tf <- community_trait_transform(base)
+  key <- function(r) {
+    comm <- base
+    comm$traits <- trait_matrix(r$traits, base$trait_names)
+    label_key(comm, tf)
+  }
+  out <- as.data.frame(p)
+  for (route in c("cold", "forward", "backward")) {
+    rows <- get(route)
+    out[[paste0(route, "_n")]] <- vapply(rows, function(r) as.integer(r$n), integer(1))
+    out[[paste0(route, "_status")]] <- vapply(rows, function(r) r$status, character(1))
+  }
+  out$hysteresis <- vapply(seq_len(nrow(p)), function(i) {
+    routes <- list(cold[[i]], forward[[i]], backward[[i]])
+    labels <- vapply(routes, function(r) sprintf("%d %s", as.integer(r$n), r$status), character(1))
+    if (length(unique(labels)) > 1L) return(TRUE)
+    keys <- lapply(routes, key)
+    !(label_same(keys[[1]], keys[[2]], control$trait_tol) && label_same(keys[[1]], keys[[3]], control$trait_tol))
+  }, logical(1))
+  out$cold_traits <- I(lapply(cold, `[[`, "traits"))
+  out$forward_traits <- I(lapply(forward, `[[`, "traits"))
+  out$backward_traits <- I(lapply(backward, `[[`, "traits"))
+  out$evaluations <- vapply(seq_len(nrow(p)), function(i) {
+    as.integer(cold[[i]]$evaluations + forward[[i]]$evaluations + backward[[i]]$evaluations)
+  }, integer(1))
+  attr(out, "evaluations") <- sum(out$evaluations)
+  class(out) <- c("boundary_sweep", "data.frame")
+  out
+}
+
+## One direction of a sweep, on a worker: each point labelled from the
+## community the previous one ended on (the first from the map's own start).
+## Returns a list of label results in path order, or the error.
+boundary_chain <- function(points, parameter, control) {
+  tryCatch({
+    prev <- NULL
+    lapply(points, function(p) {
+      comm <- parameter(p)
+      if (!inherits(comm, "community")) {
+        stop("parameter(p) must return a community")
+      }
+      if (!is.null(prev) && nrow(prev$traits) > 0L) {
+        comm <- community_clear_residents(comm) |>
+          community_add(trait_matrix(prev$traits, comm$trait_names), birth_rate = prev$birth_rate)
+      }
+      out <- community_label(comm, control)
+      prev <<- list(traits = unname(out$traits), birth_rate = as.numeric(out$birth_rate))
+      c(attr(out, "label"), prev)
+    })
+  }, error = function(e) e)
+}
+
+##' @param x A \code{boundary_sweep} object.
+##' @param ... Ignored.
+##' @rdname boundary_sweep
+##' @export
+print.boundary_sweep <- function(x, ...) {
+  cat(sprintf("<boundary_sweep: %d points, %d with hysteresis>\n", nrow(x), sum(x$hysteresis)))
   cat(sprintf("  equilibrium solves: %d\n", attr(x, "evaluations")))
   invisible(x)
 }

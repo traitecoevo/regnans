@@ -186,3 +186,128 @@ test_that("scouting is the same, in answer and cost, under each plan", {
     expect_identical(attr(parallel, "evaluations"), attr(sequential, "evaluations"))
   }
 })
+
+# ---- boundary_bisect ------------------------------------------------------------
+
+test_that("bisection along rays recovers DD99's boundary at sigma_C = sigma_K", {
+  # wide competition (one species, stable) towards narrow (the box fills).
+  # The label changes where the fitness at the box's edge, 1 - exp(-2 (1 /
+  # sigma_C^2 - 1 / sigma_K^2)) ~ 4 (1 - sigma_C / sigma_K), passes fitness_tol
+  # (1e-8): 2.5e-9 inside the diagonal, below the bracket of 1e-7 of a ray
+  # of length ~1, so the crossing is the diagonal to 1e-6.
+  by <- community_parameter_map(dd99_start(), c("sigma_C", "sigma_K"))
+  to <- rbind(c(0.5, 1.2), c(1.5, 2), c(2, 0.8))
+  bp <- boundary_bisect(by, c(1.5, 1), to, boundary_control(list(bisect_tol = 1e-7)))
+  expect_s3_class(bp, "boundary_points")
+  expect_equal(bp$ray, 1:2)
+  expect_equal(bp$sigma_C, bp$sigma_K, tolerance = 1e-6)
+  expect_equal(bp$sigma_C, c(1.5 - 0.5 / 1.2, 1.5), tolerance = 1e-6)
+  expect_true(all(bp$t_hi - bp$t_lo <= 1e-7))
+  expect_equal(bp$status_lo, c("stable", "stable"))
+  expect_equal(bp$status_hi, c("edge", "edge"))
+  expect_true(all(bp$resolved))
+  # the residents either side, for a boundary solve to start from
+  expect_equal(as.numeric(bp$traits_lo[[1]]), 0, tolerance = 1e-8)
+  rays <- attr(bp, "rays")
+  expect_equal(rays$changes, c(1L, 1L, 0L))
+  expect_equal(rays$status_end, c("edge", "edge", "stable"))
+  expect_equal(attr(bp, "evaluations"), sum(rays$evaluations))
+  out <- paste(utils::capture.output(print(bp)), collapse = "\n")
+  expect_match(out, "2 changes on 3 rays")
+  expect_match(out, "ray 2 at sigma_C = 1.5, sigma_K = 1.5: 1 stable -> 1 edge")
+})
+
+test_that("bisection recovers GK98's nested boundaries, a pitchfork and a transversal crossing", {
+  # From one species at d = 1 towards three. At the pitchfork the emerging
+  # peak's fitness grows as ~2.67 (d - c1)^2 (helper-boundary.R's peak), so
+  # the label changes sqrt(fitness_tol / 2.67) beyond c1: 6e-7 at
+  # fitness_tol = 1e-12. At the transversal crossing s(0) grows at 0.27 per
+  # unit d, so the change is within fitness_tol / 0.27 of c2, and the pair's
+  # gradients solved to 1e-10 leave the peak's height within the same; the
+  # bracket is 1e-7 of a ray of length 1.6 to 2.
+  control <- boundary_control(list(bisect_tol = 1e-7, evolve_tol = 1e-10, fitness_tol = 1e-12))
+  by <- gk98_by_d_kappa
+  bp <- boundary_bisect(by, c(1, 1), rbind(c(2.6, 1), c(2.6, 2)), control)
+  expect_equal(nrow(bp), 4L)
+  expect_true(all(bp$resolved))
+  expect_equal(bp$n_lo, c(1L, 2L, 1L, 2L))
+  expect_equal(bp$n_hi, c(2L, 3L, 2L, 3L))
+  expect_equal(unique(c(bp$status_lo, bp$status_hi)), "stable")
+  oracle <- t(vapply(bp[["p[2]"]], gk98_kappa_boundaries, numeric(2)))
+  d <- bp[["p[1]"]]
+  pitchfork <- d[c(1, 3)] - oracle[c(1, 3), "c1"]
+  expect_true(all(pitchfork > 0 & pitchfork < 2e-6))
+  expect_equal(d[c(2, 4)], oracle[c(2, 4), "c2"], tolerance = 1e-7)
+  # each side's community: the pair at the closed form, two species below
+  # the transversal crossing and three beyond it
+  a <- gk98_kappa_pair_root(d[2], 1)
+  expect_equal(sort(as.numeric(bp$traits_lo[[2]])), c(-a, a), tolerance = 1e-6)
+  expect_equal(length(bp$traits_hi[[2]]), 3L)
+  # with the default fitness_tol (1e-8) the pitchfork moves out by
+  # sqrt(1e-8 / 2.67) = 6.1e-5, as predicted
+  coarse <- boundary_bisect(by, c(1, 1), c(1.6, 1), boundary_control(list(bisect_tol = 1e-7)))
+  expect_equal(coarse[["p[1]"]] - sqrt(1.5), sqrt(1e-8 / 2.67), tolerance = 0.05)
+})
+
+test_that("an unresolved label stops a bracket rather than being bisected across", {
+  # the Garden of Eden model has no attractor to assemble to anywhere, so
+  # both ends of the ray are unresolved and nothing is refined
+  goe <- function(p) garden_of_eden_start(c = p)
+  bp <- boundary_bisect(goe, 1, 2)
+  expect_equal(nrow(bp), 1L)
+  expect_false(bp$resolved)
+  expect_equal(bp$reason, "an end of the bracket is unresolved")
+  expect_equal(c(bp$t_lo, bp$t_hi), c(0, 1))
+})
+
+test_that("bisection validates its rays", {
+  by <- community_parameter_map(dd99_start(), c("sigma_C", "sigma_K"))
+  expect_error(boundary_bisect("x", c(1, 1), c(2, 2)), "must be a function")
+  expect_error(boundary_bisect(by, c(1, 1), c(2, 2, 2)), "one column per parameter")
+  expect_error(boundary_bisect(by, c(1, 1), c(1, 1)), "end away from where it starts")
+  broken <- function(p) if (p[1] > 1.2) stop("no model here") else by(p)
+  expect_error(boundary_bisect(broken, c(1, 1), c(2, 1)), "failed on ray 1: .*no model here")
+})
+
+test_that("bisection is the same, in answer and cost, under each plan", {
+  by <- community_parameter_map(dd99_start(), c("sigma_C", "sigma_K"))
+  to <- rbind(c(0.5, 1.2), c(1.5, 2))
+  control <- boundary_control(list(bisect_tol = 1e-4))
+  sequential <- boundary_bisect(by, c(1.5, 1), to, control)
+  for (type in c("multicore", "multisession")) {
+    parallel <- with_two_workers(type, boundary_bisect(by, c(1.5, 1), to, control))
+    expect_identical(as.data.frame(parallel), as.data.frame(sequential))
+    expect_identical(attr(parallel, "rays"), attr(sequential, "rays"))
+  }
+})
+
+# ---- boundary_sweep ---------------------------------------------------------------
+
+test_that("a sweep flags the alternative attractors of a bistable model, and only there", {
+  # helper-boundary.R: both monocultures resist invasion for |q| < 1/3.
+  # Started cold at x = 0.5 the assembly reaches the +1 peak unless the -1
+  # monoculture can exclude it (q < -1/3); carried forward from q = -0.5 it
+  # stays on -1 until that peak can be invaded (q > 1/3), and backward from
+  # 0.5 on +1 until q < -1/3.
+  by <- community_parameter_map(bistable_start(), "q")
+  q <- c(-0.5, -0.3, -0.1, 0.1, 0.3, 0.5)
+  sw <- boundary_sweep(by, q)
+  expect_s3_class(sw, "boundary_sweep")
+  expect_equal(sw$q, q)
+  expect_equal(sw$hysteresis, abs(q) < 1 / 3)
+  expect_true(all(c(sw$cold_status, sw$forward_status, sw$backward_status) == "stable"))
+  expect_true(all(c(sw$cold_n, sw$forward_n, sw$backward_n) == 1L))
+  peak <- function(x) vapply(x, function(t) sign(as.numeric(t)), 0)
+  expect_equal(peak(sw$cold_traits), c(-1, 1, 1, 1, 1, 1))
+  expect_equal(peak(sw$forward_traits), c(-1, -1, -1, -1, -1, 1))
+  expect_equal(peak(sw$backward_traits), c(-1, 1, 1, 1, 1, 1))
+  expect_equal(attr(sw, "evaluations"), sum(sw$evaluations))
+  expect_match(paste(utils::capture.output(print(sw)), collapse = "\n"), "6 points, 4 with hysteresis")
+})
+
+test_that("a sweep finds no hysteresis where the stable community is unique", {
+  sw <- boundary_sweep(gk98_by_d_kappa, cbind(c(1, 1.5, 2.2, 2.5), 1))
+  expect_false(any(sw$hysteresis))
+  expect_equal(sw$cold_n, c(1L, 2L, 3L, 3L))
+  expect_error(boundary_sweep(gk98_by_d_kappa, cbind(1, 1)), "at least two points")
+})
