@@ -22,7 +22,8 @@ stacked selection gradient at the residents in
 \code{attr(., "selection_gradient")}, the \code{m} by \code{mk} Jacobian
 of the residents' equilibrium birth rates (densities, for the reference
 models) from the same solves in \code{attr(., "birth_rate_jacobian")},
-and the equilibrium solves it cost in \code{attr(., "evaluations")}.
+the equilibrium solves it cost in \code{attr(., "evaluations")} and the
+runs at given traits and densities in \code{attr(., "environments")}.
 }
 \description{
 Jacobian of the selection gradient with respect to the resident traits.
@@ -37,14 +38,17 @@ matrix is stored (trait by trait, residents within each). The
 off-diagonal blocks are how a resident's selection responds to the others
 through the environment they make. Eigenvalues with negative real parts
 mean selection carries nearby residents towards the point ---
-convergence stability. Each stencil point solves the perturbed community to
-demographic equilibrium, so this is the expensive derivative: \code{2mk}
-equilibrium solves per Richardson level, finite differences across the
-residents until the model supplies equilibrium sensitivities. Each is
+convergence stability. By default each stencil point solves the perturbed
+community to demographic equilibrium, so this is the expensive derivative:
+\code{2mk} equilibrium solves per Richardson level. Each is
 solved from the densities and solver state at the residents, so under a
 \code{future::plan()} with several workers they run in parallel, with the
 same answer, and each to the cube of the relative step (see
-\code{\link{derivative_control}}).
+\code{\link{derivative_control}}). With \code{resident_jacobian =
+"implicit"} in \code{\link{derivative_control}} it differentiates the
+equilibrium condition instead: \code{2m(k + 1)} runs of the model at given
+traits and densities per Richardson level, and no equilibrium solve beyond
+the one at the residents.
 }
 \author{
 Daniel Falster
