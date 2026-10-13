@@ -56,9 +56,10 @@ test_that("single resident solves to equilibrium, gradient and inviable check (S
     community_demography()
 
   expect_true(attr(comm, "converged"))
-  # equilibrium birth rate, reference for plant 2.0.0.9001 (the genuinely
-  # iterative equilibrium_iteration fixed point, robust to the starting rate)
-  expect_equal(as.numeric(comm$birth_rate), 112.657365, tolerance = 1e-3)
+  # equilibrium birth rate, reference for plant develop@bd09645d on the
+  # birth-date coordinate (the genuinely iterative equilibrium_iteration fixed
+  # point, robust to the starting rate; 112.651 on the height coordinate)
+  expect_equal(as.numeric(comm$birth_rate), 113.894017, tolerance = 1e-3)
   expect_equal(comm$resident_fitness, 0, tolerance = 1e-4)
 
   # selection gradient is finite at the (non-singular) resident
