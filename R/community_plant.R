@@ -37,13 +37,21 @@ plant_default_assembly_pars <- function(hmat = 10, max_patch_lifetime = 60, fixe
 ##' plant control used for assembly lives in one place and can be tuned in
 ##' future (e.g. schedule tolerances) without touching every call site.
 ##'
+##' The size density is carried on the birth-date coordinate
+##' (\code{node_density_in_birth_date = TRUE}) unless overridden: plant's
+##' gradients (\code{plant::stand_gradient()}) are defined on it alone.
+##'
 ##' @title Default plant control for community assembly
 ##' @param ... Passed to \code{plant::control()} to override defaults.
 ##' @return A plant \code{Control} object.
 ##' @export
 ##' @author Daniel Falster
 plant_default_assembly_control <- function(...) {
-  plant::control(...)
+  args <- list(...)
+  if (is.null(args$node_density_in_birth_date)) {
+    args$node_density_in_birth_date <- TRUE
+  }
+  do.call(plant::control, args)
 }
 
 plant_community_hyperpar <- function(community) {

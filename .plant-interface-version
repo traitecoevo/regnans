@@ -1,6 +1,6 @@
-migrated_on: 2026-10-10
+migrated_on: 2026-10-14
 plant_version: 2.0.0.9002
-plant_ref: develop@8657b3a (2026-10-08, plant#648; odelia 0.7.0 @6d32329 and phylloptim 0.10.0 @b019e5d)
+plant_ref: develop@bd09645d (2026-10-14, plant#658; odelia 0.7.3 @88cbff7 and phylloptim 0.10.2 @edaffe8)
 applied_breaking_changes:
   - scm-consolidation        # build_schedule -> run_scm(refine_schedule=TRUE); run_scm_collect -> run_scm(collect=TRUE)
   - control-defaults         # scm_base_control() -> control(); fast settings now the Control() default
@@ -12,6 +12,9 @@ applied_breaking_changes:
   - save-rk45-cache-removed  # Control$save_RK45_cache removed; run_mutant() keeps what it needs itself (plant#648) [2026-10-10]
 non_breaking_changes:
   - ff16-allocation-reaction-norm  # FF16_Pars gains a_f4 (shade delay) and a_f5 (shade cap), both defaulting to 0 [2026-08-13]
+  - run-mutant-whole-parameters    # run_mutant() takes the invader's regime, initial_time and initial state from p; refuses an initial state (plant#661) [2026-10-14]
+  - unknown-patch-type-error       # an unknown patch_type is refused rather than run as "fixed" (plant#676) [2026-10-14]
+  - ff16-stand-gradient            # stand_gradient()/stand_fitness() answer for FF16: fitness metrics, the birth-rate column and the rare-mutant derivative (plant#657, #658) [2026-10-14]
 notes: >-
   run_scm() call sites already used named args, so the arg-order change needed
   no edits. The build_schedule() site in R/community_plant.R relied on
@@ -47,3 +50,10 @@ notes: >-
   node_schedule_ode_times. community_add() clears both. The empty-community
   mutant run clears both to integrate freely (was use_ode_times = 0).
   save_RK45_cache was dropped from the resident control.
+
+  2026-10-14: plant#657, #661, #662, #676 and #658, which make an FF16
+  stand's census and fitness differentiable (plant#650 E1-E4). No edit was
+  needed: regnans builds invader parameters from the resident's own, which
+  carry no initial state, and sets no patch_type. All three plant smoke files
+  passed against bd09645d before any other change. The gradients run on the
+  birth-date coordinate only, so harness_plant() moves to it in the same PR.
