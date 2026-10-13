@@ -1,5 +1,21 @@
 assembler_births <- function(obj) {
   to_add <- assembler_new_types(obj)
+  obj$births <- to_add
+  obj$refused <- NULL
+
+  ## A birth the control refuses ends the assembly, with the reason kept:
+  ## the community would outgrow max_residents, or the newcomer sits on the
+  ## edge of the bounds, where the box rather than the model put it.
+  if (nrow(to_add) > 0) {
+    refused <- births_refused(obj$community, to_add, obj$control)
+    if (!is.null(refused)) {
+      plant_log_births(paste0("Refusing birth: ", refused$reason))
+      obj$refused <- refused
+      obj$done <- TRUE
+      obj$community$done <- TRUE
+      return(obj)
+    }
+  }
 
   ## Now we add things:
   if (nrow(to_add) > 0) {
@@ -79,4 +95,25 @@ plant_log_births_new_types <- function(to_add) {
   str <- format_community_state(to_add, "-", sprintf("\t%s\t", c("i", seq_along(to_add))))
   plant_log_births(paste(c("Proposed new type(s):", str), collapse="\n"),
                    to_add=to_add)
+}
+
+## NULL, or a list(status, reason) saying why the control refuses these births.
+births_refused <- function(community, to_add, control) {
+  m <- length(community)
+  if (m + nrow(to_add) > control$max_residents) {
+    return(list(status = "capped", reason = sprintf(
+      "a birth would take the community beyond %s residents", format(control$max_residents))))
+  }
+  if (control$edge_tol > 0 && m > 0L) {
+    tf <- community_trait_transform(community)
+    lb <- tf$fwd(community$bounds)
+    z <- matrix(tf$fwd(to_add), nrow = nrow(to_add))
+    width <- rep(lb[, 2] - lb[, 1], each = nrow(z))
+    on_edge <- z - rep(lb[, 1], each = nrow(z)) < control$edge_tol * width |
+      rep(lb[, 2], each = nrow(z)) - z < control$edge_tol * width
+    if (any(on_edge)) {
+      return(list(status = "edge", reason = "the newcomer's maximum lies on the edge of the bounds"))
+    }
+  }
+  NULL
 }

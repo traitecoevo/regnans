@@ -645,9 +645,7 @@ derivative_check_points <- function(community, n) {
   if (any(!is.finite(lo) | !is.finite(hi))) {
     stop("harness_check_derivatives needs finite bounds on the trait scale")
   }
-  phi <- 2
-  for (i in seq_len(30)) phi <- (1 + phi)^(1 / (k + 1))
-  frac <- (0.5 + outer(seq_len(n), phi^-seq_len(k))) %% 1
+  frac <- util_kronecker_points(n, k)
   z <- sweep(sweep(0.05 + 0.9 * frac, 2, hi - lo, "*"), 2, lo, "+")
   y <- tf$inv(z)
   dim(y) <- c(n, k)

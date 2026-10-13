@@ -1,0 +1,103 @@
+# Closed-form oracles for coexistence boundaries in parameter space, computed
+# independently of the package.
+#
+# GK98 (Levene soft selection) with three patches mu = (-d, 0, d), capacities
+# K = (1, kappa, 1) and sigma = 1, in the (d, kappa) plane: the number of
+# species in the evolutionarily stable community is 1, 2 or 3.
+#
+#   1 -> 2: the generalist at 0 is a branching point iff S''(0) > 0 with
+#           S''(0) = sum_j c_j mu_j^2 - 1 = 2 d^2 / (2 + kappa) - 1, so the
+#           boundary is d = sqrt((2 + kappa) / 2), a pitchfork (the pair +-a*
+#           emerges from 0 continuously).
+#   2 -> 3: the mirror-image pair +-a* holds equal shares (N = K_tot / 2
+#           each) and each resident's gradient vanishes,
+#               sum_j K_j (mu_j - a) f_j(a) / (f_j(a) + f_j(-a)) = 0,
+#           so a* is a scalar root; the boundary is where a mutant at the
+#           middle patch, y* = 0 by symmetry, is exactly marginal against the
+#           pair, S(0; +-a*) = 0, a scalar root in d. There y* = 0 is a strict
+#           maximum of S distinct from the residents, which are each at an ESS,
+#           and the third species' density grows from zero beyond it: the
+#           transversal case. Three is the most (one per patch).
+#
+# DD99 (Gaussian-Gaussian Lotka-Volterra) has one boundary, sigma_C =
+# sigma_K: below it the pair's curvature is positive and S(0) > 0 for every
+# ratio, and fitness tends to r far from the residents, so no finite
+# coalition resists invasion and the box's edge sets the count.
+
+gk98_patch <- function(x, mu, sigma = 1) exp(-(x - mu)^2 / (2 * sigma^2))
+
+## the mirror-image pair's half-separation a* at spacing d
+gk98_kappa_pair_root <- function(d, kappa = 1) {
+  mu <- c(-d, 0, d); K <- c(1, kappa, 1)
+  g <- function(a) sum(K * (mu - a) * gk98_patch(a, mu) / (gk98_patch(a, mu) + gk98_patch(-a, mu)))
+  stats::uniroot(g, c(1e-8, 3 * d), tol = 1e-14)$root
+}
+
+## invasion fitness of mutants y against the pair +-a, each at K_tot / 2
+gk98_kappa_pair_fitness <- function(y, a, d, kappa = 1) {
+  mu <- c(-d, 0, d); K <- c(1, kappa, 1)
+  D <- (gk98_patch(a, mu) + gk98_patch(-a, mu)) * sum(K) / 2
+  vapply(y, function(yy) log(sum(K * gk98_patch(yy, mu) / D)), 0)
+}
+
+## the two boundaries along d at a given kappa
+gk98_kappa_boundaries <- function(kappa = 1) {
+  c1 <- sqrt((2 + kappa) / 2)
+  c2 <- stats::uniroot(function(d) gk98_kappa_pair_fitness(0, gk98_kappa_pair_root(d, kappa), d, kappa),
+                       c(c1 + 1e-3, 6), tol = 1e-13)$root
+  c(c1 = c1, c2 = c2)
+}
+
+## the symmetric triple (-b, 0, b): densities by iterating the soft-selection
+## recursion (Eq. 19), b the root of the outer resident's gradient
+gk98_kappa_triple <- function(d, kappa = 1) {
+  mu <- c(-d, 0, d); K <- c(1, kappa, 1)
+  density <- function(x) {
+    F <- outer(mu, x, function(m, xx) gk98_patch(xx, m))
+    n <- rep(sum(K) / 3, 3)
+    for (i in seq_len(20000)) {
+      nn <- as.numeric(t(F) %*% (K / as.numeric(F %*% n))) * n
+      if (max(abs(nn - n)) < 1e-14) break
+      n <- nn
+    }
+    n
+  }
+  S <- function(y, x, n) {
+    D <- as.numeric(outer(mu, x, function(m, xx) gk98_patch(xx, m)) %*% n)
+    log(sum(K * gk98_patch(y, mu) / D))
+  }
+  outer_gradient <- function(b) {
+    x <- c(-b, 0, b); n <- density(x); h <- 1e-7
+    (S(b + h, x, n) - S(b - h, x, n)) / (2 * h)
+  }
+  b <- stats::uniroot(outer_gradient, c(0.3, 2 * d), tol = 1e-12)$root
+  list(traits = c(-b, 0, b), density = density(c(-b, 0, b)))
+}
+
+## the GK98 community the label starts from: seeded, since the empty
+## soft-selection community has fitness <= 0 everywhere
+gk98_kappa_start <- function(d, kappa = 1, extinct = 1e-8, ...) {
+  community_start(bounds(x = c(-4, 4)), trait_scale = "linear",
+                  harness = harness_gk98(sigma = 1, mu = c(-d, 0, d), K = c(1, kappa, 1)),
+                  demography_control = demographic_step_control(list(equilibrium_extinct_birth_rate = extinct)),
+                  ...) |>
+    community_add(trait_matrix(0.5, "x"), birth_rate = 1)
+}
+
+## DD99 seeded at x = 0.5: its empty community's fitness is flat
+dd99_start <- function(sigma_C = 0.4, sigma_K = 1, ...) {
+  community_start(bounds(x = c(-2, 2)), trait_scale = "linear",
+                  harness = harness_dd99(sigma_C = sigma_C, sigma_K = sigma_K), ...) |>
+    community_add(trait_matrix(0.5, "x"), birth_rate = 100)
+}
+
+## a singular strategy the dynamics flees: s(y; x) = c (y - x) x - (y - x)^2
+## has x* = 0 with H = -2 (an ESS) and J = c > 0 (a Garden of Eden)
+garden_of_eden_start <- function(c = 1) {
+  h <- harness_explicit(
+    fitness = function(x_mut, x_res, n_res, pars) pars$c * (x_mut - x_res[1]) * x_res[1] - (x_mut - x_res[1])^2,
+    equilibrium = function(x_res, pars) rep(1, length(x_res)),
+    pars = list(c = c), trait_names = "x", label = "goe")
+  community_start(bounds(x = c(-1, 1)), trait_scale = "linear", harness = h) |>
+    community_add(trait_matrix(0.3, "x"), birth_rate = 1)
+}

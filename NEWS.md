@@ -9,6 +9,8 @@
 
 ## New features
 
+* `community_label()` labels a community by the number of species its parameters support: the evolutionarily stable community reached by alternating evolution of the residents to their singular coalition and immigration at the maximum of invasion fitness, with a status saying whether the count is the model's (`stable`) or censored by the search (`capped`, `edge`, `unresolved`). `boundary_scout()` labels the points of a parameter design through the parallel map, `boundary_design()` builds one, and `boundary_control()` holds their settings (#60).
+* `assembler_control()` gains `evolve` (`"none"`, `"newton"` or `"canonical"`): the residents evolve to their singular coalition between maximum-fitness births, so the assembly ends at an evolutionarily stable community; `max_residents` and `edge_tol` refuse a birth beyond a cap or on the edge of the bounds; `branch_offset` places the daughter of a resident at a branching point. An assembler counts its equilibrium solves in `$evaluations`.
 * `community_selection_gradient_jacobian()` returns the Jacobian of the residents' equilibrium birth rates, from the same solves, in `attr(., "birth_rate_jacobian")`.
 
 ## Dependency changes

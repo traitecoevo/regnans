@@ -57,11 +57,39 @@ assembler_start <- function(community, control=assembler_control(control), filen
 ##' drops below "dead_birth_rate".
 ##' "eps_too_close" is tolerance in trait values when searching for maxima.
 ##'
+##' With \code{evolve} other than \code{"none"} the residents evolve between
+##' births: after each step's deaths (and once at the start) every resident is
+##' moved to the singular coalition they form together, so that each
+##' maximum-fitness birth is an immigrant into an evolutionarily stationary
+##' community and the assembly ends at an evolutionarily stable community
+##' (\code{\link{community_label}}). \code{"newton"} solves for the coalition
+##' with \code{\link{community_solve_singularity}} (to \code{evolve_tol}) and
+##' classifies it with \code{\link{community_classify_singularity}}; a
+##' resident lost on the way (extinct, or merged with another, the rarer of
+##' the two) is dropped and the survivors re-solved, and a root the dynamics
+##' does not reach (not convergence stable, or without protected coexistence)
+##' is replaced by integrating the dynamics from where the residents were.
+##' \code{"canonical"} always integrates: \code{\link{community_canonical_equation}}
+##' to its first stationary coalition (\code{branch = "none"}, polished),
+##' which only reaches attractors, at the cost of an ODE integration. Either
+##' way an evolution that fails ends the assembly, reported in
+##' \code{$evolved}. A maximum of fitness within
+##' \code{eps_too_close} of a resident is then that resident at a branching
+##' point, and the birth is placed \code{branch_offset} (a fraction of the
+##' bounds' width, on the trait scale) away from it towards the maximum rather
+##' than ending the assembly. A birth is refused, ending the assembly with
+##' \code{$refused} saying why, when it would take the community beyond
+##' \code{max_residents}, or (with \code{edge_tol > 0} and a resident
+##' present) when it lies within \code{edge_tol} of the bounds' edge, that
+##' fraction of their width on the trait scale: the box, not the model, is then
+##' setting the community.
+##'
 ##' @title Options controllings community assembly process.
 ##' @param control A list of values to modify from defaults.
 ##' @return A list with elements run_type, birth_type, birth_move_tol,
 ##' compute_viable_fitness, n_mutants, n_immigrants, check_positive,
-##' vcv, check_inviable, dead_birth_rate, eps_too_close
+##' vcv, check_inviable, dead_birth_rate, eps_too_close, evolve, evolve_tol,
+##' branch_offset, max_residents, edge_tol
 ##' @author Rich FitzJohn, Daniel Falster
 ##' @export
 assembler_control <- function(control=NULL) {
@@ -86,7 +114,15 @@ assembler_control <- function(control=NULL) {
                   ## rate (can happen!).  This should be "quite 
                   ## large", but obviously that number depends on
                   ## the situation.
-                  eps_fitness_invasion = 0.01
+                  eps_fitness_invasion = 0.01,
+                  ## evolution of the residents between births
+                  evolve = "none",
+                  evolve_tol = 1e-6,
+                  branch_offset = 1e-2,
+                  ## births refused: beyond this many residents, or on the
+                  ## edge of the bounds (0 turns the edge rule off)
+                  max_residents = Inf,
+                  edge_tol = 0
                   )
   if (identical(control[["birth_type"]], "stochastic")) {
     defaults$run_type <- "single_step"
@@ -104,6 +140,24 @@ assembler_control <- function(control=NULL) {
   if (ret$birth_type == "stochastic" && is.null(ret$vcv)) {
     stop("vcv must be provided")
   }
+  ret$evolve <- match.arg(ret$evolve, c("none", "newton", "canonical"))
+  if (ret$evolve != "none" && ret$birth_type != "maximum") {
+    stop("evolve needs birth_type = \"maximum\": the residents evolve between ",
+         "maximum-fitness births")
+  }
+  for (nm in c("evolve_tol", "branch_offset")) {
+    v <- ret[[nm]]
+    if (!is.numeric(v) || length(v) != 1L || !is.finite(v) || v <= 0) {
+      stop(nm, " must be a single positive number")
+    }
+  }
+  if (!is.numeric(ret$max_residents) || length(ret$max_residents) != 1L ||
+      is.na(ret$max_residents) || ret$max_residents < 1) {
+    stop("max_residents must be a number of residents of at least 1")
+  }
+  if (!is.numeric(ret$edge_tol) || length(ret$edge_tol) != 1L || !is.finite(ret$edge_tol) || ret$edge_tol < 0) {
+    stop("edge_tol must be a single non-negative number")
+  }
 
   ret
 }
@@ -114,14 +168,119 @@ assembler_initialise <- function(obj, community) {
   }
   plant_log_assembler("Starting empty assembler")
   obj$community <- community %>% community_demography()
-  
+  obj$evaluations <- 1L
+
   if (isTRUE(obj$control$compute_viable_fitness)) {
     plant_log_assembler("Computing viable bounds")
     obj$community <- community_viable_bounds(obj$community)
   }
   obj$done <- is.null(obj$community$bounds)
+  if (!obj$done) obj <- assembler_evolve(obj)
   obj <- assembler_append_history(obj)
   obj
+}
+
+## Move the residents to the singular coalition they form together, for an
+## assembly with evolve other than "none". A coalition the dynamics would not
+## reach, or one that cannot be solved, ends the assembly: $evolved says why.
+assembler_evolve <- function(obj) {
+  ctrl <- obj$control
+  if (ctrl$evolve == "none" || length(obj$community) == 0L) {
+    return(obj)
+  }
+  plant_log_assembler(sprintf("Evolving %d residents to their singular coalition (%s)",
+                              length(obj$community), ctrl$evolve))
+  res <- switch(ctrl$evolve,
+                newton = evolve_newton(obj$community, ctrl),
+                canonical = evolve_canonical(obj$community, ctrl))
+  obj$community <- res$community
+  obj$evaluations <- obj$evaluations + res$evaluations
+  obj$evolved <- res[c("converged", "classification", "reason")]
+  if (!res$converged) {
+    obj$done <- TRUE
+  }
+  obj
+}
+
+## Solve for the coalition, dropping residents lost on the way (extinct, or
+## the rarer of a merged pair) and re-solving the survivors, then classify it:
+## the assembly's next birth is only meaningful into a community the dynamics
+## reaches, a convergence-stable coalition with protected coexistence.
+evolve_newton <- function(community, ctrl) {
+  start <- community
+  evaluations <- 0L
+  caught <- character(0)
+  quietly <- function(expr) {
+    withCallingHandlers(expr, warning = function(w) {
+      caught <<- c(caught, conditionMessage(w))
+      invokeRestart("muffleWarning")
+    })
+  }
+  for (attempt in seq_len(length(community) + 1L)) {
+    sol <- quietly(community_solve_singularity(community, tol = ctrl$evolve_tol))
+    evaluations <- evaluations + attr(sol, "evaluations")
+    if (isTRUE(attr(sol, "converged"))) {
+      break
+    }
+    lost <- evolve_lost_residents(sol)
+    if (length(lost) == 0L) {
+      return(list(community = sol, converged = FALSE, classification = NA_character_,
+                  reason = paste(c("the coalition could not be solved", caught), collapse = "; "),
+                  evaluations = evaluations))
+    }
+    plant_log_assembler(sprintf("Dropping resident(s) %s lost by the coalition",
+                                paste(lost, collapse = ", ")))
+    community <- community_drop(sol, lost)
+    evaluations <- evaluations + 1L
+    if (length(community) == 0L) {
+      return(list(community = community, converged = FALSE, classification = NA_character_,
+                  reason = "every resident was lost by the coalition", evaluations = evaluations))
+    }
+  }
+  cl <- quietly(community_classify_singularity(sol))
+  evaluations <- evaluations + cl$evaluations
+  if (cl$classification %in% c("CSS", "branching point")) {
+    return(list(community = sol, converged = TRUE, classification = cl$classification,
+                reason = NULL, evaluations = evaluations))
+  }
+  ## a root the dynamics does not reach: integrate the dynamics instead, from
+  ## where the residents were
+  plant_log_assembler(sprintf("The singular coalition found is %s; integrating the canonical equation",
+                              cl$classification))
+  out <- evolve_canonical(start, ctrl)
+  out$evaluations <- out$evaluations + evaluations
+  out
+}
+
+## The residents a failed coalition solve lost: those at a non-positive
+## density, and of two that merged the rarer. Empty when none can be named,
+## so the failure is the solve's.
+evolve_lost_residents <- function(sol) {
+  m <- nrow(sol$traits)
+  n <- as.numeric(sol$birth_rate)
+  lost <- which(!is.finite(n) | n <= 0)
+  merged <- residents_merged(as.numeric(sol$traits), m, length(sol$trait_names),
+                             community_derivative_control(sol), reach = 2)
+  for (i in seq_len(nrow(merged))) {
+    pair <- merged[i, ]
+    lost <- c(lost, pair[which.min(n[pair])])
+  }
+  sort(unique(lost))
+}
+
+## Integrate the canonical equation to its first stationary coalition: the
+## route that only reaches attractors.
+evolve_canonical <- function(community, ctrl) {
+  ce <- community_canonical_equation(community, x0 = community$traits, control = canonical_control(list(
+    branch = "none", polish = TRUE, polish_tol = ctrl$evolve_tol,
+    max_residents = length(community))))
+  stable <- identical(ce$outcome, "stable")
+  ## the community at the end of the trajectory, solved again at its
+  ## polished traits (the run's last right-hand side predates the polish)
+  final <- canonical_community(ce, max(ce$trajectory$time))
+  list(community = final, converged = stable, classification = NA_character_,
+       reason = if (stable) NULL else sprintf("the canonical equation ended with outcome %s", ce$outcome),
+       evaluations = as.integer(ce$evaluations) + 1L)
 }
 
 
@@ -176,8 +335,12 @@ assembler_step <- function(obj) {
                   obj$control$run_type))
   plant_log_assembler_state(obj$community)
   if (!obj$done) obj <- assembler_births(obj)
-  if (!obj$done) obj$community <- community_demography(obj$community)
+  if (!obj$done) {
+    obj$community <- community_demography(obj$community)
+    obj$evaluations <- obj$evaluations + 1L
+  }
   if (!obj$done) obj <- assembler_deaths(obj)
+  if (!obj$done) obj <- assembler_evolve(obj)
   assembler_append_history(obj)
 }
 
@@ -197,7 +360,9 @@ assembler_set_traits <- function(obj, traits, birth_rate=NULL) {
   obj$community <- community_add(obj$community, traits, birth_rate)
   plant_log_assembler_state(obj$community)
   obj$community <- community_demography(obj$community)
+  obj$evaluations <- obj$evaluations + 1L
   obj <- assembler_deaths(obj)
+  obj <- assembler_evolve(obj)
   obj <- assembler_append_history(obj)
   obj
 }

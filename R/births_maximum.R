@@ -26,12 +26,39 @@ community_new_types_maximum_fitness <- function(sys, control) {
     tf <- community_trait_transform(sys)
     i <- closest(tf$fwd(drop(ret)), tf$fwd(sys$traits), tf$fwd(sys$bounds))
     if (attr(i, "distance") < control$eps_too_close) {
-      plant_log_max_fitness("Best point too close to existing")
-      return(empty(sys, ret))
+      if (identical(control$evolve, "none")) {
+        plant_log_max_fitness("Best point too close to existing")
+        return(empty(sys, ret))
+      }
+      ## the residents are singular, so a maximum beside one is that
+      ## resident at a branching point: the birth is its daughter, placed a
+      ## step away on the side of the maximum
+      plant_log_max_fitness(sprintf("Best point beside resident %d, a branching point", i))
+      ret <- branch_daughter(sys, ret, i, control$branch_offset, tf)
     }
   }
 
   ret
+}
+
+## The point branch_offset (a fraction of the bounds' width on the trait
+## scale) from resident i towards the fitness maximum `at`, inside the bounds.
+## Where the maximum coincides with the resident the direction is taken from
+## the branching direction of the landscape's curvature there, or, with one
+## trait, upwards.
+branch_daughter <- function(sys, at, i, branch_offset, tf) {
+  lb <- tf$fwd(sys$bounds)
+  z_res <- as.numeric(tf$fwd(sys$traits[i, , drop = FALSE]))
+  v <- as.numeric(tf$fwd(at)) - z_res
+  if (!any(v != 0)) {
+    H <- community_fitness_hessian(sys, sys$traits[i, , drop = FALSE])
+    v <- if (length(v) == 1L) 1 else eigen(H, symmetric = TRUE)$vectors[, 1L]
+  }
+  v <- v / sqrt(sum(v^2))
+  z <- pmin(pmax(z_res + branch_offset * (lb[, 2] - lb[, 1]) * v, lb[, 1]), lb[, 2])
+  out <- trait_matrix(as.numeric(tf$inv(z)), sys$trait_names)
+  attr(out, "fitness") <- attr(at, "fitness")
+  out
 }
 
 ## The highest-fitness trait combination that could found a new resident.

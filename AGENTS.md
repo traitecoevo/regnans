@@ -168,6 +168,7 @@ invasion-fitness closure on the community.
 - `R/pip.R` — `community_pip()` (resident sweep → fitness surface + exact zero
   contours, with `pip_control()` for seeding/refinement), `pip_mutual()`,
   `community_tep()`, and their `plot()` methods.
+- `R/boundary.R` — coexistence in parameter space (#60): `boundary_control()`, `community_label()` (the size of the evolutionarily stable community a parameter value supports, assembled by the assembler with `evolve` on, with a status: `stable`, or censored as `capped`, `edge` or `unresolved`), `boundary_design()` (a deterministic low-discrepancy design in a parameter box) and `boundary_scout()` (the label at every point of a design, each on a worker through `regnans_map()`, only numbers returning). See ROADMAP "Decided for #60" for what the label is and why DD99 has one boundary while GK98 is the oracle for nested regions.
 - `R/parallel.R` — the one `future`-backed map (`regnans_map()`, contiguous `regnans_chunks()`, `regnans_workers()`) that every independent model evaluation goes through: the PIP's residents, the TEP's pairs, the resident-Jacobian stencil (`util_jacobian()` takes an `evaluate` hook and the gradient closure supplies `attr(gradient, "points")`, so the classifier, the singularity solver, sensitivity, continuation and the canonical equation's RODAS Jacobian all route), the parameter Jacobian, protected coexistence's leave-one-out solves and the canonical branch rate's invade-back tests. Sequential without a plan, and the same answer bit for bit under any plan: every stencil point starts from the centre's densities and solver state, never from the previous point. Rules (ROADMAP, "Decided for #59"): only a community without its solve crosses to a worker, which solves it and returns numbers, since a solved plant community's fitness function holds the SCM (an external pointer); worker functions are top-level with their data as arguments, because a closure would carry its frame (the linear trait transform is `identity` for the same reason); under a plan that does not fork, the map refuses a payload holding an external pointer (`regnans_pointers()`); each element gets a seeded stream and the caller's RNG state is restored (`preserve_seed()`), so a plan never moves the caller's stream; a stencil point whose solve fails is reported after the others finish, with their solves counted; only `pip_control()` has a `parallel` field, since only the PIP's chunked warm starts make the answer depend on the plan.
 - `R/canonical.R` — `community_canonical_equation()`: the canonical equation of
   adaptive dynamics with branching after a kernel-dependent waiting time
@@ -178,7 +179,7 @@ invasion-fitness closure on the community.
   community at a recorded time; `plot(ce, type = "landscapes")` shows the
   fitness landscape before, at and after each branching.
 - `R/assembler.R` — `assembler_start`/`assembler_run`/`assembler_control` drive
-  full assembly (births → demography → deaths) over many steps.
+  full assembly (births → demography → deaths, then with `evolve = "newton"` or `"canonical"` the residents' evolution to their singular coalition, solved and classified or integrated by the canonical equation) over many steps; `max_residents` and `edge_tol` refuse a birth, `$evaluations` counts the equilibrium solves.
 - `R/births*.R`, `R/deaths.R` — add/remove strategies (maximum-fitness or
   stochastic births; inviable-strategy removal).
 
@@ -218,12 +219,12 @@ here follow current plant terminology.
 
 ## Test baseline
 
-`devtools::test()` is **green: 1520 pass, 0 fail, 0 skip, 0 warn**. Tests run in
+`devtools::test()` is **green: 1612 pass, 0 fail, 0 skip, 0 warn**. Tests run in
 parallel (`Config/testthat/parallel: true`); the `test-plant-smoke*.R` files
 dominate the wall-clock as they are the only ones that run the real SCM. The
 `test-harness-*.R` and `test-singularity.R` files run no SCM and are fast.
 
-(The count has grown as the toy-harness tier has: 197 → 256 → 401 → 537 → 979 → 1002 → 1052 → 1072 → 1174 → 1186 → 1202 → 1228 → 1363 → 1472 → 1520.
+(The count has grown as the toy-harness tier has: 197 → 256 → 401 → 537 → 979 → 1002 → 1052 → 1072 → 1174 → 1186 → 1202 → 1228 → 1363 → 1472 → 1520 → 1612.
 What matters is that a change moves it up and moves nothing to FAIL.)
 
 Note: the testthat parallel workers may fail to find `plant` on startup in some
@@ -274,6 +275,8 @@ shells; run `TESTTHAT_PARALLEL=FALSE Rscript -e 'devtools::test()'` if so.
   mirror-image daughters when σ_C < σ_K, polished rather than integrated to the
   coalition), GK98 (the dimorphic coalition the trait-evolution plot shows).
   The right-hand side's Jacobian against closed-form speeds (DD99 on a linear scale with and without the density weight, GM99 on a log scale), asked for by RODAS and not by the explicit pairs; two residents too close to tell apart merge.
+- `test-boundary.R` — `boundary_control()`, `community_label()` on GK98 (one, two or three species as the patches move apart, residents at the closed-form pair and triple, by Newton and by the canonical equation; capped; unresolved on a Garden of Eden, whose dynamics the fallback integrates), DD99 (one species above the diagonal, `edge` below, a first immigrant into the empty community exempt), `boundary_design()`, `boundary_scout()` (the DD99 plane by the diagonal, the one-parameter case, input validation and a failing point named, bit-identical in answer and cost under multicore and multisession). Oracles in `helper-boundary.R`.
+- `test-plant-smoke-boundary.R` — the label on the SCM's lma community (reference-free: the resident singular, the status agreeing with the classification) and a two-point `hmat` scout identical under multisession.
 - `test-plant-smoke-singularity.R` — the SCM anchor for the above: the
   alternative equilibrium solvers agreeing with the iteration, and the N-D
   solver plus classifier running on the real model (under multicore and

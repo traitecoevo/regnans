@@ -149,3 +149,12 @@ preserve_seed <- function(expr) {
             if (exists(".Random.seed", envir = globalenv(), inherits = FALSE)) rm(".Random.seed", envir = globalenv()))
   expr
 }
+
+## n well-spread points in the unit cube of dimension k: the Kronecker
+## sequence with the generalised golden ratio, deterministic, every prefix
+## of it itself well spread.
+util_kronecker_points <- function(n, k) {
+  phi <- 2
+  for (i in seq_len(30)) phi <- (1 + phi)^(1 / (k + 1))
+  (0.5 + outer(seq_len(n), phi^-seq_len(k))) %% 1
+}

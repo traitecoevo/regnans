@@ -12,7 +12,8 @@ assembler_control(control = NULL)
 \value{
 A list with elements run_type, birth_type, birth_move_tol,
 compute_viable_fitness, n_mutants, n_immigrants, check_positive,
-vcv, check_inviable, dead_birth_rate, eps_too_close
+vcv, check_inviable, dead_birth_rate, eps_too_close, evolve, evolve_tol,
+branch_offset, max_residents, edge_tol
 }
 \description{
 Controls how community assembly works.
@@ -36,6 +37,33 @@ invader is checked before it is introduced. If
 "check_inviable" causes dead residents to be removed when birth rate
 drops below "dead_birth_rate".
 "eps_too_close" is tolerance in trait values when searching for maxima.
+
+With \code{evolve} other than \code{"none"} the residents evolve between
+births: after each step's deaths (and once at the start) every resident is
+moved to the singular coalition they form together, so that each
+maximum-fitness birth is an immigrant into an evolutionarily stationary
+community and the assembly ends at an evolutionarily stable community
+(\code{\link{community_label}}). \code{"newton"} solves for the coalition
+with \code{\link{community_solve_singularity}} (to \code{evolve_tol}) and
+classifies it with \code{\link{community_classify_singularity}}; a
+resident lost on the way (extinct, or merged with another, the rarer of
+the two) is dropped and the survivors re-solved, and a root the dynamics
+does not reach (not convergence stable, or without protected coexistence)
+is replaced by integrating the dynamics from where the residents were.
+\code{"canonical"} always integrates: \code{\link{community_canonical_equation}}
+to its first stationary coalition (\code{branch = "none"}, polished),
+which only reaches attractors, at the cost of an ODE integration. Either
+way an evolution that fails ends the assembly, reported in
+\code{$evolved}. A maximum of fitness within
+\code{eps_too_close} of a resident is then that resident at a branching
+point, and the birth is placed \code{branch_offset} (a fraction of the
+bounds' width, on the trait scale) away from it towards the maximum rather
+than ending the assembly. A birth is refused, ending the assembly with
+\code{$refused} saying why, when it would take the community beyond
+\code{max_residents}, or (with \code{edge_tol > 0} and a resident
+present) when it lies within \code{edge_tol} of the bounds' edge, that
+fraction of their width on the trait scale: the box, not the model, is then
+setting the community.
 }
 \author{
 Rich FitzJohn, Daniel Falster
