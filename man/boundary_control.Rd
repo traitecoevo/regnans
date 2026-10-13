@@ -56,7 +56,7 @@ For \code{\link{community_continue_boundary}}:
     width have merged.}
   \item{\code{n_landscape}}{grid points on which the landscape is
     searched for another peak (one trait).}
-  \item{\code{event_tol}}{an event is located by bisecting the step
+  \item{\code{event_tol}}{an event is located by searching the step
     until it is bracketed this finely in arclength.}
   \item{\code{verify_every}, \code{verify_offset}, \code{verify_tol}}{every
     \code{verify_every} points (and the last) the branch is verified cold:

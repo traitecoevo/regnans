@@ -99,6 +99,23 @@ test_that("assembler_run drives maximum-fitness assembly", {
   expect_true(all(obj$community$birth_rate > 0))
 })
 
+test_that("an assembler saved before the evolution and refusal controls restores and runs", {
+  control <- assembler_control(list(birth_move_tol = 1, compute_viable_fitness = FALSE))
+  old <- assembler_start(dd99_assembler_community(), control = control)
+  old$control[c("evolve", "evolve_tol", "branch_offset", "max_residents", "edge_tol")] <- NULL
+  old$evaluations <- NULL
+  path <- tempfile(fileext = ".rds")
+  on.exit(unlink(path))
+  saveRDS(old, path)
+  restored <- assembler_start(dd99_assembler_community(), control = control, filename = path)
+  expect_identical(restored$control$max_residents, Inf)
+  expect_identical(restored$control$evolve, "none")
+  expect_identical(restored$evaluations, 0L)
+  out <- assembler_run(restored, nsteps = 1)
+  expect_length(out, 2L)
+  expect_gt(out$evaluations, 0L)
+})
+
 test_that("assembler_run drives stochastic assembly on a linear trait scale", {
   set.seed(42)
   control <- assembler_control(list(run_type = "single_step",

@@ -82,7 +82,8 @@ assembler_start <- function(community, control=assembler_control(control), filen
 ##' \code{max_residents}, or (with \code{edge_tol > 0} and a resident
 ##' present) when it lies within \code{edge_tol} of the bounds' edge, that
 ##' fraction of their width on the trait scale: the box, not the model, is then
-##' setting the community.
+##' setting the community. A trait whose bounds are not finite on the trait
+##' scale has no edge.
 ##'
 ##' @title Options controllings community assembly process.
 ##' @param control A list of values to modify from defaults.
@@ -304,6 +305,10 @@ assembler_restore <- function(obj, community, prev) {
   }
   plant_log_assembler(sprintf("...restored %d steps of history",
                               length(prev$history)))
+  ## an assembler saved before a control field or the count of solves existed
+  ## takes their defaults
+  prev$control <- assembler_control(prev$control)
+  if (is.null(prev$evaluations)) prev$evaluations <- 0L
   prev
 }
 

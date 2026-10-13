@@ -60,8 +60,10 @@ resident_labels <- function(trait_names, m) {
 ## independent and go through the parallel map, and the answer is the same
 ## with or without a plan. Each is solved to the stencil's tolerance
 ## (stencil_community()) and carries its equilibrium birth rates. The centre
-## remains the starting point of the next call.
-singularity_gradient_fn <- function(community, m = 1L, birth_rate = NULL) {
+## remains the starting point of the next call. With `probe` (a
+## boundary_probe_spec()) each point's values carry the probe's after the
+## gradient, so a boundary Jacobian shares this stencil.
+singularity_gradient_fn <- function(community, m = 1L, birth_rate = NULL, probe = NULL) {
   base <- community_clear_residents(community)
   trait_names <- community$trait_names
   k <- length(trait_names)
@@ -90,10 +92,11 @@ singularity_gradient_fn <- function(community, m = 1L, birth_rate = NULL) {
   points <- function(points, step) {
     points <- lapply(points, as.numeric)
     merged <- vapply(points, function(x) nrow(residents_merged(x, m, k, ctrl)) > 0L, logical(1))
-    out <- rep(list(structure(rep(NA_real_, m * k), birth_rate = rep(NA_real_, m))), length(points))
+    n_values <- m * k + if (is.null(probe)) 0L else probe$n
+    out <- rep(list(structure(rep(NA_real_, n_values), birth_rate = rep(NA_real_, m))), length(points))
     stencil <- stencil_community(base, step)
     out[!merged] <- regnans_map(points[!merged], singularity_gradient_point, base = stencil, m = m,
-                                birth_rate = seed_birth_rate, state = state)
+                                birth_rate = seed_birth_rate, state = state, probe = probe)
     failed <- vapply(out, inherits, logical(1), "error")
     refused <<- refused + sum(merged)
     evaluations <<- evaluations + sum(!merged & !failed)
@@ -147,12 +150,13 @@ singularity_solve_point <- function(x, base, m, birth_rate, state) {
 ## The same for a stencil point, perhaps on a worker, returning only numbers
 ## -- the gradient, with the equilibrium birth rates and whether the solve
 ## converged (a solved plant community cannot cross back to this process) --
-## or the error, so that the solves which did finish are still counted.
-singularity_gradient_point <- function(x, base, m, birth_rate, state) {
+## or the error, so that the solves which did finish are still counted. With
+## `probe`, its values follow the gradient (boundary_probe()).
+singularity_gradient_point <- function(x, base, m, birth_rate, state, probe = NULL) {
   tryCatch({
     comm <- singularity_solve_point(x, base, m, birth_rate, state)
-    structure(as.numeric(comm$selection_gradient), birth_rate = as.numeric(comm$birth_rate),
-              converged = isTRUE(attr(comm, "converged")))
+    structure(c(as.numeric(comm$selection_gradient), if (!is.null(probe)) boundary_probe(comm, probe)),
+              birth_rate = as.numeric(comm$birth_rate), converged = isTRUE(attr(comm, "converged")))
   }, error = function(e) e)
 }
 

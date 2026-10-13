@@ -123,9 +123,12 @@ the boundary describes the coexistence it was found for:
   \item{\code{bordered}}{the determinant of the Jacobian bordered by the
     tangent, which changes sign where another branch crosses this one.}
 }
-Where one changes sign the step is bisected until the event is bracketed
-to \code{event_tol} in arclength, the located point ends the branch, and
-the event is recorded; \code{\link{boundary_switch}} gives the start of
+Where one changes sign the step is searched by false position, the trial
+points corrected without the Jacobian that only \code{bordered} needs, until
+the event is bracketed to \code{event_tol} in arclength, the located point
+ends the branch, and the event is recorded (unless it lies beyond
+\code{box} or the trait bounds: the branch has left them first, and ends
+there); \code{\link{boundary_switch}} gives the start of
 the branch it seeds. A branch also ends where it closes on itself, leaves
 \code{box}, takes a resident or \eqn{y^*} out of the trait bounds, can no
 longer step (\code{ds} below \code{ds_min}) or reaches \code{max_steps}.

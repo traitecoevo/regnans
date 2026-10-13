@@ -109,8 +109,10 @@ births_refused <- function(community, to_add, control) {
     lb <- tf$fwd(community$bounds)
     z <- matrix(tf$fwd(to_add), nrow = nrow(to_add))
     width <- rep(lb[, 2] - lb[, 1], each = nrow(z))
-    on_edge <- z - rep(lb[, 1], each = nrow(z)) < control$edge_tol * width |
-      rep(lb[, 2], each = nrow(z)) - z < control$edge_tol * width
+    ## the edge is a fraction of the width, so a trait whose bounds are not
+    ## finite on the trait scale has none
+    on_edge <- is.finite(width) & (z - rep(lb[, 1], each = nrow(z)) < control$edge_tol * width |
+      rep(lb[, 2], each = nrow(z)) - z < control$edge_tol * width)
     if (any(on_edge)) {
       return(list(status = "edge", reason = "the newcomer's maximum lies on the edge of the bounds"))
     }

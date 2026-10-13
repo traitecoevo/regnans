@@ -84,7 +84,7 @@
 ##'     width have merged.}
 ##'   \item{\code{n_landscape}}{grid points on which the landscape is
 ##'     searched for another peak (one trait).}
-##'   \item{\code{event_tol}}{an event is located by bisecting the step
+##'   \item{\code{event_tol}}{an event is located by searching the step
 ##'     until it is bracketed this finely in arclength.}
 ##'   \item{\code{verify_every}, \code{verify_offset}, \code{verify_tol}}{every
 ##'     \code{verify_every} points (and the last) the branch is verified cold:
@@ -220,9 +220,11 @@ community_label <- function(community, control = boundary_control()) {
     ## the harness narrows the box to the fundamental niche of an empty
     ## community only
     compute_viable_fitness = length(community) == 0L))
-  a <- assembler_start(community, assembler)
   tf <- community_trait_transform(community)
-  keys <- list(label_key(a$community, tf))
+  ## the box of a seeded start is its bounds; an empty one's is known once the
+  ## assembler has narrowed it
+  if (length(community) > 0L) label_check_bounds(community, tf)
+  a <- assembler_start(community, assembler)
   rounds <- 0L
   outcome <- NULL
   if (isTRUE(a$done)) {
@@ -231,6 +233,9 @@ community_label <- function(community, control = boundary_control()) {
     } else {
       list(status = "stable", reason = NULL)
     }
+  } else {
+    label_check_bounds(a$community, tf)
+    keys <- list(label_key(a$community, tf))
   }
   while (is.null(outcome)) {
     if (rounds >= control$max_rounds) {
@@ -259,6 +264,18 @@ community_label <- function(community, control = boundary_control()) {
                              reason = outcome$reason, rounds = rounds,
                              evaluations = as.integer(a$evaluations))
   out
+}
+
+## The search, the edge rule and the keys all measure in fractions of the
+## box's width on the trait scale, which must therefore be finite.
+label_check_bounds <- function(community, tf) {
+  b <- community$bounds
+  if (!all(is.finite(tf$fwd(b)))) {
+    stop("community_label needs bounds that are finite on the trait scale",
+         if (tf$scale == "log") " (a positive lower bound for a log-scale trait)", "; these are ",
+         paste(rownames(b), apply(signif(b, 6), 1, paste, collapse = " to "), sep = ": ", collapse = ", "),
+         call. = FALSE)
+  }
 }
 
 ## A community's size and sorted traits on the trait scale, as a fraction of
@@ -351,18 +368,34 @@ boundary_scout <- function(parameter, design, control = boundary_control()) {
   boundary_labels(design, rows)
 }
 
-## The design as a matrix with one column per parameter, named.
-boundary_check_design <- function(design, parameter) {
+## The design as a matrix with one column per parameter, named, its columns
+## in the order the map takes them: a map applies p by position, so a design
+## whose names are another order would be built with its parameters swapped
+## and reported under their names. A map from community_parameter_map() knows
+## its parameters' names; for a caller's function, `names` (a design already
+## checked) sets the order, and otherwise the design's own names stand.
+boundary_check_design <- function(design, parameter, names = NULL) {
   if (!is.matrix(design)) {
     design <- matrix(as.numeric(design), ncol = 1L)
   }
   if (!is.numeric(design) || nrow(design) < 1L || !all(is.finite(design))) {
     stop("design must be a matrix of finite parameter values, one row per point")
   }
+  if (is.null(names) && !is.null(attr(parameter, "pars"))) {
+    names <- names(harness_parameter_values(parameter(design[1, ])$harness$pars, attr(parameter, "pars")))
+  }
+  if (!is.null(names) && length(names) != ncol(design)) {
+    stop("design must have one column per parameter, ", paste(names, collapse = ", "))
+  }
   if (is.null(colnames(design))) {
-    colnames(design) <- if (!is.null(attr(parameter, "pars"))) {
-      names(harness_parameter_values(parameter(design[1, ])$harness$pars, attr(parameter, "pars")))
-    } else if (ncol(design) == 1L) "p" else sprintf("p[%d]", seq_len(ncol(design)))
+    colnames(design) <- if (!is.null(names)) names
+      else if (ncol(design) == 1L) "p" else sprintf("p[%d]", seq_len(ncol(design)))
+  } else if (!is.null(names) && !identical(colnames(design), names)) {
+    if (!setequal(colnames(design), names)) {
+      stop("design's columns (", paste(colnames(design), collapse = ", "),
+           ") must be the map's parameters, ", paste(names, collapse = ", "))
+    }
+    design <- design[, names, drop = FALSE]
   }
   design
 }
@@ -470,14 +503,17 @@ boundary_bisect <- function(parameter, from, to, control = boundary_control()) {
     stop("parameter must be a function p -> community; ",
          "community_parameter_map() builds one for an explicit harness")
   }
-  from <- boundary_check_design(matrix(from, nrow = 1L), parameter)
+  from_names <- if (is.matrix(from)) colnames(from) else names(from)
+  from <- boundary_check_design(matrix(from, nrow = 1L, dimnames = list(NULL, from_names)), parameter)
   if (!is.matrix(to)) {
-    to <- matrix(as.numeric(to), nrow = 1L)
+    to <- matrix(as.numeric(to), nrow = 1L, dimnames = list(NULL, names(to)))
   }
   if (ncol(to) != ncol(from)) {
     stop("to must have one column per parameter (", ncol(from), ")")
   }
-  to <- boundary_check_design(to, parameter)
+  ## to's columns follow from's names wherever there are any to follow
+  named <- !is.null(from_names) || !is.null(attr(parameter, "pars"))
+  to <- boundary_check_design(to, parameter, names = if (named) colnames(from))
   colnames(to) <- colnames(from)
   if (any(rowSums(abs(sweep(to, 2, from[1, ]))) == 0)) {
     stop("a ray must end away from where it starts")
@@ -620,7 +656,13 @@ print.boundary_points <- function(x, ...) {
 ##' follows an attractor for as long as it persists, as a slowly changing
 ##' environment would. A point whose three labels differ in count or status,
 ##' or whose communities differ in the residents' sorted traits by more than
-##' \code{trait_tol} of the bounds' width, is flagged: the history decided.
+##' \code{trait_tol} of the bounds' width, is flagged: the history decided. An
+##' unresolved label is not known to differ from anything, so it is left out
+##' of the comparison, and a point where the routes that did resolve agree is
+##' flagged \code{NA}. Every route searches the same box: a carried label
+##' starts from the box the cold one would search, narrowed to the
+##' fundamental niche where the harness can find it (plant), and its
+##' predecessor's residents outside that box are dropped.
 ##'
 ##' The cold labels are independent jobs of the parallel map; each carried
 ##' direction is one job (a chain, sequential by nature). The answer does not
@@ -635,7 +677,8 @@ print.boundary_points <- function(x, ...) {
 ##' @return A data frame of class \code{boundary_sweep}, one row per point:
 ##' the parameters, then \code{n} and \code{status} for each route
 ##' (\code{cold_n}, \code{cold_status}, \code{forward_n}, ...,
-##' \code{backward_status}), \code{hysteresis}, the list columns
+##' \code{backward_status}), \code{hysteresis} (\code{NA} where an
+##' unresolved route leaves it unknown), the list columns
 ##' \code{cold_traits}, \code{forward_traits} and \code{backward_traits}, and
 ##' \code{evaluations} (equilibrium solves, all three routes), whose total is
 ##' \code{attr(., "evaluations")}.
@@ -680,11 +723,7 @@ boundary_sweep <- function(parameter, p, control = boundary_control()) {
     out[[paste0(route, "_status")]] <- vapply(rows, function(r) r$status, character(1))
   }
   out$hysteresis <- vapply(seq_len(nrow(p)), function(i) {
-    routes <- list(cold[[i]], forward[[i]], backward[[i]])
-    labels <- vapply(routes, function(r) sprintf("%d %s", as.integer(r$n), r$status), character(1))
-    if (length(unique(labels)) > 1L) return(TRUE)
-    keys <- lapply(routes, key)
-    !(label_same(keys[[1]], keys[[2]], control$trait_tol) && label_same(keys[[1]], keys[[3]], control$trait_tol))
+    boundary_hysteresis(list(cold[[i]], forward[[i]], backward[[i]]), key, control$trait_tol)
   }, logical(1))
   out$cold_traits <- I(lapply(cold, `[[`, "traits"))
   out$forward_traits <- I(lapply(forward, `[[`, "traits"))
@@ -697,9 +736,29 @@ boundary_sweep <- function(parameter, p, control = boundary_control()) {
   out
 }
 
+## Whether the routes' labels at one point of a sweep disagree. An unresolved
+## route is not known to differ from anything: two resolved routes that
+## disagree (in count and status, or in their communities' keys) are
+## hysteresis whatever the others did, and resolved routes that agree beside
+## an unresolved one leave it unknown, NA.
+boundary_hysteresis <- function(routes, key, trait_tol) {
+  labels <- vapply(routes, label_string, character(1))
+  resolved <- routes[!is.na(labels)]
+  if (length(unique(labels[!is.na(labels)])) > 1L) return(TRUE)
+  if (length(resolved) >= 2L) {
+    keys <- lapply(resolved, key)
+    if (!all(vapply(keys[-1L], label_same, logical(1), keys[[1L]], trait_tol))) return(TRUE)
+  }
+  if (length(resolved) < length(routes)) NA else FALSE
+}
+
 ## One direction of a sweep, on a worker: each point labelled from the
 ## community the previous one ended on (the first from the map's own start).
-## Returns a list of label results in path order, or the error.
+## The box is the one the cold label at that point searches: a label narrows
+## the box to the fundamental niche only from an empty start, so a map that
+## starts empty has its box narrowed here before the residents are carried in,
+## and a carried resident outside it is dropped. Returns a list of label
+## results in path order, or the error.
 boundary_chain <- function(points, parameter, control) {
   tryCatch({
     prev <- NULL
@@ -709,8 +768,16 @@ boundary_chain <- function(points, parameter, control) {
         stop("parameter(p) must return a community")
       }
       if (!is.null(prev) && nrow(prev$traits) > 0L) {
-        comm <- community_clear_residents(comm) |>
-          community_add(trait_matrix(prev$traits, comm$trait_names), birth_rate = prev$birth_rate)
+        box <- if (length(comm) == 0L) community_viable_bounds(community_demography(comm))$bounds
+               else comm$bounds
+        ## no viable box: nothing to carry, and the label finds the same
+        if (!is.null(box)) {
+          comm$bounds <- box
+          x <- trait_matrix(prev$traits, comm$trait_names)
+          inside <- apply(sweep(x, 2, comm$bounds[, 1], ">=") & sweep(x, 2, comm$bounds[, 2], "<="), 1, all)
+          comm <- community_clear_residents(comm) |>
+            community_add(x[inside, , drop = FALSE], birth_rate = prev$birth_rate[inside])
+        }
       }
       out <- community_label(comm, control)
       prev <<- list(traits = unname(out$traits), birth_rate = as.numeric(out$birth_rate))
@@ -724,7 +791,8 @@ boundary_chain <- function(points, parameter, control) {
 ##' @rdname boundary_sweep
 ##' @export
 print.boundary_sweep <- function(x, ...) {
-  cat(sprintf("<boundary_sweep: %d points, %d with hysteresis>\n", nrow(x), sum(x$hysteresis)))
+  cat(sprintf("<boundary_sweep: %d points, %d with hysteresis%s>\n", nrow(x), sum(x$hysteresis, na.rm = TRUE),
+              if (anyNA(x$hysteresis)) sprintf(", %d unknown", sum(is.na(x$hysteresis))) else ""))
   cat(sprintf("  equilibrium solves: %d\n", attr(x, "evaluations")))
   invisible(x)
 }
@@ -838,6 +906,11 @@ community_solve_boundary <- function(community, parameter, y = NULL,
       stop("which must name one of the ", m, " residents")
     }
   }
+  merged <- residents_merged(as.numeric(community$traits), m, k, community_derivative_control(community))
+  if (nrow(merged) > 0L) {
+    stop("residents ", merged[1, 1], " and ", merged[1, 2], " start within the finite-difference step of ",
+         "each other: two copies of one strategy are not a coalition")
+  }
 
   residual <- boundary_residual_fn(community, parameter, p, free, type, which)
   info <- attr(residual, "info")
@@ -906,9 +979,11 @@ boundary_unknowns <- function(u, info) {
   list(x = u[seq_len(mk)], y = y, p = p)
 }
 
-## What boundary_probe() evaluates at a solved community.
+## What boundary_probe() evaluates at a solved community, and how many values
+## it returns.
 boundary_probe_spec <- function(info, y) {
-  list(type = info$type, y = y, which = info$which)
+  list(type = info$type, y = y, which = info$which,
+       n = if (identical(info$type, "invasion")) info$k + 1L else 1L)
 }
 
 ## The residual of a boundary solve: unknowns u -> the residents' selection
@@ -916,7 +991,10 @@ boundary_probe_spec <- function(info, y) {
 ## two), the community solved to
 ## equilibrium at the residents under parameter(p), warm-started from the
 ## previous evaluation's densities and solver state. A call at the previous
-## unknowns returns that answer without solving.
+## unknowns returns that answer without solving. Residents that have merged
+## (residents_merged()) are outside the domain, as for
+## singularity_gradient_fn(): the residual is NA and nothing is solved, so a
+## Newton step or corrector backtracks.
 boundary_residual_fn <- function(community, parameter, p, free, type, which) {
   trait_names <- community$trait_names
   k <- length(trait_names)
@@ -934,12 +1012,16 @@ boundary_residual_fn <- function(community, parameter, p, free, type, which) {
   last_r <- NULL
   last_community <- NULL
   evaluations <- 0L
+  ctrl <- community_derivative_control(community)
   fn <- function(u) {
     u <- as.numeric(u)
     if (identical(u, last_u)) {
       return(last_r)
     }
     v <- boundary_unknowns(u, info)
+    if (nrow(residents_merged(v$x, m, k, ctrl)) > 0L) {
+      return(rep(NA_real_, length(info$residual_names)))
+    }
     base <- community_clear_residents(parameter_community(parameter, v$p, trait_names))
     comm <- singularity_solve_point(v$x, base, m, seed, state)
     evaluations <<- evaluations + 1L

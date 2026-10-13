@@ -122,6 +122,36 @@ test_that("GK98's 2 -> 3 boundary is followed as c2(kappa) to where its pair mer
   expect_s3_class(plot(br), "ggplot")
 })
 
+test_that("an event beyond the box is not on the branch, which leaves the box first", {
+  # the separation event is at kappa = 3.96696; a box ending just short of
+  # it is left on the step that would cross it
+  br <- community_continue_boundary(gk98_pair_start(), gk98_by_d_kappa, y = 0.05, p = c(1.93, 1),
+                                    box = rbind(c(1, 3), c(0.5, 3.9669)), direction = "forward",
+                                    control = tight)
+  expect_equal(unname(br$termination), "left the box")
+  expect_equal(nrow(br$events), 0L)
+  expect_lte(max(br$points[["p[2]"]]), 3.9669)
+})
+
+test_that("the other-peak search keeps every neighbourhood's edges", {
+  # a landscape whose highest point away from the resident is exactly on the
+  # edge of its neighbourhood (where a pitchfork turning subcritical first
+  # shows): z +- reach can round to a hair inside reach, and the edge must
+  # still be searched
+  ctrl <- boundary_control()
+  tf <- community_trait_transform(list(trait_scale = "linear"))
+  width <- 8
+  reach <- 2 * ctrl$merge_tol * width
+  z <- seq(-3, 3, length.out = 401)
+  fitness <- vapply(seq_along(z), function(i) {
+    peak <- z[i] + if (i %% 2) reach else -reach
+    comm <- list(bounds = bounds(x = c(-4, 4)), trait_names = "x",
+                 fitness_function = function(x) -(as.numeric(x) - peak)^2)
+    boundary_other_peak(comm, matrix(z[i]), width, tf, ctrl)$fitness
+  }, 0)
+  expect_equal(fitness, rep(0, length(z)))
+})
+
 test_that("the rectangular Jacobian's columns match a finer difference of the residual", {
   # both free parameters, the GK98 invasion system away from the boundary:
   # the layer's central differences at 1e-3 relative, good to ~1e-6, against

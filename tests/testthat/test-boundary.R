@@ -93,6 +93,27 @@ test_that("DD99 supports one species when competition is wider than the resource
   expect_equal(as.numeric(from_empty$traits), 0, tolerance = 1e-8)
 })
 
+test_that("a label needs bounds finite on the trait scale, and an unbounded trait has no edge", {
+  # the search, the edge rule and the label's keys all measure in fractions
+  # of the box's width
+  open <- community_start(bounds(x = c(-Inf, Inf)), trait_scale = "linear",
+                          harness = harness_dd99(sigma_C = 1.5)) |>
+    community_add(trait_matrix(0.5, "x"), birth_rate = 100)
+  expect_error(community_label(open), "finite on the trait scale; these are x: -Inf to Inf")
+  plane <- function(lower, scale) {
+    community_start(bounds(x1 = c(lower, 2), x2 = c(0.5, 2)), trait_scale = scale,
+                    harness = harness_dd99_nd(x0 = c(1, 1), sigma_K = c(1, 1), sigma_C = c(1.5, 1.5))) |>
+      community_add(trait_matrix(c(1, 1), c("x1", "x2")), birth_rate = 100)
+  }
+  expect_error(community_label(plane(-Inf, "linear")), "finite on the trait scale; these are x1: -Inf to 2")
+  expect_error(community_label(plane(0, "log")), "positive lower bound for a log-scale trait")
+  # an unbounded trait has no edge to refuse a birth at
+  ctrl <- assembler_control(list(edge_tol = 1e-3))
+  expect_null(births_refused(plane(-Inf, "linear"), trait_matrix(c(-5, 1), c("x1", "x2")), ctrl))
+  expect_equal(births_refused(plane(-Inf, "linear"), trait_matrix(c(-5, 1.9999), c("x1", "x2")), ctrl)$status,
+               "edge")
+})
+
 test_that("a label is censored at the cap, and unresolved where no attractor is reached", {
   capped <- community_label(gk98_kappa_start(2.5), boundary_control(list(max_residents = 2)))
   l <- attr(capped, "label")
@@ -154,6 +175,23 @@ test_that("scouting labels the DD99 plane by the diagonal", {
   sc1 <- boundary_scout(community_parameter_map(dd99_start(), "sigma_C"), c(0.7, 1.3))
   expect_equal(names(sc1)[1], "sigma_C")
   expect_equal(sc1$status, c("edge", "stable"))
+})
+
+test_that("a design's columns are matched to the map's parameters by name", {
+  # the map applies p by position, so a design in another order is reordered
+  # rather than built with its parameters swapped
+  by <- community_parameter_map(dd99_start(), c("sigma_C", "sigma_K"))
+  des <- boundary_design(bounds(sigma_C = c(0.5, 1.5), sigma_K = c(0.8, 1.2)), 4)
+  swapped <- des[, c("sigma_K", "sigma_C")]
+  expect_identical(as.data.frame(boundary_scout(by, swapped)), as.data.frame(boundary_scout(by, des)))
+  colnames(swapped) <- c("sigma_K", "x0")
+  expect_error(boundary_scout(by, swapped), "must be the map's parameters, sigma_C, sigma_K")
+  # a ray's ends, each by its own names
+  bp <- boundary_bisect(by, c(sigma_K = 1, sigma_C = 1.5), c(sigma_K = 1.2, sigma_C = 0.5),
+                        boundary_control(list(bisect_tol = 1e-4)))
+  expect_equal(names(bp)[2:3], c("sigma_C", "sigma_K"))
+  expect_equal(bp$sigma_C, 1.5 - 0.5 / 1.2, tolerance = 1e-3)
+  expect_equal(bp$sigma_C, bp$sigma_K, tolerance = 1e-3)
 })
 
 test_that("scouting validates its inputs and names a point that fails", {
@@ -303,6 +341,55 @@ test_that("a sweep finds no hysteresis where the stable community is unique", {
   expect_error(boundary_sweep(gk98_by_d_kappa, cbind(1, 1)), "at least two points")
 })
 
+test_that("an unresolved route leaves hysteresis unknown rather than flagging it", {
+  base <- dd99_start()
+  tf <- community_trait_transform(base)
+  key <- function(row) {
+    comm <- base
+    comm$traits <- trait_matrix(row$traits, "x")
+    label_key(comm, tf)
+  }
+  route <- function(n, status, x) list(n = n, status = status, traits = matrix(x, ncol = 1))
+  pair <- route(2L, "stable", c(-0.5, 0.5))
+  lost <- route(1L, "unresolved", 0)
+  expect_false(boundary_hysteresis(list(pair, pair, pair), key, 1e-3))
+  expect_true(is.na(boundary_hysteresis(list(lost, pair, pair), key, 1e-3)))
+  expect_true(is.na(boundary_hysteresis(list(lost, lost, pair), key, 1e-3)))
+  # two resolved routes that disagree, in label or community, are hysteresis
+  expect_true(boundary_hysteresis(list(lost, pair, route(1L, "stable", 0)), key, 1e-3))
+  expect_true(boundary_hysteresis(list(pair, pair, route(2L, "stable", c(-0.5, 0.9))), key, 1e-3))
+})
+
+test_that("every route of a sweep searches the box the cold label searches", {
+  # a harness that narrows an empty community's box to (-2, 0.5), as plant's
+  # fundamental niche does: the carried routes, which start with residents,
+  # must search that box too, not the map's (-2, 2)
+  seen <- new.env()
+  seen$max <- -Inf
+  narrowed <- function(p) {
+    h <- harness_dd99(sigma_C = p, sigma_K = 1)
+    h$fns$viable_bounds <- function(community) {
+      community$bounds[1, ] <- c(-2, 0.5)
+      community
+    }
+    update <- h$fns$update_fitness_function
+    h$fns$update_fitness_function <- function(community) {
+      out <- update(community)
+      f <- out$fitness_function
+      out$fitness_function <- function(x) {
+        seen$max <- max(seen$max, x)
+        f(x)
+      }
+      out
+    }
+    community_start(bounds(x = c(-2, 2)), trait_scale = "linear", harness = h)
+  }
+  sw <- boundary_sweep(narrowed, c(1.4, 1.5, 1.6))
+  expect_lte(seen$max, 0.5)
+  expect_false(any(sw$hysteresis))
+  expect_identical(sw$forward_traits, sw$cold_traits)
+})
+
 # ---- community_solve_boundary ------------------------------------------------------
 
 # the community on the side of a bisected crossing with fewer species, and
@@ -418,6 +505,25 @@ test_that("a marginal mutant at a resident is refused, before and after the solv
   expect_warning(out <- community_solve_boundary(pair, by, y = 0.62, p = c(1.95, 1), tol = 1e-10),
                  "converged onto a resident")
   expect_false(attr(out, "boundary")$converged)
+})
+
+test_that("residents merged in a boundary solve are outside its domain", {
+  # as for the singularity solver: no solve, a non-finite residual for Newton
+  # to back off from, and a start there refused
+  by <- gk98_by_d_kappa
+  a <- gk98_kappa_pair_root(1.95)
+  pair <- by(c(1.95, 1)) |> community_clear_residents() |>
+    community_add(trait_matrix(c(-a, a), "x"), birth_rate = c(1.5, 1.5))
+  residual <- boundary_residual_fn(pair, by, c(`p[1]` = 1.95, `p[2]` = 1), 1L, "invasion", 1L)
+  r <- residual(c(0.3, 0.3, 1.5, 1.95))
+  expect_length(r, 4L)
+  expect_true(all(is.na(r)))
+  expect_identical(attr(residual, "evaluations")(), 0L)
+  expect_error(community_boundary_jacobian(residual, c(0.3, 0.3, 1.5, 1.95)), "not finite")
+  merged <- by(c(1.95, 1)) |> community_clear_residents() |>
+    community_add(trait_matrix(c(0.3, 0.3), "x"), birth_rate = c(1.5, 1.5))
+  expect_error(community_solve_boundary(merged, by, y = 1.5, p = c(1.95, 1)),
+               "residents 1 and 2 start within the finite-difference step")
 })
 
 test_that("a boundary point whose marginal mutant is not a peak warns", {

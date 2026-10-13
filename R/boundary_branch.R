@@ -17,7 +17,7 @@
 # corrector has jumped to another branch, which is how continuation fails
 # silently. Test functions are monitored at every accepted point, each positive
 # while the boundary means what it says; where one changes sign the step is
-# bisected to locate the event, the branch ends there, and boundary_switch()
+# searched by false position to locate the event, the branch ends there, and boundary_switch()
 # says which branch starts.
 
 ##' Follow a coexistence boundary through a plane of two parameters.
@@ -60,9 +60,12 @@
 ##'   \item{\code{bordered}}{the determinant of the Jacobian bordered by the
 ##'     tangent, which changes sign where another branch crosses this one.}
 ##' }
-##' Where one changes sign the step is bisected until the event is bracketed
-##' to \code{event_tol} in arclength, the located point ends the branch, and
-##' the event is recorded; \code{\link{boundary_switch}} gives the start of
+##' Where one changes sign the step is searched by false position, the trial
+##' points corrected without the Jacobian that only \code{bordered} needs, until
+##' the event is bracketed to \code{event_tol} in arclength, the located point
+##' ends the branch, and the event is recorded (unless it lies beyond
+##' \code{box} or the trait bounds: the branch has left them first, and ends
+##' there); \code{\link{boundary_switch}} gives the start of
 ##' the branch it seeds. A branch also ends where it closes on itself, leaves
 ##' \code{box}, takes a resident or \eqn{y^*} out of the trait bounds, can no
 ##' longer step (\code{ds} below \code{ds_min}) or reaches \code{max_steps}.
@@ -256,23 +259,21 @@ boundary_trace <- function(sign, start, parameter, p, free, type, which, u0, t0,
       out$tests <- new_tests
       crossed <- boundary_crossed(tests, new_tests)
       if (length(crossed) > 0L) {
-        located <- boundary_locate_event(residual, jacobian, u, t, J, tests, ds, info, control)
-        if (!is.null(located)) out <- located
-        crossed <- boundary_crossed(tests, out$tests)
-        s <- s + sqrt(sum((out$u - u)^2))
-        points[[length(points) + 1L]] <- boundary_trace_point(residual, out$u, out$t, s, out$tests,
-                                                              out$iterations)
-        event <- list(type = crossed[1L], s = s, detail = attr(out$tests, "detail")[crossed])
-        termination <- paste("event:", paste(crossed, collapse = ", "))
-        break
+        out <- boundary_locate_event(residual, jacobian, u, t, J, tests, crossed, ds, out, info, control)
+        ## an event beyond the box or the trait bounds is not on this branch:
+        ## the branch leaves them first
+        if (is.null(boundary_outside(out$u, info, box, start))) {
+          crossed <- boundary_crossed(tests, out$tests)
+          s <- s + sqrt(sum((out$u - u)^2))
+          points[[length(points) + 1L]] <- boundary_trace_point(residual, out$u, out$t, s, out$tests,
+                                                                out$iterations)
+          event <- list(type = crossed[1L], s = s, detail = attr(out$tests, "detail")[crossed])
+          termination <- paste("event:", paste(crossed, collapse = ", "))
+          break
+        }
       }
-      v <- boundary_unknowns(out$u, info)
-      if (!is.null(box) && any(v$p[free] < box[, 1] | v$p[free] > box[, 2])) {
-        termination <- "left the box"
-        break
-      }
-      if (!boundary_inside_bounds(start, out$u, info)) {
-        termination <- "left the trait bounds"
+      termination <- boundary_outside(out$u, info, box, start)
+      if (!is.null(termination)) {
         break
       }
       s <- s + sqrt(sum((out$u - u)^2))
@@ -305,8 +306,10 @@ boundary_trace_point <- function(residual, u, t, s, tests, iterations) {
 
 ## One pseudo-arclength step of length ds from u along t: Newton on the
 ## system bordered by the tangent, from the prediction, starting from the
-## last point's Jacobian; then the Jacobian and tangent at the new point.
-boundary_corrector <- function(residual, jacobian, u, t, J, ds, control) {
+## last point's Jacobian; then, with `tangent`, the Jacobian and tangent at
+## the new point (2nk + 4 solves, which a trial point of an event's location
+## does without).
+boundary_corrector <- function(residual, jacobian, u, t, J, ds, control, tangent = TRUE) {
   u_pred <- u + ds * t
   bordered <- function(v) c(residual(v), sum(t * (v - u_pred)))
   sol <- tryCatch(util_nlsolve(u_pred, bordered, tol = control$corrector_tol, maxit = control$corrector_maxit,
@@ -320,13 +323,17 @@ boundary_corrector <- function(residual, jacobian, u, t, J, ds, control) {
     return(list(u = NULL, reason = attr(sol, "message")))
   }
   v <- as.numeric(sol)
+  if (!tangent) {
+    return(list(u = v, iterations = attr(sol, "iter")))
+  }
   Jv <- jacobian(v)
   list(u = v, J = Jv, t = boundary_tangent(Jv, t), iterations = attr(sol, "iter"))
 }
 
 ## The test functions at u, each positive while the boundary describes the
 ## coexistence it was found for, with what an event would need in
-## attr(., "detail"): which resident, where another peak is.
+## attr(., "detail"): which resident, where another peak is. Without J
+## (a trial point of an event's location) there is no `bordered`.
 boundary_test_functions <- function(residual, u, J, t, info, control) {
   residual(u)
   comm <- attr(residual, "last")()
@@ -371,7 +378,9 @@ boundary_test_functions <- function(residual, u, J, t, info, control) {
     values["other_peak"] <- control$fitness_tol - other$fitness
     detail$other_peak <- other$at
   }
-  values["bordered"] <- det(rbind(J, t))
+  if (!is.null(J)) {
+    values["bordered"] <- det(rbind(J, t))
+  }
   attr(values, "detail") <- detail
   values
 }
@@ -399,10 +408,12 @@ boundary_clusters <- function(z, width, reach) {
 boundary_other_peak <- function(comm, z, width, tf, control) {
   lb <- tf$fwd(comm$bounds)
   reach <- 2 * control$merge_tol * width
-  away <- function(zz) vapply(zz, function(v) all(abs(v - z[, 1]) >= reach), logical(1))
+  away <- function(zz, slack = 0) vapply(zz, function(v) all(abs(v - z[, 1]) >= reach - slack), logical(1))
   grid <- seq(lb[1, 1], lb[1, 2], length.out = control$n_landscape)
-  grid <- sort(c(grid[away(grid)], pmin(pmax(c(z[, 1] - reach, z[, 1] + reach), lb[1, 1]), lb[1, 2])))
-  grid <- grid[away(grid - 1e-12 * sign(grid)) | away(grid)]
+  ## each neighbourhood's edges are kept unless another neighbourhood covers
+  ## them; rounding can put an edge a hair inside the reach it was built at
+  edges <- pmin(pmax(c(z[, 1] - reach, z[, 1] + reach), lb[1, 1]), lb[1, 2])
+  grid <- sort(c(grid[away(grid)], edges[away(edges, 1e-9 * reach)]))
   if (length(grid) == 0L) {
     return(list(fitness = -Inf, at = NA_real_))
   }
@@ -427,39 +438,72 @@ boundary_crossed <- function(before, after) {
        sign(before[nm]) != 0]
 }
 
-## Bisect the step from u along t until a test function's change of sign is
-## bracketed to event_tol, returning the corrected point at the far end of
-## the bracket with its tests; NULL if a corrector fails on the way.
-boundary_locate_event <- function(residual, jacobian, u, t, J, tests, ds, info, control) {
-  lo <- 0
-  hi <- ds
-  best <- NULL
-  while (hi - lo > control$event_tol) {
-    mid <- (lo + hi) / 2
-    out <- boundary_corrector(residual, jacobian, u, t, J, mid, control)
-    if (is.null(out$u)) break
+## Locate where the earliest of the `crossed` test functions changes sign on
+## the step from u along t, whose far end `far` (corrected, with its tests)
+## has them crossed: false position (Illinois) in the step length on the
+## smallest of them, each signed positive before the step, until the change
+## is bracketed to event_tol. A trial point is corrected without its Jacobian
+## unless `bordered` is among them, which needs it; the point returned, at the
+## crossed end of the bracket, has its Jacobian, tangent and every test.
+## Where a corrector fails on the way the best point so far is returned.
+boundary_locate_event <- function(residual, jacobian, u, t, J, tests, crossed, ds, far, info, control) {
+  need_J <- "bordered" %in% crossed
+  signs <- sign(tests[crossed])
+  h <- function(pt) min(signs * pt$tests[crossed])
+  at <- function(step) {
+    out <- boundary_corrector(residual, jacobian, u, t, J, step, control, tangent = need_J)
+    if (is.null(out$u)) return(NULL)
     out$tests <- boundary_test_functions(residual, out$u, out$J, out$t, info, control)
-    if (length(boundary_crossed(tests, out$tests)) > 0L) {
-      hi <- mid
-      best <- out
-    } else {
+    out
+  }
+  lo <- 0
+  h_lo <- h(list(tests = tests))
+  hi <- ds
+  h_hi <- h(far)
+  best <- far
+  kept <- 0L
+  half <- control$event_tol / 2
+  for (i in seq_len(100L)) {
+    if (hi - lo <= control$event_tol) break
+    ## a step within half of event_tol of an end crosses to close the bracket
+    mid <- min(max((lo * h_hi - hi * h_lo) / (h_hi - h_lo), lo + half), hi - half)
+    out <- at(mid)
+    if (is.null(out)) break
+    if (h(out) > 0) {
       lo <- mid
+      h_lo <- h(out)
+      if (kept == 1L) h_hi <- h_hi / 2
+      kept <- 1L
+    } else {
+      hi <- mid
+      h_hi <- h(out)
+      best <- out
+      if (kept == -1L) h_lo <- h_lo / 2
+      kept <- -1L
     }
   }
-  if (is.null(best)) {
-    best <- boundary_corrector(residual, jacobian, u, t, J, hi, control)
-    if (is.null(best$u)) return(NULL)
+  if (is.null(best$J)) {
+    best$J <- jacobian(best$u)
+    best$t <- boundary_tangent(best$J, t)
     best$tests <- boundary_test_functions(residual, best$u, best$J, best$t, info, control)
   }
   best
 }
 
-## Are the residents (and y*) at u inside the community's trait bounds?
-boundary_inside_bounds <- function(start, u, info) {
+## Why u is off the branch's domain -- "left the box" (the free parameters
+## outside `box`) or "left the trait bounds" (a resident or y* outside the
+## community's) -- or NULL if it is inside.
+boundary_outside <- function(u, info, box, start) {
   v <- boundary_unknowns(u, info)
+  if (!is.null(box) && any(v$p[info$free] < box[, 1] | v$p[info$free] > box[, 2])) {
+    return("left the box")
+  }
   x <- rbind(matrix(v$x, info$m, info$k), if (!is.null(v$y)) matrix(v$y, 1L, info$k))
   b <- start$bounds
-  all(sweep(x, 2, b[, 1], ">=") & sweep(x, 2, b[, 2], "<="))
+  if (!all(sweep(x, 2, b[, 1], ">=") & sweep(x, 2, b[, 2], "<="))) {
+    return("left the trait bounds")
+  }
+  NULL
 }
 
 ## The traces of both directions joined into one branch, in order of

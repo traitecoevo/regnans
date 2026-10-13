@@ -467,11 +467,9 @@ community_selection_gradient_parameter_jacobian <- function(community, parameter
   ## go through the parallel map
   evaluations <- 0L
   evaluate <- function(points, step) {
-    g <- regnans_map(points, parameter_gradient_point, parameter = parameter,
-                     names = names(p), trait_names = community$trait_names, x = x, m = m,
-                     birth_rate = n, step = step)
-    evaluations <<- evaluations + sum(vapply(g, attr, integer(1), "evaluations"))
-    stencil_check_converged(g, stencil_community(community, step))
+    g <- parameter_gradient_points(points, parameter, names(p), community$trait_names, x, m, n, step,
+                                   community)
+    evaluations <<- evaluations + attr(g, "evaluations")
     g
   }
   G <- util_jacobian(NULL, p, d = ctrl$d_parameter, eps = ctrl$eps_parameter,
@@ -481,16 +479,43 @@ community_selection_gradient_parameter_jacobian <- function(community, parameter
   G
 }
 
+## The points of a parameter stencil (full parameter vectors), through the
+## parallel map, every one solved from birth_rate: a list of values with the
+## solves they took in attr(., "evaluations"). A point whose solve failed is
+## raised after the others are counted, and one that stopped short of the
+## stencil's tolerance warns (stencil_check_converged()). With `probe` each
+## point's values carry the probe's after the gradient.
+parameter_gradient_points <- function(points, parameter, names, trait_names, x, m, birth_rate, step,
+                                      community, probe = NULL) {
+  g <- regnans_map(points, parameter_gradient_point, parameter = parameter, names = names,
+                   trait_names = trait_names, x = x, m = m, birth_rate = birth_rate, step = step,
+                   probe = probe)
+  failed <- vapply(g, inherits, logical(1), "error")
+  evaluations <- sum(vapply(g[!failed], attr, integer(1), "evaluations"))
+  if (any(failed)) stop(g[[which(failed)[1L]]])
+  stencil_check_converged(g, stencil_community(community, step))
+  structure(g, evaluations = evaluations)
+}
+
 ## One point of the parameter Jacobian's stencil: the selection gradient at
 ## the residents x of the community parameter(q) builds, solved from
 ## birth_rate to the stencil's tolerance (stencil_community()), with the
-## solves it took and whether the last converged. Runs on a worker under a
-## plan.
-parameter_gradient_point <- function(q, parameter, names, trait_names, x, m, birth_rate, step) {
-  comm <- parameter_community(parameter, stats::setNames(q, names), trait_names)
-  gradient <- singularity_gradient_fn(stencil_community(comm, step), m, birth_rate = birth_rate)
-  structure(gradient(x), evaluations = attr(gradient, "evaluations")(),
-            converged = isTRUE(attr(attr(gradient, "last")(), "converged")))
+## solves it took and whether the last converged; with `probe`, its values
+## after the gradient (boundary_probe()). Residents merged at x give NA, as
+## singularity_gradient_fn() does. Runs on a worker under a plan; returns the
+## error rather than raising it, so the other points' solves are counted.
+parameter_gradient_point <- function(q, parameter, names, trait_names, x, m, birth_rate, step,
+                                     probe = NULL) {
+  tryCatch({
+    comm <- parameter_community(parameter, stats::setNames(q, names), trait_names)
+    gradient <- singularity_gradient_fn(stencil_community(comm, step), m, birth_rate = birth_rate)
+    g <- gradient(x)
+    last <- attr(gradient, "last")()
+    if (!is.null(probe)) {
+      g <- c(g, if (is.null(last)) rep(NA_real_, probe$n) else boundary_probe(last, probe))
+    }
+    structure(g, evaluations = attr(gradient, "evaluations")(), converged = isTRUE(attr(last, "converged")))
+  }, error = function(e) e)
 }
 
 ## The parameter values `community` was built at, as a named numeric vector.
@@ -667,78 +692,47 @@ boundary_probe <- function(community, probe) {
   }
 }
 
-## One point of a boundary Jacobian's resident stencil, on a worker: the
-## residents at x solved in `base` (to the stencil's tolerance) from the
-## centre's densities and solver state, the selection gradients and the probe
-## there, or the error.
-boundary_point <- function(x, base, m, birth_rate, state, probe) {
-  tryCatch({
-    comm <- singularity_solve_point(x, base, m, birth_rate, state)
-    structure(c(as.numeric(comm$selection_gradient), boundary_probe(comm, probe)),
-              converged = isTRUE(attr(comm, "converged")))
-  }, error = function(e) e)
-}
-
-## One point of its parameter stencil: the free parameters at q, the residents
-## held at x and solved from the centre's densities.
-boundary_parameter_point <- function(q, parameter, p, free, trait_names, x, m, birth_rate, step, probe) {
-  tryCatch({
-    p[free] <- q
-    base <- community_clear_residents(stencil_community(parameter_community(parameter, p, trait_names), step))
-    comm <- singularity_solve_point(x, base, m, birth_rate, NULL)
-    structure(c(as.numeric(comm$selection_gradient), boundary_probe(comm, probe)),
-              converged = isTRUE(attr(comm, "converged")))
-  }, error = function(e) e)
-}
-
-## Stencil values with any failed solve raised, after the others are counted.
-boundary_stencil_values <- function(values, stencil, count) {
-  failed <- vapply(values, inherits, logical(1), "error")
-  count(sum(!failed))
-  if (any(failed)) stop(values[[which(failed)[1L]]])
-  stencil_check_converged(values, stencil)
-  values
-}
-
 ## The Jacobian of a coexistence boundary's residual (boundary_residual_fn())
-## at the unknowns u: the residents' columns by the resident stencil, each
-## point solved to the cube of the step from the centre's densities and solver
-## state, through the parallel map; the marginal mutant's exactly, from the
-## mutant-direction derivatives at the centre (no solves; the selection
-## gradients do not depend on it); the free parameter's by the parameter
-## stencil, one column per free parameter (one for a point, two for the
-## rectangular Jacobian a continuation takes its tangent from). The
-## equilibrium solves it cost are in attr(., "evaluations").
+## at the unknowns u: the residents' columns by the resident stencil of
+## singularity_gradient_fn(), each point solved to the cube of the step from
+## the centre's densities and solver state, through the parallel map; the
+## marginal mutant's exactly, from the mutant-direction derivatives at the
+## centre (no solves; the selection gradients do not depend on it); the free
+## parameter's by the parameter stencil (parameter_gradient_point()), one
+## column per free parameter (one for a point, two for the rectangular
+## Jacobian a continuation takes its tangent from). Both stencils carry the
+## probe's values after the gradients. Residents within a stencil step of
+## each other are an error, as for the resident Jacobian. The equilibrium
+## solves it cost are in attr(., "evaluations").
 community_boundary_jacobian <- function(residual, u) {
   info <- attr(residual, "info")
-  residual(u)
+  if (!all(is.finite(residual(u)))) {
+    stop("community_boundary_jacobian: the residual is not finite at u (residents merged)")
+  }
   centre <- attr(residual, "last")()
   v <- boundary_unknowns(u, info)
   probe <- boundary_probe_spec(info, v$y)
   ctrl <- community_derivative_control(centre)
   m <- info$m
   seed <- as.numeric(centre$birth_rate)
-  state <- centre$demography_state
-  base <- community_clear_residents(centre)
-  evaluations <- 0L
-  count <- function(n) evaluations <<- evaluations + n
 
+  gradient <- singularity_gradient_fn(centre, m, probe = probe)
+  attr(gradient, "prime")(centre)
   Jx <- util_jacobian(NULL, v$x, d = ctrl$d_second, eps = ctrl$eps_second, r = ctrl$r_jacobian,
-    evaluate = function(points, step) {
-      stencil <- stencil_community(base, step)
-      boundary_stencil_values(
-        regnans_map(points, boundary_point, base = stencil, m = m, birth_rate = seed,
-                    state = state, probe = probe),
-        stencil, count)
-    })
+                      evaluate = attr(gradient, "points"))
+  if (attr(gradient, "refused")() > 0L) {
+    stop("community_boundary_jacobian: two residents are within the finite-difference step of each other, ",
+         "so the Jacobian across them is undefined")
+  }
+  evaluations <- attr(gradient, "evaluations")()
   Jp <- util_jacobian(NULL, v$p[info$free], d = ctrl$d_parameter, eps = ctrl$eps_parameter,
                       r = ctrl$r_parameter,
     evaluate = function(points, step) {
-      boundary_stencil_values(
-        regnans_map(points, boundary_parameter_point, parameter = info$parameter, p = v$p,
-                    free = info$free, trait_names = info$trait_names, x = v$x, m = m,
-                    birth_rate = seed, step = step, probe = probe),
-        stencil_community(centre, step), count)
+      full <- lapply(points, function(q) replace(v$p, info$free, q))
+      g <- parameter_gradient_points(full, info$parameter, names(v$p), info$trait_names, v$x, m, seed,
+                                     step, centre, probe)
+      evaluations <<- evaluations + attr(g, "evaluations")
+      g
     })
   J <- if (identical(info$type, "invasion")) {
     k <- info$k

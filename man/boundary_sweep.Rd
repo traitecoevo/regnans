@@ -26,7 +26,8 @@ parameter).}
 A data frame of class \code{boundary_sweep}, one row per point:
 the parameters, then \code{n} and \code{status} for each route
 (\code{cold_n}, \code{cold_status}, \code{forward_n}, ...,
-\code{backward_status}), \code{hysteresis}, the list columns
+\code{backward_status}), \code{hysteresis} (\code{NA} where an
+unresolved route leaves it unknown), the list columns
 \code{cold_traits}, \code{forward_traits} and \code{backward_traits}, and
 \code{evaluations} (equilibrium solves, all three routes), whose total is
 \code{attr(., "evaluations")}.
@@ -45,7 +46,13 @@ label starts from its predecessor's residents and densities, so it
 follows an attractor for as long as it persists, as a slowly changing
 environment would. A point whose three labels differ in count or status,
 or whose communities differ in the residents' sorted traits by more than
-\code{trait_tol} of the bounds' width, is flagged: the history decided.
+\code{trait_tol} of the bounds' width, is flagged: the history decided. An
+unresolved label is not known to differ from anything, so it is left out
+of the comparison, and a point where the routes that did resolve agree is
+flagged \code{NA}. Every route searches the same box: a carried label
+starts from the box the cold one would search, narrowed to the
+fundamental niche where the harness can find it (plant), and its
+predecessor's residents outside that box are dropped.
 
 The cold labels are independent jobs of the parallel map; each carried
 direction is one job (a chain, sequential by nature). The answer does not
