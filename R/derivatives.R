@@ -379,11 +379,15 @@ resident_jacobian <- function(gradient, x, ctrl) {
 ## truncation error is about the square of the step, so each point is solved
 ## to the cube of the stencil's relative step (or to the community's tolerance
 ## where that is tighter): the solves then add no more than the stencil
-## itself, and the derivative's error is set by its step.
-stencil_community <- function(community, step) {
+## itself, and the derivative's error is set by its step. Given the
+## discretisation of the stencil's centre (community_discretisation()), every
+## point is solved on it, for a model that discretises adaptively: otherwise
+## each point re-chooses its own steps and the change enters the difference
+## over the step (plant#653).
+stencil_community <- function(community, step, discretisation = NULL) {
   community$demography_control$equilibrium_eps <-
     min(community$demography_control$equilibrium_eps, step^3)
-  community
+  community_freeze_discretisation(community, discretisation, step)
 }
 
 ## A stencil point whose solve stopped short of its tolerance puts its error,
@@ -489,7 +493,7 @@ parameter_gradient_points <- function(points, parameter, names, trait_names, x, 
                                       community, probe = NULL) {
   g <- regnans_map(points, parameter_gradient_point, parameter = parameter, names = names,
                    trait_names = trait_names, x = x, m = m, birth_rate = birth_rate, step = step,
-                   probe = probe)
+                   probe = probe, discretisation = community_discretisation(community))
   failed <- vapply(g, inherits, logical(1), "error")
   evaluations <- sum(vapply(g[!failed], attr, integer(1), "evaluations"))
   if (any(failed)) stop(g[[which(failed)[1L]]])
@@ -502,13 +506,16 @@ parameter_gradient_points <- function(points, parameter, names, trait_names, x, 
 ## birth_rate to the stencil's tolerance (stencil_community()), with the
 ## solves it took and whether the last converged; with `probe`, its values
 ## after the gradient (boundary_probe()). Residents merged at x give NA, as
-## singularity_gradient_fn() does. Runs on a worker under a plan; returns the
-## error rather than raising it, so the other points' solves are counted.
+## singularity_gradient_fn() does. Each is solved on the centre's
+## discretisation where the model has one (stencil_community()). Runs on a
+## worker under a plan; returns the error rather than raising it, so the other
+## points' solves are counted.
 parameter_gradient_point <- function(q, parameter, names, trait_names, x, m, birth_rate, step,
-                                     probe = NULL) {
+                                     probe = NULL, discretisation = NULL) {
   tryCatch({
     comm <- parameter_community(parameter, stats::setNames(q, names), trait_names)
-    gradient <- singularity_gradient_fn(stencil_community(comm, step), m, birth_rate = birth_rate)
+    gradient <- singularity_gradient_fn(stencil_community(comm, step, discretisation), m,
+                                        birth_rate = birth_rate)
     g <- gradient(x)
     last <- attr(gradient, "last")()
     if (!is.null(probe)) {

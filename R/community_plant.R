@@ -84,8 +84,48 @@ plant_community_parameters <- function(community) {
       p$ode_step_sizes <- community$model_support$node_schedule_ode_step_sizes
     }
   }
+  # a frozen discretisation (a stencil point's) overrides both, and survives
+  # community_add(); it describes as many residents as the centre it was read
+  # from had
+  frozen <- community$model_support$frozen
+  if (!is.null(frozen) && length(p$strategies) > 0L) {
+    if (length(frozen$node_schedule_times) != length(p$strategies)) {
+      stop("A frozen discretisation for ", length(frozen$node_schedule_times),
+           " residents cannot be replayed with ", length(p$strategies))
+    }
+    p$node_schedule_times <- frozen$node_schedule_times
+    p$ode_times <- frozen$ode_times
+    p$ode_step_sizes <- frozen$ode_step_sizes
+  }
 
   p
+}
+
+## The discretisation a solved plant community was integrated on -- its node
+## schedule and the ODE steps of its equilibrium run -- as plain numbers, or
+## NULL where it records none.
+plant_community_discretisation <- function(community) {
+  ms <- community$model_support
+  if (length(ms$node_schedule_ode_times) == 0L || length(ms$node_schedule_ode_step_sizes) == 0L ||
+      is.null(ms$node_schedule_times)) {
+    return(NULL)
+  }
+  list(node_schedule_times = ms$node_schedule_times, ode_times = ms$node_schedule_ode_times,
+       ode_step_sizes = ms$node_schedule_ode_step_sizes)
+}
+
+## Solve `community` on a recorded discretisation: every run replays its node
+## schedule and ODE steps, with no refinement, so a finite difference between
+## two such solves differs only in the model. The offspring integral, which
+## plant evaluates to its own tolerance, is held to the cube of the step, as
+## the stencil's equilibrium is (stencil_community()); at plant's default
+## (1e-8) the replayed differences still scatter at the 1e-3 level.
+plant_community_freeze_discretisation <- function(community, discretisation, step) {
+  community$model_support$frozen <- discretisation
+  ctrl <- community$model_support$plant_control
+  ctrl$offspring_production_tol <- min(ctrl$offspring_production_tol, step^3)
+  community$model_support$plant_control <- ctrl
+  community
 }
 
 
@@ -117,11 +157,13 @@ plant_community_make_demography_runner <- function(community) {
   last_offspring_production <- NULL
   history <- NULL
   counter <- 1L
+  # on a frozen discretisation every run replays it, never refining
+  frozen <- !is.null(community$model_support$frozen)
 
   function(birth_rates) {
     # if a runner has diverged significantly in the last iteration then
     # reset the schedule to it's defaults and rebuild
-    if (any(abs(birth_rates - last_arrival_rates) > large_offspring_arriving_change)) {
+    if (!frozen && any(abs(birth_rates - last_arrival_rates) > large_offspring_arriving_change)) {
       p$node_schedule_times <- default_schedule_times
     }
 
@@ -136,9 +178,13 @@ plant_community_make_demography_runner <- function(community) {
     # offspring_production (previously a build_schedule() attribute).
     # run_scm() replays any ODE schedule p carries, and the one recorded at
     # the previous birth rates is stale, so integrate freely.
-    p$ode_times <- numeric(0)
-    p$ode_step_sizes <- numeric(0)
-    scm <- run_scm(p, ctrl = ctrl, refine_schedule = TRUE)
+    if (frozen) {
+      scm <- run_scm(p, ctrl = ctrl)
+    } else {
+      p$ode_times <- numeric(0)
+      p$ode_step_sizes <- numeric(0)
+      scm <- run_scm(p, ctrl = ctrl, refine_schedule = TRUE)
+    }
     p_new <- scm$parameters
     offspring_production <- scm$offspring_production
 

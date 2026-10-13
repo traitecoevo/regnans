@@ -59,7 +59,8 @@ resident_labels <- function(trait_names, m) {
 ## (the stencil's centre), not from the previous point, so the points are
 ## independent and go through the parallel map, and the answer is the same
 ## with or without a plan. Each is solved to the stencil's tolerance
-## (stencil_community()) and carries its equilibrium birth rates. The centre
+## (stencil_community()), on the centre's discretisation where the model
+## discretises adaptively, and carries its equilibrium birth rates. The centre
 ## remains the starting point of the next call. With `probe` (a
 ## boundary_probe_spec()) each point's values carry the probe's after the
 ## gradient, so a boundary Jacobian shares this stencil.
@@ -94,7 +95,9 @@ singularity_gradient_fn <- function(community, m = 1L, birth_rate = NULL, probe 
     merged <- vapply(points, function(x) nrow(residents_merged(x, m, k, ctrl)) > 0L, logical(1))
     n_values <- m * k + if (is.null(probe)) 0L else probe$n
     out <- rep(list(structure(rep(NA_real_, n_values), birth_rate = rep(NA_real_, m))), length(points))
-    stencil <- stencil_community(base, step)
+    ## every point on the centre's discretisation, where the model has one
+    stencil <- stencil_community(base, step,
+                                 if (!is.null(last_community)) community_discretisation(last_community))
     out[!merged] <- regnans_map(points[!merged], singularity_gradient_point, base = stencil, m = m,
                                 birth_rate = seed_birth_rate, state = state, probe = probe)
     failed <- vapply(out, inherits, logical(1), "error")

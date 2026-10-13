@@ -449,3 +449,14 @@ test_that("GK98, JJ12 and GM99 derivatives reproduce their closed-form oracles",
                -1 / y + 2 * 25 * e / s, tolerance = 1e-12)
   expect_true(is.na(as.numeric(community_fitness_gradient(gm, 0.01))))
 })
+
+test_that("a model without an adaptive discretisation has none to freeze", {
+  comm <- community_start(bounds(x = c(-2, 2)), trait_scale = "linear", harness = harness_dd99()) |>
+    community_add(trait_matrix(0.3, "x"), birth_rate = 100) |>
+    community_demography()
+  expect_null(community_discretisation(comm))
+  stencil <- stencil_community(comm, 1e-3, list(anything = 1))
+  expect_null(stencil$model_support$frozen)
+  expect_identical(stencil$demography_control$equilibrium_eps,
+                   min(comm$demography_control$equilibrium_eps, 1e-9))
+})
