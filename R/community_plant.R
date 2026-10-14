@@ -37,13 +37,21 @@ plant_default_assembly_pars <- function(hmat = 10, max_patch_lifetime = 60, fixe
 ##' plant control used for assembly lives in one place and can be tuned in
 ##' future (e.g. schedule tolerances) without touching every call site.
 ##'
+##' The size density is carried on the birth-date coordinate
+##' (\code{node_density_in_birth_date = TRUE}) unless overridden: plant's
+##' gradients (\code{plant::stand_gradient()}) are defined on it alone.
+##'
 ##' @title Default plant control for community assembly
 ##' @param ... Passed to \code{plant::control()} to override defaults.
 ##' @return A plant \code{Control} object.
 ##' @export
 ##' @author Daniel Falster
 plant_default_assembly_control <- function(...) {
-  plant::control(...)
+  args <- list(...)
+  if (is.null(args$node_density_in_birth_date)) {
+    args$node_density_in_birth_date <- TRUE
+  }
+  do.call(plant::control, args)
 }
 
 plant_community_hyperpar <- function(community) {
@@ -76,8 +84,57 @@ plant_community_parameters <- function(community) {
       p$ode_step_sizes <- community$model_support$node_schedule_ode_step_sizes
     }
   }
+  # a frozen discretisation (a stencil point's) overrides both, and survives
+  # community_add(); it describes as many residents as the centre it was read
+  # from had
+  frozen <- community$model_support$frozen
+  if (!is.null(frozen) && length(p$strategies) > 0L) {
+    if (length(frozen$node_schedule_times) != length(p$strategies)) {
+      stop("A frozen discretisation for ", length(frozen$node_schedule_times),
+           " residents cannot be replayed with ", length(p$strategies))
+    }
+    p$node_schedule_times <- frozen$node_schedule_times
+    p$ode_times <- frozen$ode_times
+    p$ode_step_sizes <- frozen$ode_step_sizes
+  }
 
   p
+}
+
+## The discretisation a solved plant community was integrated on -- its node
+## schedule and the ODE steps of its equilibrium run, and the patch lifetime
+## they span -- as plain numbers, or NULL where it records none.
+plant_community_discretisation <- function(community) {
+  ms <- community$model_support
+  if (length(ms$node_schedule_ode_times) == 0L || length(ms$node_schedule_ode_step_sizes) == 0L ||
+      is.null(ms$node_schedule_times)) {
+    return(NULL)
+  }
+  list(node_schedule_times = ms$node_schedule_times, ode_times = ms$node_schedule_ode_times,
+       ode_step_sizes = ms$node_schedule_ode_step_sizes,
+       max_patch_lifetime = ms$p$max_patch_lifetime)
+}
+
+## Solve `community` on a recorded discretisation: every run replays its node
+## schedule and ODE steps, with no refinement, so a finite difference between
+## two such solves differs only in the model. plant's offspring_production_tol
+## (the tolerance of its root-finds for a newborn's height and the light
+## compensation point) is held to the cube of the step, as the stencil's
+## equilibrium is (stencil_community()); at plant's default (1e-8) the
+## replayed differences still scatter at the 1e-3 level.
+##
+## A discretisation spans one patch lifetime. A community with another (a
+## parameter Jacobian's column in max_patch_lifetime) cannot replay it and
+## refines its own, as both points of that column then do.
+plant_community_freeze_discretisation <- function(community, discretisation, step) {
+  if (!identical(discretisation$max_patch_lifetime, community$model_support$p$max_patch_lifetime)) {
+    discretisation <- NULL
+  }
+  community$model_support$frozen <- discretisation
+  ctrl <- community$model_support$plant_control
+  ctrl$offspring_production_tol <- min(ctrl$offspring_production_tol, step^3)
+  community$model_support$plant_control <- ctrl
+  community
 }
 
 
@@ -109,11 +166,13 @@ plant_community_make_demography_runner <- function(community) {
   last_offspring_production <- NULL
   history <- NULL
   counter <- 1L
+  # on a frozen discretisation every run replays it, never refining
+  frozen <- !is.null(community$model_support$frozen)
 
   function(birth_rates) {
     # if a runner has diverged significantly in the last iteration then
     # reset the schedule to it's defaults and rebuild
-    if (any(abs(birth_rates - last_arrival_rates) > large_offspring_arriving_change)) {
+    if (!frozen && any(abs(birth_rates - last_arrival_rates) > large_offspring_arriving_change)) {
       p$node_schedule_times <- default_schedule_times
     }
 
@@ -128,9 +187,13 @@ plant_community_make_demography_runner <- function(community) {
     # offspring_production (previously a build_schedule() attribute).
     # run_scm() replays any ODE schedule p carries, and the one recorded at
     # the previous birth rates is stale, so integrate freely.
-    p$ode_times <- numeric(0)
-    p$ode_step_sizes <- numeric(0)
-    scm <- run_scm(p, ctrl = ctrl, refine_schedule = TRUE)
+    if (frozen) {
+      scm <- run_scm(p, ctrl = ctrl)
+    } else {
+      p$ode_times <- numeric(0)
+      p$ode_step_sizes <- numeric(0)
+      scm <- run_scm(p, ctrl = ctrl, refine_schedule = TRUE)
+    }
     p_new <- scm$parameters
     offspring_production <- scm$offspring_production
 
@@ -242,7 +305,57 @@ plant_community_update_fitness_function <- function(community) {
     ret
   }
 
+  ## plant's rare-mutant derivative (plant#650 E2), where the harness asks for
+  ## it and there is a resident to hold the canopy at; harness_fd() fills the
+  ## finite difference otherwise
+  community$fitness_derivatives <- list()
+  if (identical(community$harness$fitness_gradient, "model") && length(p$strategies) > 0L) {
+    f <- community$fitness_function
+    trait_names <- community$trait_names
+    community$fitness_derivatives$gradient <- function(y, control) {
+      plant_mutant_gradient(scm, p, hyperpar, y, trait_names, f, control)
+    }
+  }
+
   community
+}
+
+## The gradient of log invasion fitness at the mutants y (one per row) in the
+## resident's recorded canopy, from plant's reverse sweep: the mutants share
+## one replay, each the invader numbered by its row, and each costs one sweep.
+## Taken through the hyperparameter function, so a column is the total
+## derivative by the trait as the fitness function sets it (without it, lma's
+## column is a partial, 5x off on FF16). A row plant refuses (a mutant with
+## fewer than two cohorts, say) or answers non-finitely is a finite
+## difference of the fitness function instead. plant refuses the height
+## coordinate itself, by name.
+plant_mutant_gradient <- function(scm, p, hyperpar, y, trait_names, f, control) {
+  n <- nrow(y)
+  k <- length(trait_names)
+  p_mutants <- plant::add_mutant(p, trait_matrix(y, trait_names), hyperpar, birth_rate = rep(0, n))
+  # scm is the fitness function's too: a replay left recording would keep
+  # every later mutant's states
+  recording <- scm$record_trajectory
+  on.exit(scm$record_trajectory <- recording)
+  scm$record_trajectory <- TRUE
+  scm$run_mutant(p_mutants)
+  metrics <- paste0(seq_len(n), ".net_reproduction_ratio")
+  columns <- paste0(rep(seq_len(n), each = k), ".", rep(trait_names, n))
+  sg <- plant::stand_gradient(scm, metrics = metrics, traits = columns, hyperpar = hyperpar)
+  r0 <- as.numeric(sg$value[metrics])
+  out <- matrix(NA_real_, n, k)
+  for (i in seq_len(n)) {
+    out[i, ] <- sg$gradient[metrics[i], paste0(i, ".", trait_names)] / r0[i]
+  }
+  value <- log(r0)
+  bad <- plant::stand_gradient_refused(sg)[metrics] | !is.finite(rowSums(out)) | !is.finite(value)
+  if (any(bad)) {
+    fd <- fd_fitness_gradient(f, y[bad, , drop = FALSE], control)
+    out[bad, ] <- fd
+    value[bad] <- as.numeric(f(y[bad, , drop = FALSE]))
+  }
+  attr(out, "value") <- value
+  out
 }
 
 ##' Check low-abundance strategies for viability.
