@@ -96,7 +96,7 @@ several, and the connectors dispatch through `community$harness`.
   match `max_patch_lifetime` (otherwise the default schedule spans the original
   ~105 and the SCM errors with "time_max must be greater than current time").
 - `plant_default_assembly_control(...)` — wrapper around `plant::control()`, on the birth-date coordinate (`node_density_in_birth_date = TRUE`) unless overridden: plant's gradients exist only there.
-- `plant_community_discretisation()` / `plant_community_freeze_discretisation()` — the harness's `community_discretisation()` and `community_freeze_discretisation()`: a solved community's node schedule and ODE steps as plain numbers, and a community solved on them (`model_support$frozen`, which `community_reset()` keeps, so stencil points built by `community_add()` replay it; the runner never refines under it; the offspring tolerance goes to the cube of the step). `stencil_community()` applies it to every finite difference across equilibria. ⚠️ Without it, plant's resident Jacobian changes sign with the step (plant#653).
+- `plant_community_discretisation()` / `plant_community_freeze_discretisation()` — the harness's `community_discretisation()` and `community_freeze_discretisation()`: a solved community's node schedule and ODE steps as plain numbers, and a community solved on them (`model_support$frozen`, which `community_reset()` keeps, so stencil points built by `community_add()` replay it; the runner never refines under it; plant's `offspring_production_tol`, the tolerance of its root-finds for a newborn's height and the light compensation point, goes to the cube of the step; a community with another `max_patch_lifetime` than the discretisation spans refines its own). `stencil_community()` applies it to every finite difference across equilibria. ⚠️ Without it, plant's resident Jacobian changes sign with the step (plant#653).
 - `plant_mutant_gradient()` — with `harness_plant(fitness_gradient = "model")`, the fitness gradient from `plant::stand_gradient()` on the mutants' replay, through `hyperpar`, mutants numbered by row; a refused point falls back to the finite difference. Off by default (plant#677).
 - `plant_community_parameters(community)` — builds a `plant` `Parameters` from
   the community (strategies via `plant::generate_strategy`, restores cached schedule
@@ -222,12 +222,12 @@ here follow current plant terminology.
 
 ## Test baseline
 
-`devtools::test()` is **green: 1846 pass, 0 fail, 0 skip, 0 warn**. Tests run in
+`devtools::test()` is **green: 1848 pass, 0 fail, 0 skip, 0 warn**. Tests run in
 parallel (`Config/testthat/parallel: true`); the `test-plant-smoke*.R` files
 dominate the wall-clock as they are the only ones that run the real SCM. The
 `test-harness-*.R` and `test-singularity.R` files run no SCM and are fast.
 
-(The count has grown as the toy-harness tier has: 197 → 256 → 401 → 537 → 979 → 1002 → 1052 → 1072 → 1174 → 1186 → 1202 → 1228 → 1363 → 1472 → 1520 → 1612 → 1663 → 1713 → 1797 → 1829 → 1846.
+(The count has grown as the toy-harness tier has: 197 → 256 → 401 → 537 → 979 → 1002 → 1052 → 1072 → 1174 → 1186 → 1202 → 1228 → 1363 → 1472 → 1520 → 1612 → 1663 → 1713 → 1797 → 1829 → 1846 → 1848.
 What matters is that a change moves it up and moves nothing to FAIL.)
 
 Note: the testthat parallel workers may fail to find `plant` on startup in some

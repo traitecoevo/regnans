@@ -102,8 +102,8 @@ plant_community_parameters <- function(community) {
 }
 
 ## The discretisation a solved plant community was integrated on -- its node
-## schedule and the ODE steps of its equilibrium run -- as plain numbers, or
-## NULL where it records none.
+## schedule and the ODE steps of its equilibrium run, and the patch lifetime
+## they span -- as plain numbers, or NULL where it records none.
 plant_community_discretisation <- function(community) {
   ms <- community$model_support
   if (length(ms$node_schedule_ode_times) == 0L || length(ms$node_schedule_ode_step_sizes) == 0L ||
@@ -111,16 +111,25 @@ plant_community_discretisation <- function(community) {
     return(NULL)
   }
   list(node_schedule_times = ms$node_schedule_times, ode_times = ms$node_schedule_ode_times,
-       ode_step_sizes = ms$node_schedule_ode_step_sizes)
+       ode_step_sizes = ms$node_schedule_ode_step_sizes,
+       max_patch_lifetime = ms$p$max_patch_lifetime)
 }
 
 ## Solve `community` on a recorded discretisation: every run replays its node
 ## schedule and ODE steps, with no refinement, so a finite difference between
-## two such solves differs only in the model. The offspring integral, which
-## plant evaluates to its own tolerance, is held to the cube of the step, as
-## the stencil's equilibrium is (stencil_community()); at plant's default
-## (1e-8) the replayed differences still scatter at the 1e-3 level.
+## two such solves differs only in the model. plant's offspring_production_tol
+## (the tolerance of its root-finds for a newborn's height and the light
+## compensation point) is held to the cube of the step, as the stencil's
+## equilibrium is (stencil_community()); at plant's default (1e-8) the
+## replayed differences still scatter at the 1e-3 level.
+##
+## A discretisation spans one patch lifetime. A community with another (a
+## parameter Jacobian's column in max_patch_lifetime) cannot replay it and
+## refines its own, as both points of that column then do.
 plant_community_freeze_discretisation <- function(community, discretisation, step) {
+  if (!identical(discretisation$max_patch_lifetime, community$model_support$p$max_patch_lifetime)) {
+    discretisation <- NULL
+  }
   community$model_support$frozen <- discretisation
   ctrl <- community$model_support$plant_control
   ctrl$offspring_production_tol <- min(ctrl$offspring_production_tol, step^3)
@@ -324,6 +333,10 @@ plant_mutant_gradient <- function(scm, p, hyperpar, y, trait_names, f, control) 
   n <- nrow(y)
   k <- length(trait_names)
   p_mutants <- plant::add_mutant(p, trait_matrix(y, trait_names), hyperpar, birth_rate = rep(0, n))
+  # scm is the fitness function's too: a replay left recording would keep
+  # every later mutant's states
+  recording <- scm$record_trajectory
+  on.exit(scm$record_trajectory <- recording)
   scm$record_trajectory <- TRUE
   scm$run_mutant(p_mutants)
   metrics <- paste0(seq_len(n), ".net_reproduction_ratio")
