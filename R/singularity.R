@@ -63,6 +63,12 @@ resident_labels <- function(trait_names, m) {
 ## remains the starting point of the next call. With `probe` (a
 ## boundary_probe_spec()) each point's values carry the probe's after the
 ## gradient, so a boundary Jacobian shares this stencil.
+##
+## attr(fn, "environment_points") evaluates points u = (x, n), the stacked
+## traits then the densities, without solving anything: each is the model run
+## once with those residents at those densities, returning their stacked
+## selection gradients then their fitness. These are counted apart from the
+## solves (attr(fn, "environments")).
 singularity_gradient_fn <- function(community, m = 1L, birth_rate = NULL, probe = NULL) {
   base <- community_clear_residents(community)
   trait_names <- community$trait_names
@@ -72,6 +78,7 @@ singularity_gradient_fn <- function(community, m = 1L, birth_rate = NULL, probe 
   last_g <- NULL
   state <- NULL
   evaluations <- 0L
+  environments <- 0L
   refused <- 0L
   seed_birth_rate <- singularity_seed_birth_rate(community, m, birth_rate)
   ctrl <- community_derivative_control(community)
@@ -104,6 +111,21 @@ singularity_gradient_fn <- function(community, m = 1L, birth_rate = NULL, probe 
     stencil_check_converged(out[!merged], stencil)
     out
   }
+  environment_points <- function(points, step) {
+    points <- lapply(points, as.numeric)
+    merged <- vapply(points, function(u) nrow(residents_merged(u[seq_len(m * k)], m, k, ctrl)) > 0L,
+                     logical(1))
+    out <- rep(list(rep(NA_real_, m * k + m)), length(points))
+    ## run on the community a stencil point is solved on, so whatever a finite
+    ## difference holds fixed across its points is held here too
+    out[!merged] <- regnans_map(points[!merged], singularity_environment_point,
+                                base = stencil_community(base, step), m = m)
+    failed <- vapply(out, inherits, logical(1), "error")
+    refused <<- refused + sum(merged)
+    environments <<- environments + sum(!merged & !failed)
+    if (any(failed)) stop(out[[which(failed)[1L]]])
+    out
+  }
   ## keep a solved community as the answer at x and carry its equilibrium
   ## forward as the next candidate's starting point
   remember <- function(x, out) {
@@ -118,9 +140,13 @@ singularity_gradient_fn <- function(community, m = 1L, birth_rate = NULL, probe 
     last_g
   }
   attr(fn, "points") <- points
+  attr(fn, "environment_points") <- environment_points
   attr(fn, "last") <- function() last_community
   attr(fn, "evaluations") <- function() evaluations
+  attr(fn, "environments") <- function() environments
   attr(fn, "refused") <- function() refused
+  ## a caller that finds residents merged by a test of its own refuses them here
+  attr(fn, "refuse") <- function() refused <<- refused + 1L
   ## Take a community already at demographic equilibrium as the answer at its
   ## own traits, so a caller holding one does not pay to solve it again.
   attr(fn, "prime") <- function(community) {
@@ -157,6 +183,21 @@ singularity_gradient_point <- function(x, base, m, birth_rate, state, probe = NU
     comm <- singularity_solve_point(x, base, m, birth_rate, state)
     structure(c(as.numeric(comm$selection_gradient), if (!is.null(probe)) boundary_probe(comm, probe)),
               birth_rate = as.numeric(comm$birth_rate), converged = isTRUE(attr(comm, "converged")))
+  }, error = function(e) e)
+}
+
+## A fixed-environment point u = (x, n): the residents at traits x and
+## densities n, the model run once there and not solved, returning their
+## stacked selection gradients then their fitness, or the error.
+singularity_environment_point <- function(u, base, m) {
+  tryCatch({
+    trait_names <- base$trait_names
+    mk <- m * length(trait_names)
+    comm <- base |>
+      community_add(trait_matrix(matrix(u[seq_len(mk)], m, length(trait_names)), trait_names),
+                    birth_rate = u[mk + seq_len(m)]) |>
+      community_update_fitness_function()
+    c(as.numeric(community_fitness_gradient(comm)), as.numeric(comm$resident_fitness))
   }, error = function(e) e)
 }
 
@@ -417,6 +458,7 @@ community_solve_singularity <- function(community, x0 = NULL, bounds = NULL,
       error = function(e) {
         if (attr(gradient, "refused")() == refused_before) {
           e$evaluations <- attr(gradient, "evaluations")()
+          e$environments <- attr(gradient, "environments")()
           stop(e)
         }
         structure(as.numeric(tf$fwd(attr(gradient, "last")()$traits)), converged = FALSE,
@@ -468,6 +510,7 @@ community_solve_singularity <- function(community, x0 = NULL, bounds = NULL,
   attr(out, "converged") <- converged
   attr(out, "solver") <- solver
   attr(out, "evaluations") <- attr(gradient, "evaluations")()
+  attr(out, "environments") <- attr(gradient, "environments")()
   attr(out, "singularity") <- root
 
   plant_log_assembler(sprintf(

@@ -421,3 +421,19 @@ test_that("the trajectory plot builds, with a line per lineage and a mark per br
   expect_equal(nrow(b$data[[2]]), 1L)
   expect_s3_class(ggplot2::autoplot(ce), "ggplot")
 })
+
+test_that("RODAS takes the implicit resident Jacobian at no equilibrium solves", {
+  implicit <- function(comm) {
+    comm$derivative_control <- derivative_control(list(resident_jacobian = "implicit"))
+    comm
+  }
+  ce_s <- community_canonical_equation(dd99(sigma_C = 0.4), x0 = 0.8,
+                                       control = canonical_control(list(branch = "immediate", max_residents = 2)))
+  ce_i <- community_canonical_equation(implicit(dd99(sigma_C = 0.4)), x0 = 0.8,
+                                       control = canonical_control(list(branch = "immediate", max_residents = 2)))
+  expect_equal(ce_i$outcome, ce_s$outcome)
+  expect_equal(final(ce_i)$x, final(ce_s)$x, tolerance = 1e-4)
+  expect_equal(ce_s$environments, 0L)
+  expect_gt(ce_i$environments, 0L)
+  expect_lt(ce_i$evaluations, ce_s$evaluations)
+})
