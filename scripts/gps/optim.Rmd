@@ -72,7 +72,6 @@ p0$strategy_default$hmat <- 10
 p0$max_patch_lifetime <- 60
 
 ctrl <- control()
-ctrl$save_RK45_cache <- T
 
 ```
 
@@ -103,7 +102,7 @@ Make a function optimise using mutant method
 
 ```{r}
 
-scm <- run_scm(p, use_ode_times = TRUE, ctrl = ctrl)
+scm <- run_scm(p, ctrl = ctrl)
 
 make_f <- function(scm) {
   function(x) {

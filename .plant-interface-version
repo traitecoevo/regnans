@@ -73,4 +73,5 @@ notes: >-
   (plant_clear_ode_schedule(); model_support, the discretisation and
   community_add() carry or clear all four). Every pinned number in the plant
   smoke files held at its tolerance under Hairer stepping. scripts/gps/optim.Rmd
-  still names save_RK45_cache and is left as an archive.
+  (not run by the suite) had the two plant#648 mappings applied, found by the
+  PR's independent review.

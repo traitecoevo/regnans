@@ -204,7 +204,7 @@ the older `seed_rain`).
   `attr(., "offspring_production")` → `run_scm(p, ctrl, refine_schedule=TRUE)`
   then `scm$parameters` / `scm$offspring_production`;
   `p$node_schedule_ode_times` (Parameters field) → `p$ode_times`.
-- ⚠️ **`run_scm()` replays any ODE schedule `p` carries** (plant#648; `use_ode_times` is gone). `p$ode_times` with `p$ode_step_sizes` replays a recorded run exactly. Times alone let the controller sub-step, so they do not reproduce the run. To integrate freely, carry neither. The equilibrium runner clears both before each `refine_schedule` run, and `model_support` carries both vectors for the resident-fitness replay. Keep the pair together, or resident fitness at equilibrium stops being 0.
+- ⚠️ **`run_scm()` replays any ODE schedule `p` carries** (plant#648; `use_ode_times` is gone). `p$ode_times` with `p$ode_step_sizes` and the soil's substep records (`p$ode_soil_input_slopes`, `p$ode_soil_substep_ends`) replays a recorded run exactly. Times alone let the controller sub-step, so they do not reproduce the run; sizes without the two records are refused by plant's `SCM` constructor, empty as the records are for FF16. To integrate freely, carry none of the four (`plant_clear_ode_schedule()`). The equilibrium runner clears the four before each `refine_schedule` run, and `model_support` carries the four for the resident-fitness replay. Keep them together, or resident fitness at equilibrium stops being 0.
 - `run_scm(..., collect=FALSE)` returns the **SCM object** (`scm$parameters`,
   `scm$offspring_production`, `scm$net_reproduction_ratios`, `scm$run_mutant`);
   with `collect=TRUE` it returns a tidied list.
