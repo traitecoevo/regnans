@@ -44,3 +44,19 @@ test_that("plant's TF24 mutant gradient is the default and agrees with the finit
   checked <- harness_check_derivatives(model, n_points = 3, tol_rel = 1e-2)
   expect_true(all(checked$pass))
 })
+
+test_that("TF24's implicit resident Jacobian has the stencil's sign and size (SCM)", {
+  # With each fixed-environment run refining its own schedule, the implicit
+  # Jacobian here read +733 against the stencil's -486 at a step of 1e-3: the
+  # wrong sign, so a convergence-stable point would be classified unstable.
+  # Replaying the centre's discretisation it was measured at -489; held to 2e-2.
+  comm <- tf24_resident()
+  jacobian <- function(route) {
+    comm$derivative_control <- derivative_control(list(resident_jacobian = route, d_second = 1e-3, eps_second = 1e-3))
+    community_selection_gradient_jacobian(comm)[1, 1]
+  }
+  stencil <- jacobian("stencil")
+  implicit <- jacobian("implicit")
+  expect_lt(stencil, 0)
+  expect_equal(unname(implicit), unname(stencil), tolerance = 2e-2)
+})

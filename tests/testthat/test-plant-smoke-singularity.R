@@ -179,9 +179,10 @@ test_that("the resident Jacobian's stencil is solved on its centre's discretisat
 
 test_that("the implicit resident Jacobian's runs replay the centre's discretisation and match the stencil (SCM)", {
   # Each fixed-environment run used to refine its own schedule: at a step of
-  # 1e-3 the implicit Jacobian read -671 here against the stencil's -2239
-  # (and on TF24 +733 against -486). Replaying the centre's, they agree to
-  # 1.3e-3 and the densities' Jacobian to 7e-4.
+  # 1e-3 the implicit Jacobian read -671 here against the stencil's -2239.
+  # Replaying the centre's, they were measured to agree to 1.3e-3 and the
+  # densities' Jacobian to 7e-4; both are held to 1e-2. TF24's case is in
+  # test-plant-smoke-tf24.R.
   comm <- community_start(bounds(lma = c(0.02, 0.6)),
                           model_support = list(p = plant_default_assembly_pars(hmat = 10, max_patch_lifetime = 30),
                                                plant_control = plant_default_assembly_control())) |>
