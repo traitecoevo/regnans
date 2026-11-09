@@ -57,12 +57,24 @@
 ##' relaxes the tolerance; a model whose demography cannot be solved that
 ##' finely warns that the derivative carries the shortfall.
 ##'
+##' \code{resident_jacobian} chooses how the resident Jacobian differentiates
+##' through the demographic equilibrium. \code{"stencil"} differences the
+##' selection gradient across equilibrium solves, as above.
+##' \code{"implicit"} differentiates the equilibrium condition instead: every
+##' resident's fitness is zero there, \eqn{s(x, n^*) = 0}, so
+##' \eqn{dn^*/dx = -S_n^{-1} S_x} and \eqn{dg/dx = G_x + G_n\, dn^*/dx}, with
+##' \eqn{S} the residents' fitness and \eqn{G} their selection gradients, both
+##' differentiated at a fixed resident environment, at the
+##' \code{*_second} steps. Each point is then one run of the model at given
+##' traits and densities, with no equilibrium solve, and its accuracy does not
+##' depend on solving anything to the cube of the step.
+##'
 ##' @title Derivative settings
 ##' @param control A list of values to modify from the defaults.
 ##' @return A list with elements \code{d_gradient}, \code{eps_gradient},
 ##' \code{r_gradient}, \code{d_second}, \code{eps_second}, \code{r_hessian},
 ##' \code{r_jacobian}, \code{d_parameter}, \code{eps_parameter},
-##' \code{r_parameter}.
+##' \code{r_parameter}, \code{resident_jacobian}.
 ##' @author Daniel Falster
 ##' @export
 derivative_control <- function(control = NULL) {
@@ -76,7 +88,8 @@ derivative_control <- function(control = NULL) {
     r_jacobian   = 1L,
     d_parameter   = 1e-3,
     eps_parameter = 1e-3,
-    r_parameter   = 1L
+    r_parameter   = 1L,
+    resident_jacobian = "stencil"
   )
 
   control <- as.list(control)
@@ -100,6 +113,7 @@ derivative_control <- function(control = NULL) {
     }
     ret[[nm]] <- as.integer(v)
   }
+  ret$resident_jacobian <- match.arg(ret$resident_jacobian, c("stencil", "implicit"))
   ret
 }
 
@@ -295,14 +309,17 @@ fd_fitness_hessian <- function(f, y, ctrl) {
 ##' off-diagonal blocks are how a resident's selection responds to the others
 ##' through the environment they make. Eigenvalues with negative real parts
 ##' mean selection carries nearby residents towards the point ---
-##' convergence stability. Each stencil point solves the perturbed community to
-##' demographic equilibrium, so this is the expensive derivative: \code{2mk}
-##' equilibrium solves per Richardson level, finite differences across the
-##' residents until the model supplies equilibrium sensitivities. Each is
+##' convergence stability. By default each stencil point solves the perturbed
+##' community to demographic equilibrium, so this is the expensive derivative:
+##' \code{2mk} equilibrium solves per Richardson level. Each is
 ##' solved from the densities and solver state at the residents, so under a
 ##' \code{future::plan()} with several workers they run in parallel, with the
 ##' same answer, and each to the cube of the relative step (see
-##' \code{\link{derivative_control}}).
+##' \code{\link{derivative_control}}). With \code{resident_jacobian =
+##' "implicit"} in \code{\link{derivative_control}} it differentiates the
+##' equilibrium condition instead: \code{2m(k + 1)} runs of the model at given
+##' traits and densities per Richardson level, and no equilibrium solve beyond
+##' the one at the residents.
 ##'
 ##' @title Resident Jacobian of the selection gradient
 ##' @param community A \code{community} with one or more residents, no two of
@@ -317,7 +334,8 @@ fd_fitness_hessian <- function(f, y, ctrl) {
 ##' \code{attr(., "selection_gradient")}, the \code{m} by \code{mk} Jacobian
 ##' of the residents' equilibrium birth rates (densities, for the reference
 ##' models) from the same solves in \code{attr(., "birth_rate_jacobian")},
-##' and the equilibrium solves it cost in \code{attr(., "evaluations")}.
+##' the equilibrium solves it cost in \code{attr(., "evaluations")} and the
+##' runs at given traits and densities in \code{attr(., "environments")}.
 ##' @author Daniel Falster
 ##' @export
 community_selection_gradient_jacobian <- function(community, birth_rate = NULL) {
@@ -354,6 +372,7 @@ community_selection_gradient_jacobian <- function(community, birth_rate = NULL) 
   names(g0) <- labels
   attr(J, "selection_gradient") <- g0
   attr(J, "evaluations") <- attr(gradient, "evaluations")()
+  attr(J, "environments") <- attr(gradient, "environments")()
   J
 }
 
@@ -364,6 +383,9 @@ community_selection_gradient_jacobian <- function(community, birth_rate = NULL) 
 ## shares its warm starts and its count of solves. The closure evaluates the
 ## stencil's points, apart under a plan.
 resident_jacobian <- function(gradient, x, ctrl) {
+  if (identical(ctrl$resident_jacobian, "implicit")) {
+    return(implicit_resident_jacobian(gradient, x, ctrl))
+  }
   evaluate <- function(points, step) {
     lapply(attr(gradient, "points")(points, step), function(g) c(g, attr(g, "birth_rate")))
   }
@@ -372,6 +394,67 @@ resident_jacobian <- function(gradient, x, ctrl) {
   n <- length(x)
   structure(J[seq_len(n), , drop = FALSE],
             birth_rate_jacobian = J[-seq_len(n), , drop = FALSE])
+}
+
+## The same Jacobian by implicit differentiation of the equilibrium at x
+## (derivative_control(resident_jacobian = "implicit")). With u = (x, n) the
+## residents' traits and densities, fixed_environment_jacobian() gives the
+## derivatives of (G, S) -- every resident's selection gradient and fitness --
+## with the environment those residents make at u held, not re-solved. The
+## equilibrium S(x, n*) = 0 then gives dn*/dx = -S_n^-1 S_x, which is
+## (I - f_n)^-1 f_x for the one-generation map f = n exp(S). A resident at
+## zero density is not held at S = 0, so the equilibrium condition does not
+## determine its response. A point at which residents have merged is refused
+## by the closure, leaving the Jacobian undefined, as the stencil leaves it;
+## residents close enough for a stencil point to merge them, one of them
+## driven out, are refused as merged too, the cause rather than the symptom.
+implicit_resident_jacobian <- function(gradient, x, ctrl) {
+  nx <- length(x)
+  undefined <- function(m) {
+    structure(matrix(NA_real_, nx, nx), birth_rate_jacobian = matrix(NA_real_, m, nx))
+  }
+  g0 <- gradient(x)
+  n <- as.numeric(attr(gradient, "last")()$birth_rate)
+  m <- length(n)
+  if (anyNA(g0)) {
+    return(undefined(m))
+  }
+  present <- is.finite(n) & n > 0
+  if (!all(present) && nrow(residents_merged(x, m, nx / m, ctrl, reach = 2)) > 0L) {
+    attr(gradient, "refuse")()
+    return(undefined(m))
+  }
+  if (!all(present)) {
+    stop("The implicit resident Jacobian needs every resident at a positive density, but ",
+         "resident(s) ", paste(which(!present), collapse = ", "),
+         " are at zero at equilibrium; drop them, or use resident_jacobian = \"stencil\" ",
+         "in derivative_control()")
+  }
+  D <- fixed_environment_jacobian(gradient, c(x, n), ctrl)
+  if (anyNA(D)) {
+    return(undefined(m))
+  }
+  ix <- seq_len(nx)
+  i_n <- nx + seq_len(m)
+  dn <- tryCatch(-solve(D[i_n, i_n, drop = FALSE], D[i_n, ix, drop = FALSE]),
+                 error = function(e) {
+                   stop("The residents' fitness does not determine their equilibrium densities ",
+                        "(its Jacobian in the densities is singular: ", conditionMessage(e), "), ",
+                        "so the implicit resident Jacobian is undefined here", call. = FALSE)
+                 })
+  structure(D[ix, ix, drop = FALSE] + D[ix, i_n, drop = FALSE] %*% dn,
+            birth_rate_jacobian = dn)
+}
+
+## The Jacobian of the stacked selection gradients and fitness of the
+## residents, (G, S), with respect to u = (x, n), the environment at u held.
+## By central differences across runs of the model at given traits and
+## densities, which the gradient closure evaluates (apart under a plan). This
+## is where a harness that can differentiate its demography and the mixed
+## second derivatives of its fitness would supply these blocks instead.
+fixed_environment_jacobian <- function(gradient, u, ctrl) {
+  util_jacobian(NULL, u, d = ctrl$d_second, eps = ctrl$eps_second, r = ctrl$r_jacobian,
+                evaluate = attr(gradient, "environment_points"))
 }
 
 ## The community a stencil point is solved in. A solve's error enters a

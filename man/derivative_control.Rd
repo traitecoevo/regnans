@@ -13,7 +13,7 @@ derivative_control(control = NULL)
 A list with elements \code{d_gradient}, \code{eps_gradient},
 \code{r_gradient}, \code{d_second}, \code{eps_second}, \code{r_hessian},
 \code{r_jacobian}, \code{d_parameter}, \code{eps_parameter},
-\code{r_parameter}.
+\code{r_parameter}, \code{resident_jacobian}.
 }
 \description{
 Control how derivatives are computed.
@@ -54,6 +54,18 @@ error of a single difference at the finest step; a tighter
 \code{equilibrium_eps} lets the extrapolation go further. A larger step
 relaxes the tolerance; a model whose demography cannot be solved that
 finely warns that the derivative carries the shortfall.
+
+\code{resident_jacobian} chooses how the resident Jacobian differentiates
+through the demographic equilibrium. \code{"stencil"} differences the
+selection gradient across equilibrium solves, as above.
+\code{"implicit"} differentiates the equilibrium condition instead: every
+resident's fitness is zero there, \eqn{s(x, n^*) = 0}, so
+\eqn{dn^*/dx = -S_n^{-1} S_x} and \eqn{dg/dx = G_x + G_n\, dn^*/dx}, with
+\eqn{S} the residents' fitness and \eqn{G} their selection gradients, both
+differentiated at a fixed resident environment, at the
+\code{*_second} steps. Each point is then one run of the model at given
+traits and densities, with no equilibrium solve, and its accuracy does not
+depend on solving anything to the cube of the step.
 }
 \author{
 Daniel Falster

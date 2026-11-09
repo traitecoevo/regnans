@@ -30,7 +30,10 @@ could have established but the community is at \code{max_residents}),
 extinct), \code{"polish"}, \code{"stable"}, \code{"t_max"},
 \code{"max_steps"}, \code{"max_residents"} --- and \code{lineage}),
 \code{community} (the final solved community), \code{evaluations} (how
-many equilibrium solves it cost), \code{steps} and \code{rejections}
+many equilibrium solves it cost), \code{environments} (how many runs of
+the model at given traits and densities its Jacobians cost, under
+\code{resident_jacobian = "implicit"} in
+\code{\link{derivative_control}}), \code{steps} and \code{rejections}
 (accepted steps and attempts the step-size control rejected),
 \code{immigration_attempts},
 \code{outcome} and the control. \code{\link{canonical_community}} rebuilds

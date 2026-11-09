@@ -199,6 +199,7 @@ canonical_rhs <- function(base, tf, control, k, n_total0, V) {
   state <- NULL
   last <- NULL
   evaluations <- 0L
+  environments <- 0L
   f <- function(z) {
     m <- length(z) / k
     x <- tf$inv(matrix(z, m, k))
@@ -227,9 +228,11 @@ canonical_rhs <- function(base, tf, control, k, n_total0, V) {
     if (!identical(last$z, as.numeric(y))) ode(t, y)
     J <- canonical_jacobian(last$community, tf, control, n_total0, V)
     evaluations <<- evaluations + attr(J, "evaluations")
+    environments <<- environments + attr(J, "environments")
     J
   }
   list(f = f, ode = ode, jac = jac, last = function() last, evaluations = function() evaluations,
+       environments = function() environments,
        reset = function() { birth_rate <<- NULL; state <<- NULL })
 }
 
@@ -264,7 +267,7 @@ canonical_jacobian <- function(community, tf, control, n_total0, V) {
     if (control$density) block <- block + gV[, cc] * Dz / n_total0
     out[(cc - 1L) * m + seq_len(m), ] <- 0.5 * control$rate * block
   }
-  structure(out, evaluations = attr(J, "evaluations"))
+  structure(out, evaluations = attr(J, "evaluations"), environments = attr(J, "environments"))
 }
 
 ## Gauss-Hermite nodes and weights for int exp(-x^2) f(x) dx, from the Jacobi
@@ -348,9 +351,9 @@ immigrant_phenotype <- function(control, tf, bounds_z, k) {
 ## residents, at densities n, handed to community_solve_singularity(), which
 ## roots every resident's gradient with the equilibrium re-solved inside and
 ## the Jacobian across the residents from the derivative layer. Returns the
-## new z and the equilibrium solves it cost, with z NULL if the solve did not
-## converge or lost the coalition, in which case the integration simply
-## carries on. Polishing is a local finish: a small gradient does not mean the
+## new z and the equilibrium solves and fixed-environment runs it cost, with
+## z NULL if the solve did not converge or lost the coalition, in which case
+## the integration simply carries on. Polishing is a local finish: a small gradient does not mean the
 ## root is near (a flat landscape, residents close to merging), and the
 ## solver's full steps can carry it to a different singular coalition, so a
 ## root more than `reach` of the trait range from z on any trait is refused.
@@ -360,16 +363,17 @@ canonical_polish <- function(base, z, n, tf, k, range_z, control, reach = 0.1) {
       base, x0 = tf$inv(matrix(z, ncol = k)), tol = control$gradient_tol / 10, maxit = 50, birth_rate = n)),
     error = function(e) e)
   if (inherits(sol, "error")) {
-    return(list(z = NULL, evaluations = if (is.null(sol$evaluations)) 0L else sol$evaluations))
+    return(list(z = NULL, evaluations = if (is.null(sol$evaluations)) 0L else sol$evaluations,
+                environments = if (is.null(sol$environments)) 0L else sol$environments))
   }
-  evaluations <- attr(sol, "evaluations")
+  cost <- list(evaluations = attr(sol, "evaluations"), environments = attr(sol, "environments"))
   z_new <- as.numeric(tf$fwd(sol$traits))
   m <- length(z) / k
   if (!isTRUE(attr(sol, "converged")) ||
       any(abs(z_new - z) > rep(reach * range_z, each = m))) {
-    return(list(z = NULL, evaluations = evaluations))
+    return(c(list(z = NULL), cost))
   }
-  list(z = z_new, evaluations = evaluations)
+  c(list(z = z_new), cost)
 }
 
 ## odelia's step-size control in the canonical equation's terms: the error
@@ -423,7 +427,10 @@ canonical_ode_control <- function(control) {
 ##' extinct), \code{"polish"}, \code{"stable"}, \code{"t_max"},
 ##' \code{"max_steps"}, \code{"max_residents"} --- and \code{lineage}),
 ##' \code{community} (the final solved community), \code{evaluations} (how
-##' many equilibrium solves it cost), \code{steps} and \code{rejections}
+##' many equilibrium solves it cost), \code{environments} (how many runs of
+##' the model at given traits and densities its Jacobians cost, under
+##' \code{resident_jacobian = "implicit"} in
+##' \code{\link{derivative_control}}), \code{steps} and \code{rejections}
 ##' (accepted steps and attempts the step-size control rejected),
 ##' \code{immigration_attempts},
 ##' \code{outcome} and the control. \code{\link{canonical_community}} rebuilds
@@ -512,6 +519,7 @@ canonical_integrate <- function(community, x0, control, tf, range_z, mutation_sd
   outcome <- NULL
   steps <- 0L
   polish_evaluations <- 0L
+  polish_environments <- 0L
   branch_evaluations <- 0L
 
   while (is.null(outcome)) {
@@ -599,6 +607,7 @@ canonical_integrate <- function(community, x0, control, tf, range_z, mutation_sd
         max(abs(k1$g_z)) >= control$gradient_tol) {
       polished <- canonical_polish(base, z, k1$n, tf, k, range_z, control)
       polish_evaluations <- polish_evaluations + polished$evaluations
+      polish_environments <- polish_environments + polished$environments
       if (!is.null(polished$z)) {
         z <- polished$z
         reseed()
@@ -689,6 +698,7 @@ canonical_integrate <- function(community, x0, control, tf, range_z, mutation_sd
     community = rhs$last(),
     base = base,
     evaluations = rhs$evaluations() + polish_evaluations + branch_evaluations,
+    environments = rhs$environments() + polish_environments,
     steps = steps,
     rejections = unname(solver$counts()[["n_rejections"]]),
     immigration_attempts = immigration_attempts,
