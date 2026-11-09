@@ -1,7 +1,8 @@
-migrated_on: 2026-11-09
+migrated_on: 2026-11-10
 plant_version: 2.0.0.9002
-plant_ref: develop@a7729146 (2026-11-09, plant#724; odelia 0.10.5 @v0.10.5 and phylloptim 0.31.0 @bf99fdf)
+plant_ref: feat/parameters-hyperpar@79a6ea6c (2026-11-10, plant#731 before its squash; odelia 0.11.0 @v0.11.0 and phylloptim 0.35.0 @58d8360)
 applied_breaking_changes:
+  - parameters-hyperpar      # scm_base_parameters() attaches no trade-offs; plant_default_assembly_pars() builds on default_parameters(model, quiet = TRUE); FF16_hyperpar/make_*_hyperpar/make_hyperpar()/hyperpar() removed (plant#731) [2026-11-10]
   - scm-consolidation        # build_schedule -> run_scm(refine_schedule=TRUE); run_scm_collect -> run_scm(collect=TRUE)
   - control-defaults         # scm_base_control() -> control(); fast settings now the Control() default
   - strategy-api-rename      # strategy_list -> generate_strategy(p first, birth_rate=); mutant_parameters -> add_mutant(p first, birth_rate=) [2026-06-28]
@@ -75,3 +76,13 @@ notes: >-
   smoke files held at its tolerance under Hairer stepping. scripts/gps/optim.Rmd
   (not run by the suite) had the two plant#648 mappings applied, found by the
   PR's independent review.
+
+  2026-11-10: plant#731 (fieldtrial PR A with PR B folded in). Trade-offs now
+  travel on the Parameters object (p$hyperpar); the bare scm_base_parameters()
+  attaches none and the old hyperpar names are gone. One edit:
+  plant_default_assembly_pars() builds on default_parameters(model, quiet =
+  TRUE), which attaches plant's frozen testing trade-offs, the same functions
+  the assembly ran under before. Every other call site already went through
+  plant::param_hyperpar(p), which now reads the carried function, so
+  community_plant.R needed nothing else. The pin names the PR head; repoint it
+  to the develop commit of the squash merge when bumping next.

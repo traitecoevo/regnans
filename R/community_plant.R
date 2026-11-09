@@ -14,7 +14,11 @@
 plant_default_assembly_pars <- function(hmat = 10, max_patch_lifetime = 60, fixed_RA = FALSE,
                                         model = c("FF16", "TF24")) {
   model <- match.arg(model)
-  p <- scm_base_parameters(model)
+  ## plant's testing set: today's defaults with the frozen trade-off functions
+  ## attached as p$hyperpar (plant#731). The bare scm_base_parameters() carries
+  ## none, so a trait written through it would reach pars without its trade-offs
+  ## (lma without k_l, say) and the assembly would run a different model.
+  p <- default_parameters(model, quiet = TRUE)
   ## Biological parameters live under `$pars` (plant #410). Assigning the flat
   ## name instead attaches an inert list element to the R-side object without
   ## erroring, so the value never reaches the strategy -- see #45.
