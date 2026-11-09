@@ -150,7 +150,8 @@ test_that("the resident Jacobian's stencil is solved on its centre's discretisat
     community_add(trait_matrix(0.15, "lma"), birth_rate = 10) |>
     community_demography()
   disc <- community_discretisation(comm)
-  expect_named(disc, c("node_schedule_times", "ode_times", "ode_step_sizes", "max_patch_lifetime"))
+  expect_named(disc, c("node_schedule_times", "ode_times", "ode_step_sizes",
+                       "ode_soil_input_slopes", "ode_soil_substep_ends", "max_patch_lifetime"))
   expect_gt(length(disc$ode_times), 0L)
   frozen <- stencil_community(comm, 1e-3, disc)
   expect_identical(frozen$model_support$frozen, disc)
@@ -200,7 +201,7 @@ test_that("plant's own mutant gradient agrees with the finite difference (SCM)",
   expect_equal(as.numeric(g), as.numeric(fd), tolerance = 1e-2)
   expect_equal(attr(g, "value"), as.numeric(model$fitness_function(y)), tolerance = 1e-10)
   # the sweep's replay shares the fitness function's SCM and leaves it as found
-  expect_false(environment(model$fitness_function)$scm$record_trajectory)
+  expect_false(environment(model$fitness_function)$scm$keep_states)
   checked <- harness_check_derivatives(model, n_points = 3, tol_rel = 1e-2)
   expect_true(all(checked$pass))
   expect_error(harness_plant("TF24", fitness_gradient = "model"), "FF16's fitness only")

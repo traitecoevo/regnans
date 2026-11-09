@@ -1,6 +1,6 @@
-migrated_on: 2026-10-14
+migrated_on: 2026-11-09
 plant_version: 2.0.0.9002
-plant_ref: develop@bd09645d (2026-10-14, plant#658; odelia 0.7.3 @88cbff7 and phylloptim 0.10.2 @edaffe8)
+plant_ref: develop@a7729146 (2026-11-09, plant#724; odelia 0.10.5 @v0.10.5 and phylloptim 0.31.0 @bf99fdf)
 applied_breaking_changes:
   - scm-consolidation        # build_schedule -> run_scm(refine_schedule=TRUE); run_scm_collect -> run_scm(collect=TRUE)
   - control-defaults         # scm_base_control() -> control(); fast settings now the Control() default
@@ -10,11 +10,17 @@ applied_breaking_changes:
   - tf24-leaf-renames        # TF24_Pars p_50 -> stem_P50, c -> stem_c, b -> stem_b, beta2 -> TF24_beta2, g1_TF24 -> TF24_cost_scale (plant#634) [2026-10-07]
   - run-scm-ode-schedule     # run_scm(use_ode_times=) removed: p$ode_times (+ p$ode_step_sizes) are always replayed; refine_schedule records both (plant#648) [2026-10-10]
   - save-rk45-cache-removed  # Control$save_RK45_cache removed; run_mutant() keeps what it needs itself (plant#648) [2026-10-10]
+  - node-density-coordinate  # control(node_density_in_birth_date = TRUE) -> control(node_density_coordinate = "birth_date") (plant#516) [2026-11-09]
+  - keep-states              # scm$record_trajectory -> scm$keep_states; run_scm(record_trajectory=) -> run_scm(keep_states=) [2026-11-09]
+  - ode-soil-substep-records # p$ode_soil_input_slopes and p$ode_soil_substep_ends travel with p$ode_times and p$ode_step_sizes; sizes without them are refused [2026-11-09]
 non_breaking_changes:
   - ff16-allocation-reaction-norm  # FF16_Pars gains a_f4 (shade delay) and a_f5 (shade cap), both defaulting to 0 [2026-08-13]
   - run-mutant-whole-parameters    # run_mutant() takes the invader's regime, initial_time and initial state from p; refuses an initial state (plant#661) [2026-10-14]
   - unknown-patch-type-error       # an unknown patch_type is refused rather than run as "fixed" (plant#676) [2026-10-14]
   - ff16-stand-gradient            # stand_gradient()/stand_fitness() answer for FF16: fitness metrics, the birth-rate column and the rare-mutant derivative (plant#657, #658) [2026-10-14]
+  - hairer-step-control            # the adaptive stepper takes Hairer's rule and ode_tol_rel/abs default to 1e-5; every adaptive run's steps change (odelia#64) [2026-11-09]
+  - stand-gradient-hyperpar-default # stand_gradient(hyperpar=) defaults to param_hyperpar(scm$parameters); regnans already passed it [2026-11-09]
+  - tf24-stand-gradient            # TF24's fitness is differentiable, invaders included (plant#688, #699); harness_plant(model = "TF24") is still metadata only [2026-11-09]
 notes: >-
   run_scm() call sites already used named args, so the arg-order change needed
   no edits. The build_schedule() site in R/community_plant.R relied on
@@ -57,3 +63,15 @@ notes: >-
   carry no initial state, and sets no patch_type. All three plant smoke files
   passed against bd09645d before any other change. The gradients run on the
   birth-date coordinate only, so harness_plant() moves to it in the same PR.
+
+  2026-11-09: 33 plant commits, bd09645d..a7729146. Two renames were
+  mechanical (node-density-coordinate, keep-states). The third was not named
+  as breaking for FF16 in plant's NEWS but broke every plant test here: a
+  refining run records four schedule fields into its parameters, and the
+  runner cleared two, so the next iteration handed plant soil records without
+  step sizes, which its SCM constructor refuses. The four now travel as one
+  (plant_clear_ode_schedule(); model_support, the discretisation and
+  community_add() carry or clear all four). Every pinned number in the plant
+  smoke files held at its tolerance under Hairer stepping. scripts/gps/optim.Rmd
+  (not run by the suite) had the two plant#648 mappings applied, found by the
+  PR's independent review.

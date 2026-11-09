@@ -88,7 +88,7 @@ through `community$harness` (see **Model harnesses** below).
   `Parameters`. **Important:** it regenerates `node_schedule_times_default` to
   match `max_patch_lifetime` (otherwise the default schedule spans the original
   ~105 and the SCM errors with "time_max must be greater than current time").
-- `plant_default_assembly_control(...)` — wrapper around `plant::control()`, on the birth-date coordinate (`node_density_in_birth_date = TRUE`) unless overridden: plant's gradients exist only there.
+- `plant_default_assembly_control(...)` — wrapper around `plant::control()`, on the birth-date coordinate (`node_density_coordinate = "birth_date"`) unless overridden: plant's gradients exist only there.
 - `plant_community_discretisation()` / `plant_community_freeze_discretisation()` — the harness's `community_discretisation()` and `community_freeze_discretisation()`: a solved community's node schedule and ODE steps as plain numbers, and a community solved on them (`model_support$frozen`, which `community_reset()` keeps, so stencil points built by `community_add()` replay it; the runner never refines under it; plant's `offspring_production_tol`, the tolerance of its root-finds for a newborn's height and the light compensation point, goes to the cube of the step; a community with another `max_patch_lifetime` than the discretisation spans refines its own). `stencil_community()` applies it to every finite difference across equilibria. ⚠️ Without it, plant's resident Jacobian changes sign with the step (plant#653).
 - `plant_mutant_gradient()` — with `harness_plant(fitness_gradient = "model")`, the fitness gradient from `plant::stand_gradient()` on the mutants' replay, through `hyperpar`, mutants numbered by row; a refused point falls back to the finite difference. Off by default (plant#677).
 - `plant_community_parameters(community)` — builds a `plant` `Parameters` from
@@ -204,7 +204,7 @@ the older `seed_rain`).
   `attr(., "offspring_production")` → `run_scm(p, ctrl, refine_schedule=TRUE)`
   then `scm$parameters` / `scm$offspring_production`;
   `p$node_schedule_ode_times` (Parameters field) → `p$ode_times`.
-- ⚠️ **`run_scm()` replays any ODE schedule `p` carries** (plant#648; `use_ode_times` is gone). `p$ode_times` with `p$ode_step_sizes` replays a recorded run exactly. Times alone let the controller sub-step, so they do not reproduce the run. To integrate freely, carry neither. The equilibrium runner clears both before each `refine_schedule` run, and `model_support` carries both vectors for the resident-fitness replay. Keep the pair together, or resident fitness at equilibrium stops being 0.
+- ⚠️ **`run_scm()` replays any ODE schedule `p` carries** (plant#648; `use_ode_times` is gone). `p$ode_times` with `p$ode_step_sizes` and the soil's substep records (`p$ode_soil_input_slopes`, `p$ode_soil_substep_ends`) replays a recorded run exactly. Times alone let the controller sub-step, so they do not reproduce the run; sizes without the two records are refused by plant's `SCM` constructor, empty as the records are for FF16. To integrate freely, carry none of the four (`plant_clear_ode_schedule()`). The equilibrium runner clears the four before each `refine_schedule` run, and `model_support` carries the four for the resident-fitness replay. Keep them together, or resident fitness at equilibrium stops being 0.
 - `run_scm(..., collect=FALSE)` returns the **SCM object** (`scm$parameters`,
   `scm$offspring_production`, `scm$net_reproduction_ratios`, `scm$run_mutant`);
   with `collect=TRUE` it returns a tidied list.
