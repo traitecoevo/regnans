@@ -59,6 +59,7 @@ test_that("TF24's implicit resident Jacobian has the stencil's sign and size (SC
   implicit <- jacobian("implicit")
   expect_lt(stencil, 0)
   expect_equal(unname(implicit), unname(stencil), tolerance = 2e-2)
+})
 
 test_that("a TF24 community runs in the environment its model_support describes (SCM)", {
   in_environment <- function(environment) {
