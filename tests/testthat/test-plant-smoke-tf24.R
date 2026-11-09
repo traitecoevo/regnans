@@ -74,7 +74,8 @@ test_that("a TF24 community runs in the environment its model_support describes 
   expect_true(attr(dry, "converged"))
   expect_equal(as.numeric(dry$birth_rate), 4.457, tolerance = 1e-3)
   expect_equal(as.numeric(dry$resident_fitness), 0, tolerance = 1e-4)
-  # the specification is plain data, so it crosses to a parallel worker
+  # the specification holds no external pointer, which the parallel map would
+  # refuse to send to a worker
   expect_identical(regnans_pointers(list(dry$model_support$environment)), 0L)
 })
 
@@ -84,6 +85,16 @@ test_that("an environment specification is checked before a run", {
   ff16 <- list(model_support = list(p = plant_default_assembly_pars(), environment = list(soil = list(theta = 0.2))))
   expect_error(plant_community_environment(ff16), "TF24 soil profile; FF16 has none")
   expect_null(plant_community_environment(list(model_support = tf24_support())))
+  drivers <- function(d) list(model_support = tf24_support(list(drivers = d)))
+  # plant itself would accept the misspelling as a new driver nothing reads
+  expect_error(plant_community_environment(drivers(list(rainfal = 1))), "Unknown driver for TF24: rainfal")
+  expect_error(plant_community_environment(drivers(list(1))), "must be named")
+  expect_error(plant_community_environment(drivers(list(rainfall = "wet"))), "one finite number")
+  expect_error(plant_community_environment(drivers(list(rainfall = list(x = 0, y = 1)))), "at least 2")
+  ff16_rain <- list(model_support = list(p = plant_default_assembly_pars(), environment = list(drivers = list(rainfall = 1))))
+  expect_error(plant_community_environment(ff16_rain), "FF16 has no extrinsic drivers")
+  # a named vector is a list of constants
+  expect_equal(plant_community_environment(drivers(c(rainfall = 0.5)))$extrinsic_drivers_evaluate("rainfall", 1), 0.5)
   env <- plant_community_environment(list(model_support = tf24_support(list(
     soil = list(theta = 0.15), drivers = list(rainfall = list(x = c(0, 6), y = c(0.5, 1)))))))
   expect_equal(env$get_soil_water_state(), rep(0.15, env$get_soil_number_of_depths()))

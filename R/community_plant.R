@@ -100,11 +100,35 @@ plant_community_environment <- function(community) {
     }
     do.call(plant::set_tf24_soil, c(list(env), spec$soil))
   }
-  for (name in names(spec$drivers)) {
-    driver <- spec$drivers[[name]]
+  drivers <- as.list(spec$drivers)
+  if (length(drivers) > 0L) {
+    if (is.null(names(drivers)) || any(names(drivers) == "")) {
+      stop("model_support$environment$drivers must be named, one entry per driver")
+    }
+    if (!is.function(env$extrinsic_drivers_get_names)) {
+      stop("model_support$environment$drivers: ", model, " has no extrinsic drivers")
+    }
+    ## plant accepts any name, making a driver nothing reads, so a misspelt
+    ## one would run the default silently
+    known <- env$extrinsic_drivers_get_names()
+    unknown <- setdiff(names(drivers), known)
+    if (length(unknown) > 0L) {
+      stop("Unknown driver for ", model, ": ", paste(unknown, collapse = ", "),
+           "; its drivers are ", paste(known, collapse = ", "))
+    }
+  }
+  for (name in names(drivers)) {
+    driver <- drivers[[name]]
     if (is.list(driver)) {
+      if (!is.numeric(driver$x) || !is.numeric(driver$y) || length(driver$x) != length(driver$y) ||
+          length(driver$x) < 2L) {
+        stop("Driver ", name, ": a variable driver is list(x, y), numeric and of one length, at least 2")
+      }
       env$extrinsic_drivers_set_variable(name, driver$x, driver$y)
     } else {
+      if (!is.numeric(driver) || length(driver) != 1L || !is.finite(driver)) {
+        stop("Driver ", name, ": a constant driver is one finite number, a variable one list(x, y)")
+      }
       env$extrinsic_drivers_set_constant(name, driver)
     }
   }
