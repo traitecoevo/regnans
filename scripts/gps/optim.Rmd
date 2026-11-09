@@ -65,10 +65,10 @@ plant_control <- function() {
 }
 
 # set baseline parameters
-p0 <- scm_base_parameters("FF16")
-p0$strategy_default$a_l1 <- 2.17
-p0$strategy_default$a_l2 <- 0.5
-p0$strategy_default$hmat <- 10
+p0 <- default_parameters("FF16", quiet = TRUE)  # plant's testing trade-offs attached (plant#731)
+p0$strategy_default$pars$a_l1 <- 2.17  # under $pars since plant#410; the flat write was a silent no-op
+p0$strategy_default$pars$a_l2 <- 0.5
+p0$strategy_default$pars$hmat <- 10
 p0$max_patch_lifetime <- 60
 
 ctrl <- control()
