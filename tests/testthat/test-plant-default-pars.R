@@ -40,6 +40,24 @@ test_that("plant_default_assembly_pars(model = \"TF24\") builds TF24 and keeps i
   expect_equal(p$strategy_default$pars$a_l2, defaults$a_l2)
 })
 
+test_that("a community without a harness takes the plant model its parameters were built for", {
+  # The harness's defaults differ by model, so a TF24 community given FF16's
+  # would iterate an equilibrium that cycles.
+  tf24 <- list(p = plant_default_assembly_pars(hmat = 6, max_patch_lifetime = 6, model = "TF24"),
+               plant_control = plant_default_assembly_control())
+  comm <- community_start(bounds(lma = c(0.02, 0.6)), model_support = tf24)
+  expect_identical(comm$harness$model, "TF24")
+  expect_identical(comm$harness$fitness_gradient, "model")
+  expect_identical(comm$demography_control$equilibrium_solver_name, "equilibrium_solve_newton")
+  ff16 <- community_start(bounds(lma = c(0.02, 0.6)), model_support = assembly_model_support())
+  expect_identical(ff16$harness$model, "FF16")
+  expect_identical(ff16$demography_control$equilibrium_solver_name, "equilibrium_iteration")
+  expect_error(community_start(bounds(lma = c(0.02, 0.6)), model_support = tf24, harness = harness_plant("FF16")),
+               "was given TF24 parameters")
+  expect_null(plant_parameters_model(NULL))
+  expect_null(plant_parameters_model(list(a = 1)))
+})
+
 test_that("plant_default_assembly_pars(fixed_RA = TRUE) sets the allocation pars", {
   p <- plant_default_assembly_pars(fixed_RA = TRUE)
   expect_equal(p$strategy_default$pars$a_f1, 0.5)

@@ -15,9 +15,10 @@ tf24_resident <- function(fitness_gradient = NULL, birth_rate = 54) {
 }
 
 test_that("a TF24 resident's equilibrium is found by Newton's method (SCM)", {
-  # Fixed-point iteration from a birth rate of 10 settles on a two-cycle
-  # (about 1.45 and 527): the sparse stand floods the patch with seed and the
-  # dense one crashes. Newton reaches the equilibrium in 13 runs.
+  # Newton is TF24's default because fixed-point iteration from a birth rate
+  # of 10 was measured to settle on a two-cycle (about 1.45 and 527: the sparse
+  # stand floods the patch with seed and the dense one crashes). That is not
+  # re-run here; the solver's name and the equilibrium are asserted.
   comm <- tf24_resident(birth_rate = 10)
   expect_equal(comm$demography_control$equilibrium_solver_name, "equilibrium_solve_newton")
   expect_true(attr(comm, "converged"))
@@ -26,9 +27,10 @@ test_that("a TF24 resident's equilibrium is found by Newton's method (SCM)", {
 })
 
 test_that("plant's TF24 mutant gradient is the default and agrees with the finite difference (SCM)", {
-  # The sweep agrees with the finite difference of the same replay to 6e-5,
-  # and costs what the difference does at one trait (less from two), so it is
-  # TF24's default.
+  # The sweep is TF24's default because it was measured to cost what the
+  # difference does at one trait and less from two (not timed here). It agreed
+  # with the finite difference of the same replay to 6e-5 on macOS; it is held
+  # to 1e-3, the difference's own truncation error on other platforms.
   model <- tf24_resident()
   expect_identical(model$harness$fitness_gradient, "model")
   expect_true(harness_provides(model$harness, "fitness_gradient"))

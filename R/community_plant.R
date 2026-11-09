@@ -63,6 +63,16 @@ plant_default_assembly_control <- function(...) {
   do.call(plant::control, args)
 }
 
+## The plant model a Parameters object was built for ("FF16", "TF24", ...),
+## read off its class, or NULL where p is not plant Parameters.
+plant_parameters_model <- function(p) {
+  pattern <- "^Parameters<([^,>]+),.*$"
+  if (is.null(p) || !grepl(pattern, class(p)[[1]])) {
+    return(NULL)
+  }
+  sub(pattern, "\\1", class(p)[[1]])
+}
+
 plant_community_hyperpar <- function(community) {
  if (is.null(community$model_support$hyperpar)) {
    hyperpar <- plant::param_hyperpar(community$model_support$p)

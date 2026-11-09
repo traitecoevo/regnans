@@ -43,9 +43,15 @@ community_start <- function(bounds,
 
   ## A harness wires the community to a model backend (see R/harness.R). Default
   ## to the plant SCM, so existing callers that pass only `model_support` keep
-  ## working unchanged.
+  ## working unchanged, for the model its parameters were built for: the
+  ## harness's defaults (equilibrium solver, gradient source) differ by model.
+  p_model <- plant_parameters_model(model_support$p)
   if (is.null(harness)) {
-    harness <- harness_plant()
+    harness <- harness_plant(p_model)
+  }
+  if (inherits(harness, "harness_plant") && !is.null(p_model) && !identical(harness$model, p_model)) {
+    stop("harness_plant(\"", harness$model, "\") was given ", p_model, " parameters; ",
+         "pass harness_plant(\"", p_model, "\"), or leave the harness out")
   }
   ## Any derivative the model does not supply is computed by finite differences.
   harness <- harness_fd(harness)

@@ -12,7 +12,7 @@ the demographic model (the SCM — Size- and Patch-structured Cohort Model);
 ## What is verified
 
 - The **core path**: `community_start` → `community_add` →
-  `community_demography()` (default `equilibrium_iteration` solver) →
+  `community_demography()` (the harness's default solver: `equilibrium_iteration` for FF16, `equilibrium_solve_newton` for TF24) →
   `community_selection_gradient()`. At equilibrium resident fitness ≈ 0 and the
   selection gradient is finite — matches overstorey's
   `theory/adaptive-dynamics/solving_attractors.qmd`.
@@ -114,8 +114,10 @@ through `community$harness` (see **Model harnesses** below).
   model's own internal solver (the reference models; their default). plant has
   none.
 - `single_step` — one demography step, no iteration.
-- `equilibrium_iteration` — **plant's default, working**. Fixed-point iteration of
-  incoming→outgoing offspring until `equilibrium_eps` is reached.
+- `equilibrium_iteration` — **FF16's default, working**. Fixed-point iteration of
+  incoming→outgoing offspring until `equilibrium_eps` is reached. Not TF24's: its
+  map overcompensates and iteration settles on a two-cycle, so TF24 defaults to
+  `equilibrium_solve_newton`.
 - `equilibrium_solve_newton` — the package's own Newton–Broyden iteration in
   `util_nlsolve(solver = "newton")`: one finite-difference Jacobian, Broyden
   rank-one updates between refreshes, backtracking line search, the step capped
