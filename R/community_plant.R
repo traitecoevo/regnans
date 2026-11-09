@@ -1,18 +1,27 @@
-##' Default \code{plant} FF16 parameters tuned for community-assembly runs.
+##' Default \code{plant} parameters tuned for community-assembly runs.
+##'
+##' For FF16 the leaf-area allometry is set to the assembly values
+##' (\code{a_l1 = 2.17}, \code{a_l2 = 0.5}); TF24 keeps its own. Pass the same
+##' \code{model} to \code{\link{harness_plant}}.
 ##'
 ##' @title Default plant parameters for assembly
 ##' @param hmat Height at maturation.
 ##' @param max_patch_lifetime Maximum patch lifetime.
 ##' @param fixed_RA If \code{TRUE}, use a fixed reproductive allocation.
+##' @param model plant physiological model: \code{"FF16"} or \code{"TF24"}.
 ##' @return A \code{plant} \code{Parameters} object.
 ##' @export
-plant_default_assembly_pars <- function(hmat = 10, max_patch_lifetime = 60, fixed_RA = FALSE) {
-  p <- scm_base_parameters("FF16")
+plant_default_assembly_pars <- function(hmat = 10, max_patch_lifetime = 60, fixed_RA = FALSE,
+                                        model = c("FF16", "TF24")) {
+  model <- match.arg(model)
+  p <- scm_base_parameters(model)
   ## Biological parameters live under `$pars` (plant #410). Assigning the flat
   ## name instead attaches an inert list element to the R-side object without
   ## erroring, so the value never reaches the strategy -- see #45.
-  p$strategy_default$pars$a_l1 <- 2.17
-  p$strategy_default$pars$a_l2 <- 0.5
+  if (model == "FF16") {
+    p$strategy_default$pars$a_l1 <- 2.17
+    p$strategy_default$pars$a_l2 <- 0.5
+  }
   p$strategy_default$pars$hmat <- hmat
   p$max_patch_lifetime <- max_patch_lifetime
   ## Regenerate the default node introduction times to match the (possibly
@@ -52,6 +61,16 @@ plant_default_assembly_control <- function(...) {
     args$node_density_coordinate <- "birth_date"
   }
   do.call(plant::control, args)
+}
+
+## The plant model a Parameters object was built for ("FF16", "TF24", ...),
+## read off its class, or NULL where p is not plant Parameters.
+plant_parameters_model <- function(p) {
+  pattern <- "^Parameters<([^,>]+),.*$"
+  if (is.null(p) || !grepl(pattern, class(p)[[1]])) {
+    return(NULL)
+  }
+  sub(pattern, "\\1", class(p)[[1]])
 }
 
 plant_community_hyperpar <- function(community) {

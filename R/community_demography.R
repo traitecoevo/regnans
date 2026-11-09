@@ -105,7 +105,9 @@ community_equilibrium_solver <- function(community) {
 ##' community starts from it (\code{community$demography_state}). \code{"model"} asks the
 ##' harness for its equilibrium directly --- analytic or from the model's own
 ##' internal solver --- which only the reference models can answer; it is their
-##' default, and plant's is iteration. Afterwards the invasion-fitness closure is rebuilt.
+##' default; plant's is iteration for FF16 and Newton for TF24, whose map
+##' overcompensates so that iteration settles on a two-cycle. Afterwards the
+##' invasion-fitness closure is rebuilt.
 ##'
 ##' @title Update demography of community
 ##' @param community A \code{community} object.

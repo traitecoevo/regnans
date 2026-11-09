@@ -31,7 +31,9 @@ carries its Jacobian on the community so the next solve of a nearby
 community starts from it (\code{community$demography_state}). \code{"model"} asks the
 harness for its equilibrium directly --- analytic or from the model's own
 internal solver --- which only the reference models can answer; it is their
-default, and plant's is iteration. Afterwards the invasion-fitness closure is rebuilt.
+default; plant's is iteration for FF16 and Newton for TF24, whose map
+overcompensates so that iteration settles on a two-cycle. Afterwards the
+invasion-fitness closure is rebuilt.
 }
 \author{
 Rich FitzJohn, Daniel Falster

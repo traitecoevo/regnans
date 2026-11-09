@@ -7,7 +7,8 @@
 plant_default_assembly_pars(
   hmat = 10,
   max_patch_lifetime = 60,
-  fixed_RA = FALSE
+  fixed_RA = FALSE,
+  model = c("FF16", "TF24")
 )
 }
 \arguments{
@@ -16,10 +17,17 @@ plant_default_assembly_pars(
 \item{max_patch_lifetime}{Maximum patch lifetime.}
 
 \item{fixed_RA}{If \code{TRUE}, use a fixed reproductive allocation.}
+
+\item{model}{plant physiological model: \code{"FF16"} or \code{"TF24"}.}
 }
 \value{
 A \code{plant} \code{Parameters} object.
 }
 \description{
-Default \code{plant} FF16 parameters tuned for community-assembly runs.
+Default \code{plant} parameters tuned for community-assembly runs.
+}
+\details{
+For FF16 the leaf-area allometry is set to the assembly values
+(\code{a_l1 = 2.17}, \code{a_l2 = 0.5}); TF24 keeps its own. Pass the same
+\code{model} to \code{\link{harness_plant}}.
 }

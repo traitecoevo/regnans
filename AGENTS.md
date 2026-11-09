@@ -12,7 +12,7 @@ the demographic model (the SCM — Size- and Patch-structured Cohort Model);
 ## What is verified
 
 - The **core path**: `community_start` → `community_add` →
-  `community_demography()` (default `equilibrium_iteration` solver) →
+  `community_demography()` (the harness's default solver: `equilibrium_iteration` for FF16, `equilibrium_solve_newton` for TF24) →
   `community_selection_gradient()`. At equilibrium resident fitness ≈ 0 and the
   selection gradient is finite — matches overstorey's
   `theory/adaptive-dynamics/solving_attractors.qmd`.
@@ -84,13 +84,14 @@ All direct `plant` coupling lives here, in the `plant_community_*` functions.
 them; the plant layer is one harness among several, and the connectors dispatch
 through `community$harness` (see **Model harnesses** below).
 
-- `plant_default_assembly_pars(hmat, max_patch_lifetime, fixed_RA)` — base FF16
-  `Parameters`. **Important:** it regenerates `node_schedule_times_default` to
+- `plant_default_assembly_pars(hmat, max_patch_lifetime, fixed_RA, model)` — base FF16
+  or TF24 `Parameters` (FF16's leaf allometry is set for FF16 only). **Important:** it regenerates `node_schedule_times_default` to
   match `max_patch_lifetime` (otherwise the default schedule spans the original
   ~105 and the SCM errors with "time_max must be greater than current time").
 - `plant_default_assembly_control(...)` — wrapper around `plant::control()`, on the birth-date coordinate (`node_density_coordinate = "birth_date"`) unless overridden: plant's gradients exist only there.
 - `plant_community_discretisation()` / `plant_community_freeze_discretisation()` — the harness's `community_discretisation()` and `community_freeze_discretisation()`: a solved community's node schedule and ODE steps as plain numbers, and a community solved on them (`model_support$frozen`, which `community_reset()` keeps, so stencil points built by `community_add()` replay it; the runner never refines under it; plant's `offspring_production_tol`, the tolerance of its root-finds for a newborn's height and the light compensation point, goes to the cube of the step; a community with another `max_patch_lifetime` than the discretisation spans refines its own). `stencil_community()` applies it to every finite difference across equilibria. ⚠️ Without it, plant's resident Jacobian changes sign with the step (plant#653).
-- `plant_mutant_gradient()` — with `harness_plant(fitness_gradient = "model")`, the fitness gradient from `plant::stand_gradient()` on the mutants' replay, through `hyperpar`, mutants numbered by row; a refused point falls back to the finite difference. Off by default (plant#677).
+- `plant_mutant_gradient()` — with `harness_plant(fitness_gradient = "model")`, the fitness gradient from `plant::stand_gradient()` on the mutants' replay, through `hyperpar`, mutants numbered by row; a refused point falls back to the finite difference. The default for TF24, not for FF16, where a sweep still costs about three times the difference (plant#677).
+- `harness_plant("TF24")` defaults to `equilibrium_solve_newton`: TF24's one-generation map overcompensates, and fixed-point iteration settles on a two-cycle. TF24 runs in plant's default environment only, since no environment reaches `run_scm()`.
 - `plant_community_parameters(community)` — builds a `plant` `Parameters` from
   the community (strategies via `plant::generate_strategy`, restores cached schedule
   times).
@@ -113,8 +114,10 @@ through `community$harness` (see **Model harnesses** below).
   model's own internal solver (the reference models; their default). plant has
   none.
 - `single_step` — one demography step, no iteration.
-- `equilibrium_iteration` — **plant's default, working**. Fixed-point iteration of
-  incoming→outgoing offspring until `equilibrium_eps` is reached.
+- `equilibrium_iteration` — **FF16's default, working**. Fixed-point iteration of
+  incoming→outgoing offspring until `equilibrium_eps` is reached. Not TF24's: its
+  map overcompensates and iteration settles on a two-cycle, so TF24 defaults to
+  `equilibrium_solve_newton`.
 - `equilibrium_solve_newton` — the package's own Newton–Broyden iteration in
   `util_nlsolve(solver = "newton")`: one finite-difference Jacobian, Broyden
   rank-one updates between refreshes, backtracking line search, the step capped
