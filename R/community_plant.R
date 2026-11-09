@@ -229,15 +229,25 @@ plant_community_discretisation <- function(community) {
 ##
 ## A discretisation spans one patch lifetime. A community with another (a
 ## parameter Jacobian's column in max_patch_lifetime) cannot replay it and
-## refines its own, as both points of that column then do.
-plant_community_freeze_discretisation <- function(community, discretisation, step) {
+## refines its own, as both points of that column then do. Without a step (an
+## equilibrium solve's own rounds) the tolerance is left as it is; without
+## `replay_steps` only the node schedule is frozen, and each run integrates
+## freely on it.
+plant_community_freeze_discretisation <- function(community, discretisation, step = NULL,
+                                                  replay_steps = TRUE) {
   if (!identical(discretisation$max_patch_lifetime, community$model_support$p$max_patch_lifetime)) {
     discretisation <- NULL
   }
+  if (!is.null(discretisation) && !replay_steps) {
+    discretisation[c("ode_times", "ode_step_sizes")] <- list(numeric(0), numeric(0))
+    discretisation[c("ode_soil_input_slopes", "ode_soil_substep_ends")] <- list(list(), list())
+  }
   community$model_support$frozen <- discretisation
-  ctrl <- community$model_support$plant_control
-  ctrl$offspring_production_tol <- min(ctrl$offspring_production_tol, step^3)
-  community$model_support$plant_control <- ctrl
+  if (!is.null(step)) {
+    ctrl <- community$model_support$plant_control
+    ctrl$offspring_production_tol <- min(ctrl$offspring_production_tol, step^3)
+    community$model_support$plant_control <- ctrl
+  }
   community
 }
 
@@ -292,6 +302,11 @@ plant_community_make_demography_runner <- function(community) {
     # run_scm() replays any ODE schedule p carries, and the one recorded at
     # the previous birth rates is stale, so integrate freely.
     if (frozen) {
+      # a node schedule frozen without its steps: each run integrates freely,
+      # never on the steps the previous run recorded
+      if (length(community$model_support$frozen$ode_times) == 0L) {
+        p <- plant_clear_ode_schedule(p)
+      }
       scm <- run_scm(p, env = plant_community_environment(community), ctrl = ctrl)
     } else {
       p <- plant_clear_ode_schedule(p)

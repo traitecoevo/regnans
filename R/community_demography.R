@@ -46,7 +46,8 @@ demographic_step_control <- function(control=NULL) {
     #   "equilibrium_solve_newton", "equilibrium_solve_nleqslv",
     #   "equilibrium_solve_dfsane", "equilibrium_hybrid".
     # NULL means the harness's default, resolved by community_start(): "model"
-    # for the reference models, "equilibrium_iteration" for plant.
+    # for the reference models; for plant, "equilibrium_iteration" for FF16
+    # and "equilibrium_solve_newton" for TF24.
     equilibrium_solver_name = NULL,
     equilibrium_eps = 1e-5,
     # iteration solver
@@ -59,6 +60,10 @@ demographic_step_control <- function(control=NULL) {
     equilibrium_min_offspring_arriving = 1e-10,
     equilibrium_solver_logN = TRUE,
     equilibrium_solver_try_keep = TRUE,
+    # root-finding on a model that re-chooses its discretisation at every run
+    # (plant): at most this many solves on a frozen discretisation, each
+    # checked by one run that refines it; 0 refines at every run
+    equilibrium_discretisation_rounds = 5,
     # hybrid solver
     equilibrium_nattempts = 5
   )
@@ -215,30 +220,45 @@ demography_solve_equilibrium_solve <- function(community,
                stage="start", solver=solver)
 
   birth_rates <- community$birth_rate
-  runner <- community_make_demography_runner(community)
 
   ## First, we exclude species that have offspring arrivals below some minimum
   ## level.
   to_drop <- birth_rates < min_offspring_arriving
+  i_keep <- which(!to_drop)
   if (any(to_drop)) {
-    i_keep <- which(!to_drop)
     msg <- sprintf("Species %s extinct: excluding from search",
                    paste(which(to_drop), collapse=" & "))
     plant_log_eq(msg, stage="drop species", drop=which(to_drop))
-    offspring_arriving_full <- birth_rates
-    birth_rates <- offspring_arriving_full[i_keep]
-
-    runner_full <- runner
-    runner <- function(x) {
-      x_full <- rep(0, length(offspring_arriving_full))
+    birth_rates <- birth_rates[i_keep]
+  }
+  ## the runner over the species searched; the cleanup finds the full one as
+  ## `runner_full` in its environment
+  make_runner <- function(comm) {
+    runner_full <- community_make_demography_runner(comm)
+    if (!any(to_drop)) {
+      return(runner_full)
+    }
+    function(x) {
+      x_full <- rep(0, length(to_drop))
       x_full[i_keep] <- x
       runner_full(x_full)[i_keep]
     }
   }
+  runner <- make_runner(community)
+  ## a model that re-chooses its discretisation at every run is solved on a
+  ## frozen one, in rounds (below), which needs a run to read it from
+  ## (a community saved before the control existed takes its default)
+  rounds <- if (!community_discretisation_adaptive(community)) 0L else
+    ctrl$equilibrium_discretisation_rounds
+  if (is.null(rounds)) {
+    rounds <- demographic_step_control()$equilibrium_discretisation_rounds
+  }
 
   ## Then see if any species should be retained:
-  if (try_keep) {
+  if (try_keep || rounds > 0L) {
     ans <- runner(birth_rates)
+  }
+  if (try_keep) {
     keep <- unname(ans >= birth_rates)
 
     msg <- sprintf("Keeping species %s",
@@ -251,8 +271,10 @@ demography_solve_equilibrium_solve <- function(community,
   ## TODO: This is annoying, but turns out to be a problem for getting
   ## the solution working nicely.
   max_offspring_arriving <- pmax(birth_rates * 100, 10000)
-  target <- demography_solve_equilibrium_solve_target(runner, keep, logN,
-                                               min_offspring_arriving, max_offspring_arriving)
+  target_of <- function(runner) {
+    demography_solve_equilibrium_solve_target(runner, keep, logN,
+                                              min_offspring_arriving, max_offspring_arriving)
+  }
   x0 <- if (logN) log(birth_rates) else birth_rates
 
   tol <- ctrl$equilibrium_eps
@@ -270,19 +292,111 @@ demography_solve_equilibrium_solve <- function(community,
   J0 <- if (!is.null(state) && identical(state$key, key)) state$jacobian else NULL
   ## in log density a Newton step is capped at a factor e^2 per iteration: from
   ## a cold start the uncapped step overflows, and the line search then crawls
-  sol <- util_nlsolve(x0, target, tol = tol, maxit = maxit, solver = solver,
-                      require_converged = solver != "newton", J0 = J0,
-                      max_step = if (logN) 2 else Inf)
-  converged <- isTRUE(attr(sol, "converged"))
+  solve <- function(target, x, J0, require_converged = solver != "newton") {
+    util_nlsolve(x, target, tol = tol, maxit = maxit, solver = solver,
+                 require_converged = require_converged, J0 = J0,
+                 max_step = if (logN) 2 else Inf)
+  }
+
+  if (rounds == 0L) {
+    sol <- solve(target_of(runner), x0, J0)
+    converged <- isTRUE(attr(sol, "converged"))
+    res <- community_demography_runner_cleanup(community, runner, attr(sol, "converged"))
+    jacobian <- attr(sol, "jacobian")
+  } else {
+    ## Each run of an adaptive model refines its discretisation from the
+    ## previous run's, so a solve that refines at every evaluation searches a
+    ## residual that jumps between evaluations: the finite-difference Jacobian
+    ## sees the change of discretisation over its step, and every evaluation
+    ## pays for the refinement. Instead each round solves on the discretisation
+    ## the last refining run chose, and one refining run at the round's root
+    ## checks it. The solve is accepted only on that check, so it means what a
+    ## solve that refines at every run means. Only the model's own
+    ## discretisation is frozen (plant's node schedule), not its integration
+    ## steps: steps chosen at one birth rate and replayed at another can be
+    ## wrong enough to send a round to a root the refined model does not have,
+    ## and it is the refinement that costs.
+    res <- community
+    x <- x0
+    fx <- demography_solve_equilibrium_residual(unname(ans), birth_rates, keep)
+    sol <- NULL
+    jacobian <- J0
+    progress <- list()
+    residual_last <- Inf
+    ## the size of a residual as the solver judges it: dfsane converges on the
+    ## root-mean-square residual, the others on every component
+    norm <- if (solver == "dfsane") function(f) sqrt(mean(f^2)) else function(f) max(abs(f))
+    for (round in seq_len(rounds + 1L)) {
+      converged <- norm(fx) <= tol
+      res <- community_demography_runner_cleanup(res, runner, converged)
+      progress <- c(progress, list(attr(res, "progress")))
+      plant_log_eq(sprintf("round %d: residual %.3g on a refined discretisation", round, norm(fx)),
+                   stage = "round", round = round)
+      ## a round that did not reduce the refined residual has reached the
+      ## discretisation's own noise, or failed where the next would start
+      if (converged || round > rounds || norm(fx) >= residual_last) {
+        break
+      }
+      residual_last <- norm(fx)
+      frozen <- community_freeze_discretisation(res, community_discretisation(res), replay_steps = FALSE)
+      runner_frozen <- make_runner(frozen)
+      target_frozen <- target_of(runner_frozen)
+      ## At the round's start a run on the frozen discretisation is the refined
+      ## run just made there. Every solver reaches the refined check: it, not
+      ## the frozen round, decides whether the solve has converged.
+      x_start <- x
+      fx_start <- fx
+      target <- function(z, ...) {
+        if (length(z) == length(x_start) && all(z == x_start)) {
+          return(fx_start)
+        }
+        target_frozen(z, ...)
+      }
+      sol <- solve(target, x, jacobian, require_converged = FALSE)
+      if (!is.null(attr(sol, "jacobian"))) {
+        jacobian <- attr(sol, "jacobian")
+      }
+      ## only the round's runs are kept: the refined check starts from the
+      ## round's start, so a change of birth rates large enough to reset the
+      ## discretisation (equilibrium_large_birth_rate_change) still resets it
+      progress <- c(progress, list(attr(community_demography_runner_cleanup(res, runner_frozen), "progress")))
+      x <- as.numeric(sol)
+      runner <- make_runner(res)
+      fx <- target_of(runner)(x)
+    }
+    ## every run of the solve, whichever form the harness records them in
+    attr(res, "progress") <- if (is.matrix(progress[[1L]]) || is.data.frame(progress[[1L]])) {
+      do.call(rbind, progress)
+    } else {
+      do.call(c, progress)
+    }
+    if (is.null(sol)) {
+      sol <- x
+      attributes(sol) <- list(y = fx, iter = 0L, converged = converged, solver = solver,
+                              message = "converged")
+    } else if (!converged) {
+      ## a round that converged, whose refined check then missed
+      if (isTRUE(attr(sol, "converged"))) {
+        attr(sol, "message") <- sprintf("the residual %.3g on a refined discretisation is above tol %.3g after %d rounds",
+                                        norm(fx), tol, round - 1L)
+      }
+      attr(sol, "converged") <- FALSE
+    }
+    ## as util_nlsolve(require_converged = TRUE) refuses on the old path
+    if (solver != "newton" && !converged) {
+      stop(sprintf("Solver has likely failed: code=%d, msg: %s",
+                   if (is.null(attr(sol, "code"))) NA_integer_ else attr(sol, "code"),
+                   attr(sol, "message")))
+    }
+  }
   if (solver == "newton" && !converged) {
     warning(sprintf("equilibrium_solve_newton did not converge (%s)", attr(sol, "message")))
   }
 
-  res <- community_demography_runner_cleanup(community, runner, attr(sol, "converged"))
   ## a Jacobian from a failed solve is not a hint worth passing on; drop any
   ## stale one too, so the next solve starts cold rather than from it
-  res$demography_state <- if (converged && !is.null(attr(sol, "jacobian"))) {
-    list(jacobian = attr(sol, "jacobian"), key = key)
+  res$demography_state <- if (converged && !is.null(jacobian)) {
+    list(jacobian = jacobian, key = key)
   } else {
     NULL
   }
@@ -411,16 +525,20 @@ demography_solve_equilibrium_solve_target <- function(runner, keep, logN,
       }
       x[too_high] <- max_offspring_arriving[too_high]
     }
-    xout <- unname(runner(x))
-
-    xout[keep] <- xout[keep] / x[keep] - 1.0
-    i <- !keep & x > 0
-    xout[i] <- xout[i] - x[i]
-
-    ## !keep & x <= 0 will now  be zero
-    if (any(xout[!keep & x <= 0] != 0.0)) {
-      warning("This is not expected", immediate.=TRUE)
-    }
-    xout
+    demography_solve_equilibrium_residual(unname(runner(x)), x, keep)
   }
+}
+
+## The residual of offspring production `xout` at birth rates `x`: relative
+## for a kept species, absolute for the others.
+demography_solve_equilibrium_residual <- function(xout, x, keep) {
+  xout[keep] <- xout[keep] / x[keep] - 1.0
+  i <- !keep & x > 0
+  xout[i] <- xout[i] - x[i]
+
+  ## !keep & x <= 0 will now  be zero
+  if (any(xout[!keep & x <= 0] != 0.0)) {
+    warning("This is not expected", immediate.=TRUE)
+  }
+  xout
 }

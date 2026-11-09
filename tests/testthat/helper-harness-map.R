@@ -61,6 +61,58 @@ harness_map <- function(map, trait_names = "x", label = "map") {
   h
 }
 
+## The map harness on a model that discretises adaptively, as plant does: a run
+## that refines chooses its discretisation `d` at the birth rates it is given,
+## and there the map is `map(n)`; replayed on a frozen `d` it is
+## `map(n) * (1 + a * sum((n - d)^2))`, so the frozen map's root moves with the
+## discretisation it was frozen at and only a refined run sees `map`'s own.
+## `community$disc` is the last refining run's discretisation and
+## `community$frozen` the one replayed. Refining and replayed runs are counted
+## separately, in the harness's shared `counts` environment.
+harness_map_adaptive <- function(map, a = 1e-3, trait_names = "x") {
+  h <- harness_map(map, trait_names, label = "map, adaptive")
+  counts <- new.env()
+  counts$refined <- 0L
+  counts$replayed <- 0L
+  h$counts <- counts
+  h$fns$make_demography_runner <- function(community) {
+    f <- community$harness$map
+    frozen <- community$frozen
+    counts <- community$harness$counts
+    last_offspring_production <- NULL
+    last_d <- community$disc$d
+    history <- list()
+    function(birth_rates) {
+      if (is.null(frozen)) {
+        counts$refined <- counts$refined + 1L
+        last_d <<- birth_rates
+        out <- f(birth_rates)
+      } else {
+        counts$replayed <- counts$replayed + 1L
+        out <- f(birth_rates) * (1 + a * sum((birth_rates - frozen$d)^2))
+      }
+      last_offspring_production <<- out
+      history[[length(history) + 1L]] <<- list(`in` = birth_rates, out = out)
+      out
+    }
+  }
+  cleanup <- h$fns$demography_runner_cleanup
+  h$fns$demography_runner_cleanup <- function(community, runner, converged = TRUE) {
+    e <- environment(runner)
+    if (is.function(e$runner_full)) e <- environment(e$runner_full)
+    community$disc <- list(d = e$last_d)
+    cleanup(community, runner, converged)
+  }
+  h$fns$discretisation <- function(community) community$disc
+  h$fns$freeze_discretisation <- function(community, discretisation, step, ...) {
+    community$frozen <- discretisation
+    community
+  }
+  h$fns$discretisation_frozen <- function(community) !is.null(community$frozen)
+  class(h) <- c("harness_map_adaptive", class(h))
+  h
+}
+
 ## Ricker: n_{t+1} = n exp(r (1 - n / K)). Fixed point n* = K, approached with
 ## multiplier (1 - r), so r near 2 converges slowly and oscillates.
 ricker_map <- function(r, K) {
