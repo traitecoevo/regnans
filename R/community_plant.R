@@ -73,6 +73,44 @@ plant_parameters_model <- function(p) {
   sub(pattern, "\\1", class(p)[[1]])
 }
 
+## The plant Environment a community's runs take, built afresh from
+## `model_support$environment`, or NULL (plant's default for the model) where
+## there is none. The specification is plain data, so it crosses to a worker
+## where an Environment, an external pointer, cannot; and each run gets its own,
+## so none starts from another's soil state. `soil` is passed to
+## plant::set_tf24_soil() (TF24 only); each entry of `drivers` is a constant,
+## or a list(x, y) of control points for a variable driver.
+plant_community_environment <- function(community) {
+  spec <- community$model_support$environment
+  if (is.null(spec)) {
+    return(NULL)
+  }
+  unknown <- setdiff(names(spec), c("soil", "drivers"))
+  if (length(unknown) > 0L) {
+    stop("model_support$environment takes soil and drivers; unknown: ", paste(unknown, collapse = ", "))
+  }
+  model <- plant_parameters_model(community$model_support$p)
+  if (is.null(model)) {
+    stop("model_support$environment needs model_support$p, plant Parameters, to say which model it is for")
+  }
+  env <- plant::Environment(model)
+  if (!is.null(spec$soil)) {
+    if (!startsWith(model, "TF24")) {
+      stop("model_support$environment$soil is a TF24 soil profile; ", model, " has none")
+    }
+    do.call(plant::set_tf24_soil, c(list(env), spec$soil))
+  }
+  for (name in names(spec$drivers)) {
+    driver <- spec$drivers[[name]]
+    if (is.list(driver)) {
+      env$extrinsic_drivers_set_variable(name, driver$x, driver$y)
+    } else {
+      env$extrinsic_drivers_set_constant(name, driver)
+    }
+  }
+  env
+}
+
 plant_community_hyperpar <- function(community) {
  if (is.null(community$model_support$hyperpar)) {
    hyperpar <- plant::param_hyperpar(community$model_support$p)
@@ -226,10 +264,10 @@ plant_community_make_demography_runner <- function(community) {
     # run_scm() replays any ODE schedule p carries, and the one recorded at
     # the previous birth rates is stale, so integrate freely.
     if (frozen) {
-      scm <- run_scm(p, ctrl = ctrl)
+      scm <- run_scm(p, env = plant_community_environment(community), ctrl = ctrl)
     } else {
       p <- plant_clear_ode_schedule(p)
-      scm <- run_scm(p, ctrl = ctrl, refine_schedule = TRUE)
+      scm <- run_scm(p, env = plant_community_environment(community), ctrl = ctrl, refine_schedule = TRUE)
     }
     p_new <- scm$parameters
     offspring_production <- scm$offspring_production
@@ -316,7 +354,7 @@ plant_community_update_fitness_function <- function(community) {
   if (length(p$strategies) > 0L) {
     # if there's a resident, use the saved environment to calculate mutant
     # fitness; run_scm() replays the resident's schedule when p carries one
-    scm <- run_scm(p, ctrl = ctrl)
+    scm <- run_scm(p, env = plant_community_environment(community), ctrl = ctrl)
     community$resident_fitness <- log(scm$net_reproduction_ratios)
     } else {
     community$resident_fitness <- numeric()
@@ -336,7 +374,7 @@ plant_community_update_fitness_function <- function(community) {
         # otherwise just run mutants with zero birth rate, integrating freely
         # (run_scm() would otherwise take any schedule p carries)
         p_mutants <- plant_clear_ode_schedule(p_mutants)
-        scm <- run_scm(p_mutants, ctrl = ctrl)
+        scm <- run_scm(p_mutants, env = plant_community_environment(community), ctrl = ctrl)
         ret <- log(scm$net_reproduction_ratios)
       }
       
