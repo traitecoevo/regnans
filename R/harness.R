@@ -19,6 +19,8 @@
 #                                             as plain numbers (optional)
 #   community_freeze_discretisation()         solve a community on a given
 #                                             discretisation (optional)
+#   community_discretisation_adaptive()       whether a community re-chooses
+#                                             its discretisation at each solve
 #
 # A harness is a list carrying a `$fns` table of these functions plus any
 # model state; its class is used for printing/dispatch. The demography runner
@@ -83,14 +85,29 @@ community_model_equilibrium <- function(community) {
 ## the step. A harness whose model discretises adaptively (plant) reads the
 ## discretisation of a solved community as plain numbers, so they can cross to
 ## a worker, and solves another community on it; for any other, there is
-## nothing to freeze (NULL, and the community unchanged).
+## nothing to freeze (NULL, and the community unchanged). `step` is the
+## relative step of the finite difference the solves are for, if any;
+## `replay_steps = FALSE` freezes the model's discretisation but lets each run
+## choose its own integration steps.
 community_discretisation <- function(community) {
   f <- community$harness$fns$discretisation
   if (is.function(f)) f(community) else NULL
 }
-community_freeze_discretisation <- function(community, discretisation, step) {
+community_freeze_discretisation <- function(community, discretisation, step = NULL,
+                                            replay_steps = TRUE) {
   f <- community$harness$fns$freeze_discretisation
-  if (is.function(f) && !is.null(discretisation)) f(community, discretisation, step) else community
+  if (is.function(f) && !is.null(discretisation)) {
+    f(community, discretisation, step, replay_steps = replay_steps)
+  } else {
+    community
+  }
+}
+## Whether each solve of this community re-chooses its discretisation: the
+## harness can freeze one, and this community does not already replay one.
+community_discretisation_adaptive <- function(community) {
+  frozen <- community$harness$fns$discretisation_frozen
+  is.function(community$harness$fns$freeze_discretisation) &&
+    !(is.function(frozen) && frozen(community))
 }
 
 ##' Which derivatives a harness supplies itself.
@@ -210,7 +227,8 @@ harness_plant <- function(model = c("FF16", "TF24"),
       check_for_inviable_strategies = plant_community_check_for_inviable_strategies,
       update_fitness_function       = plant_community_update_fitness_function,
       discretisation                = plant_community_discretisation,
-      freeze_discretisation         = plant_community_freeze_discretisation
+      freeze_discretisation         = plant_community_freeze_discretisation,
+      discretisation_frozen         = function(community) !is.null(community$model_support$frozen)
     )
   )
   class(h) <- c(paste0("harness_plant_", tolower(model)), "harness_plant", "harness")
