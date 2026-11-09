@@ -292,9 +292,9 @@ demography_solve_equilibrium_solve <- function(community,
   J0 <- if (!is.null(state) && identical(state$key, key)) state$jacobian else NULL
   ## in log density a Newton step is capped at a factor e^2 per iteration: from
   ## a cold start the uncapped step overflows, and the line search then crawls
-  solve <- function(target, x, J0) {
+  solve <- function(target, x, J0, require_converged = solver != "newton") {
     util_nlsolve(x, target, tol = tol, maxit = maxit, solver = solver,
-                 require_converged = solver != "newton", J0 = J0,
+                 require_converged = require_converged, J0 = J0,
                  max_step = if (logN) 2 else Inf)
   }
 
@@ -323,35 +323,36 @@ demography_solve_equilibrium_solve <- function(community,
     jacobian <- J0
     progress <- list()
     residual_last <- Inf
+    ## the size of a residual as the solver judges it: dfsane converges on the
+    ## root-mean-square residual, the others on every component
+    norm <- if (solver == "dfsane") function(f) sqrt(mean(f^2)) else function(f) max(abs(f))
     for (round in seq_len(rounds + 1L)) {
-      converged <- max(abs(fx)) <= tol
+      converged <- norm(fx) <= tol
       res <- community_demography_runner_cleanup(res, runner, converged)
       progress <- c(progress, list(attr(res, "progress")))
-      plant_log_eq(sprintf("round %d: residual %.3g on a refined discretisation", round, max(abs(fx))),
+      plant_log_eq(sprintf("round %d: residual %.3g on a refined discretisation", round, norm(fx)),
                    stage = "round", round = round)
       ## a round that did not reduce the refined residual has reached the
       ## discretisation's own noise, or failed where the next would start
-      if (converged || round > rounds || max(abs(fx)) >= residual_last) {
+      if (converged || round > rounds || norm(fx) >= residual_last) {
         break
       }
-      residual_last <- max(abs(fx))
+      residual_last <- norm(fx)
       frozen <- community_freeze_discretisation(res, community_discretisation(res), replay_steps = FALSE)
       runner_frozen <- make_runner(frozen)
       target_frozen <- target_of(runner_frozen)
       ## At the round's start a run on the frozen discretisation is the refined
-      ## run just made there. A run the model refuses (far from the round's
-      ## start, where the discretisation was not chosen) is outside the frozen
-      ## residual's domain, so the line search backs off, and the refined
-      ## check decides the round.
+      ## run just made there. Every solver reaches the refined check: it, not
+      ## the frozen round, decides whether the solve has converged.
       x_start <- x
       fx_start <- fx
       target <- function(z, ...) {
         if (length(z) == length(x_start) && all(z == x_start)) {
           return(fx_start)
         }
-        tryCatch(target_frozen(z, ...), error = function(e) rep(NaN, length(z)))
+        target_frozen(z, ...)
       }
-      sol <- solve(target, x, jacobian)
+      sol <- solve(target, x, jacobian, require_converged = FALSE)
       if (!is.null(attr(sol, "jacobian"))) {
         jacobian <- attr(sol, "jacobian")
       }
@@ -377,9 +378,15 @@ demography_solve_equilibrium_solve <- function(community,
       ## a round that converged, whose refined check then missed
       if (isTRUE(attr(sol, "converged"))) {
         attr(sol, "message") <- sprintf("the residual %.3g on a refined discretisation is above tol %.3g after %d rounds",
-                                        max(abs(fx)), tol, round - 1L)
+                                        norm(fx), tol, round - 1L)
       }
       attr(sol, "converged") <- FALSE
+    }
+    ## as util_nlsolve(require_converged = TRUE) refuses on the old path
+    if (solver != "newton" && !converged) {
+      stop(sprintf("Solver has likely failed: code=%d, msg: %s",
+                   if (is.null(attr(sol, "code"))) NA_integer_ else attr(sol, "code"),
+                   attr(sol, "message")))
     }
   }
   if (solver == "newton" && !converged) {

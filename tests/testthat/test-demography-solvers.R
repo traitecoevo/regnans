@@ -180,17 +180,19 @@ test_that("a failed Newton solve leaves no Jacobian behind", {
 
 two_ricker <- function(n) c(n[1] * exp(1.5 * (1 - n[1] / 10)), n[2] * exp(1.5 * (1 - n[2] / 4)))
 
-adaptive_community <- function(h, n0, rounds = 5L, solver = "equilibrium_solve_newton") {
+adaptive_community <- function(h, n0, rounds = 5L, solver = "equilibrium_solve_newton",
+                               try_keep = TRUE) {
   community_start(bounds(x = c(-2, 2)), harness = h, trait_scale = "linear",
                   demography_control = demographic_step_control(list(
                     equilibrium_solver_name = solver,
                     equilibrium_eps = 1e-8,
+                    equilibrium_solver_try_keep = try_keep,
                     equilibrium_discretisation_rounds = rounds))) |>
     community_add(trait_matrix(rep(0, length(n0)), "x"), birth_rate = n0)
 }
 
 test_that("an adaptive model is solved on frozen discretisations and accepted on a refined run", {
-  for (solver in c("equilibrium_solve_newton", "equilibrium_solve_nleqslv")) {
+  for (solver in c("equilibrium_solve_newton", "equilibrium_solve_nleqslv", "equilibrium_solve_dfsane")) {
     h <- harness_map_adaptive(two_ricker)
     sol <- community_demography(adaptive_community(h, c(3, 8), solver = solver))
     expect_true(attr(sol, "converged"), label = solver)
@@ -223,6 +225,32 @@ test_that("a solve whose refined check misses after its last round has not conve
   expect_false(attr(attr(sol, "sol"), "converged"))
   expect_null(sol$demography_state)
   expect_equal(h$counts$refined, 2L)
+  # the root finders that refuse a failed solve refuse this one, on the
+  # refined check rather than inside a round
+  h <- harness_map_adaptive(two_ricker)
+  expect_error(community_demography(adaptive_community(h, c(3, 8), rounds = 1L,
+                                                       solver = "equilibrium_solve_nleqslv")),
+               "on a refined discretisation is above tol")
+  expect_equal(h$counts$refined, 2L)
+})
+
+test_that("rounds search without the keep test, and without a species below the minimum", {
+  # without it the residual is absolute and the first species' search ends at
+  # its extinction, as it does refining at every run (8.96e-9 there)
+  h <- harness_map_adaptive(two_ricker)
+  sol <- community_demography(adaptive_community(h, c(3, 8), try_keep = FALSE))
+  expect_true(attr(sol, "converged"))
+  expect_lt(sol$birth_rate[1], 1e-6)
+  expect_equal(sol$birth_rate[2], 4, tolerance = 1e-7)
+  expect_gt(h$counts$replayed, 0L)
+
+  # the second species is left out of the search and runs at zero
+  h <- harness_map_adaptive(two_ricker)
+  sol <- community_demography(adaptive_community(h, c(3, 1e-12)))
+  expect_true(attr(sol, "converged"))
+  expect_equal(as.numeric(sol$birth_rate), c(10, 0), tolerance = 1e-7)
+  expect_equal(sol$disc$d, c(10, 0), tolerance = 1e-7)
+  expect_gt(h$counts$replayed, 0L)
 })
 
 test_that("a community that replays a discretisation never refines one", {
