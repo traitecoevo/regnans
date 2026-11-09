@@ -38,7 +38,7 @@ plant_default_assembly_pars <- function(hmat = 10, max_patch_lifetime = 60, fixe
 ##' future (e.g. schedule tolerances) without touching every call site.
 ##'
 ##' The size density is carried on the birth-date coordinate
-##' (\code{node_density_in_birth_date = TRUE}) unless overridden: plant's
+##' (\code{node_density_coordinate = "birth_date"}) unless overridden: plant's
 ##' gradients (\code{plant::stand_gradient()}) are defined on it alone.
 ##'
 ##' @title Default plant control for community assembly
@@ -48,8 +48,8 @@ plant_default_assembly_pars <- function(hmat = 10, max_patch_lifetime = 60, fixe
 ##' @author Daniel Falster
 plant_default_assembly_control <- function(...) {
   args <- list(...)
-  if (is.null(args$node_density_in_birth_date)) {
-    args$node_density_in_birth_date <- TRUE
+  if (is.null(args$node_density_coordinate)) {
+    args$node_density_coordinate <- "birth_date"
   }
   do.call(plant::control, args)
 }
@@ -77,11 +77,15 @@ plant_community_parameters <- function(community) {
     p$node_schedule_times <- community$model_support$node_schedule_times
   }
   # times and step sizes together replay the equilibrium run exactly; times
-  # alone would let the controller choose its own sub-steps
-  if (!is.null(community$model_support$node_schedule_ode_times)) {
-    p$ode_times <- community$model_support$node_schedule_ode_times
-    if (!is.null(community$model_support$node_schedule_ode_step_sizes)) {
-      p$ode_step_sizes <- community$model_support$node_schedule_ode_step_sizes
+  # alone would let the controller choose its own sub-steps. The soil's
+  # substep records go with the sizes: plant refuses sizes without them.
+  ms <- community$model_support
+  if (!is.null(ms$node_schedule_ode_times)) {
+    p$ode_times <- ms$node_schedule_ode_times
+    if (!is.null(ms$node_schedule_ode_step_sizes)) {
+      p$ode_step_sizes <- ms$node_schedule_ode_step_sizes
+      p$ode_soil_input_slopes <- ms$node_schedule_ode_soil_input_slopes
+      p$ode_soil_substep_ends <- ms$node_schedule_ode_soil_substep_ends
     }
   }
   # a frozen discretisation (a stencil point's) overrides both, and survives
@@ -96,8 +100,21 @@ plant_community_parameters <- function(community) {
     p$node_schedule_times <- frozen$node_schedule_times
     p$ode_times <- frozen$ode_times
     p$ode_step_sizes <- frozen$ode_step_sizes
+    p$ode_soil_input_slopes <- frozen$ode_soil_input_slopes
+    p$ode_soil_substep_ends <- frozen$ode_soil_substep_ends
   }
 
+  p
+}
+
+## Drop the ODE schedule p carries so a run integrates freely. The four fields
+## go together: plant refuses step sizes without the soil's substep records,
+## and a refining run records all four into its parameters.
+plant_clear_ode_schedule <- function(p) {
+  p$ode_times <- numeric(0)
+  p$ode_step_sizes <- numeric(0)
+  p$ode_soil_input_slopes <- list()
+  p$ode_soil_substep_ends <- list()
   p
 }
 
@@ -112,6 +129,8 @@ plant_community_discretisation <- function(community) {
   }
   list(node_schedule_times = ms$node_schedule_times, ode_times = ms$node_schedule_ode_times,
        ode_step_sizes = ms$node_schedule_ode_step_sizes,
+       ode_soil_input_slopes = ms$node_schedule_ode_soil_input_slopes,
+       ode_soil_substep_ends = ms$node_schedule_ode_soil_substep_ends,
        max_patch_lifetime = ms$p$max_patch_lifetime)
 }
 
@@ -190,8 +209,7 @@ plant_community_make_demography_runner <- function(community) {
     if (frozen) {
       scm <- run_scm(p, ctrl = ctrl)
     } else {
-      p$ode_times <- numeric(0)
-      p$ode_step_sizes <- numeric(0)
+      p <- plant_clear_ode_schedule(p)
       scm <- run_scm(p, ctrl = ctrl, refine_schedule = TRUE)
     }
     p_new <- scm$parameters
@@ -251,6 +269,8 @@ plant_community_demography_runner_cleanup <- function(community, runner, converg
   community$model_support$node_schedule_times <- p$node_schedule_times
   community$model_support$node_schedule_ode_times <- p$ode_times
   community$model_support$node_schedule_ode_step_sizes <- p$ode_step_sizes
+  community$model_support$node_schedule_ode_soil_input_slopes <- p$ode_soil_input_slopes
+  community$model_support$node_schedule_ode_soil_substep_ends <- p$ode_soil_substep_ends
   community$fitness_points <- NULL
 
   attr(community, "progress") <- util_rbind_list(e$history)
@@ -296,8 +316,7 @@ plant_community_update_fitness_function <- function(community) {
       } else {
         # otherwise just run mutants with zero birth rate, integrating freely
         # (run_scm() would otherwise take any schedule p carries)
-        p_mutants$ode_times <- numeric(0)
-        p_mutants$ode_step_sizes <- numeric(0)
+        p_mutants <- plant_clear_ode_schedule(p_mutants)
         scm <- run_scm(p_mutants, ctrl = ctrl)
         ret <- log(scm$net_reproduction_ratios)
       }
@@ -335,9 +354,9 @@ plant_mutant_gradient <- function(scm, p, hyperpar, y, trait_names, f, control) 
   p_mutants <- plant::add_mutant(p, trait_matrix(y, trait_names), hyperpar, birth_rate = rep(0, n))
   # scm is the fitness function's too: a replay left recording would keep
   # every later mutant's states
-  recording <- scm$record_trajectory
-  on.exit(scm$record_trajectory <- recording)
-  scm$record_trajectory <- TRUE
+  recording <- scm$keep_states
+  on.exit(scm$keep_states <- recording)
+  scm$keep_states <- TRUE
   scm$run_mutant(p_mutants)
   metrics <- paste0(seq_len(n), ".net_reproduction_ratio")
   columns <- paste0(rep(seq_len(n), each = k), ".", rep(trait_names, n))

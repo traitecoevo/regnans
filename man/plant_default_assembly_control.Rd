@@ -21,7 +21,7 @@ plant control used for assembly lives in one place and can be tuned in
 future (e.g. schedule tolerances) without touching every call site.
 
 The size density is carried on the birth-date coordinate
-(\code{node_density_in_birth_date = TRUE}) unless overridden: plant's
+(\code{node_density_coordinate = "birth_date"}) unless overridden: plant's
 gradients (\code{plant::stand_gradient()}) are defined on it alone.
 }
 \author{

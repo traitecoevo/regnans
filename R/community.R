@@ -184,6 +184,8 @@ community_reset <- function(community) {
   community$model_support$node_schedule_times <- NULL
   community$model_support$node_schedule_ode_times <- NULL
   community$model_support$node_schedule_ode_step_sizes <- NULL
+  community$model_support$node_schedule_ode_soil_input_slopes <- NULL
+  community$model_support$node_schedule_ode_soil_substep_ends <- NULL
 
   community
 }
