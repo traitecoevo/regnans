@@ -177,6 +177,29 @@ test_that("the resident Jacobian's stencil is solved on its centre's discretisat
   expect_equal(coarse, fine, tolerance = 0.25)
 })
 
+test_that("the implicit resident Jacobian's runs replay the centre's discretisation and match the stencil (SCM)", {
+  # Each fixed-environment run used to refine its own schedule: at a step of
+  # 1e-3 the implicit Jacobian read -671 here against the stencil's -2239.
+  # Replaying the centre's, they were measured to agree to 1.3e-3 and the
+  # densities' Jacobian to 7e-4; both are held to 1e-2. TF24's case is in
+  # test-plant-smoke-tf24.R.
+  comm <- community_start(bounds(lma = c(0.02, 0.6)),
+                          model_support = list(p = plant_default_assembly_pars(hmat = 10, max_patch_lifetime = 30),
+                                               plant_control = plant_default_assembly_control())) |>
+    community_add(trait_matrix(0.15, "lma"), birth_rate = 10) |>
+    community_demography()
+  jacobian <- function(route) {
+    comm$derivative_control <- derivative_control(list(resident_jacobian = route, d_second = 1e-3, eps_second = 1e-3))
+    community_selection_gradient_jacobian(comm)
+  }
+  stencil <- jacobian("stencil")
+  implicit <- jacobian("implicit")
+  expect_equal(attr(implicit, "evaluations"), 0L)
+  expect_equal(unname(implicit[1, 1]), unname(stencil[1, 1]), tolerance = 1e-2)
+  expect_equal(unname(attr(implicit, "birth_rate_jacobian")), unname(attr(stencil, "birth_rate_jacobian")),
+               tolerance = 1e-2)
+})
+
 test_that("plant's own mutant gradient agrees with the finite difference (SCM)", {
   # plant#650 E2: the mutants' replay in the recorded canopy, differentiated
   # by plant's reverse sweep through the hyperparameter function. The finite

@@ -120,9 +120,13 @@ singularity_gradient_fn <- function(community, m = 1L, birth_rate = NULL, probe 
                      logical(1))
     out <- rep(list(rep(NA_real_, m * k + m)), length(points))
     ## run on the community a stencil point is solved on, so whatever a finite
-    ## difference holds fixed across its points is held here too
-    out[!merged] <- regnans_map(points[!merged], singularity_environment_point,
-                                base = stencil_community(base, step), m = m)
+    ## difference holds fixed across its points is held here too: the centre's
+    ## discretisation, where the model discretises adaptively, without which
+    ## each run refines its own schedule and the change of steps swamps the
+    ## difference (plant#653)
+    stencil <- stencil_community(base, step,
+                                 if (!is.null(last_community)) community_discretisation(last_community))
+    out[!merged] <- regnans_map(points[!merged], singularity_environment_point, base = stencil, m = m)
     failed <- vapply(out, inherits, logical(1), "error")
     refused <<- refused + sum(merged)
     environments <<- environments + sum(!merged & !failed)
