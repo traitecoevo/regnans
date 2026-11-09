@@ -1,6 +1,6 @@
 migrated_on: 2026-11-10
 plant_version: 2.0.0.9002
-plant_ref: feat/parameters-hyperpar@79a6ea6c (2026-11-10, plant#731 before its squash; odelia 0.11.0 @v0.11.0 and phylloptim 0.35.0 @58d8360)
+plant_ref: develop@218501e1 (2026-11-10, plant#731; odelia 0.11.0 @v0.11.0 and phylloptim 0.35.0 @58d8360)
 applied_breaking_changes:
   - parameters-hyperpar      # scm_base_parameters() attaches no trade-offs; plant_default_assembly_pars() builds on default_parameters(model, quiet = TRUE); FF16_hyperpar/make_*_hyperpar/make_hyperpar()/hyperpar() removed (plant#731) [2026-11-10]
   - scm-consolidation        # build_schedule -> run_scm(refine_schedule=TRUE); run_scm_collect -> run_scm(collect=TRUE)
@@ -84,5 +84,5 @@ notes: >-
   TRUE), which attaches plant's frozen testing trade-offs, the same functions
   the assembly ran under before. Every other call site already went through
   plant::param_hyperpar(p), which now reads the carried function, so
-  community_plant.R needed nothing else. The pin names the PR head; repoint it
-  to the develop commit of the squash merge when bumping next.
+  community_plant.R needed nothing else. The pin is the squash commit on
+  develop (218501e1), set once plant#731 merged.
