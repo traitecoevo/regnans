@@ -137,3 +137,71 @@ test_that("a singularity is followed along a plant parameter, its sensitivity ma
   expect_true(all(miss < 0.25 * abs(diff(x))))
   expect_true(all(path$classification %in% c("CSS", "branching point")))
 })
+
+test_that("the resident Jacobian's stencil is solved on its centre's discretisation (SCM)", {
+  # Each stencil point would otherwise refine its own node schedule and ODE
+  # steps, and the change of steps over the step swamps the derivative: at
+  # lma 0.15 the free difference of the selection gradient read -1619, 193
+  # and 107 at steps 1e-2, 1e-3 and 1e-4. On the centre's discretisation it is
+  # one number to the difference's truncation error.
+  comm <- community_start(bounds(lma = c(0.02, 0.6)),
+                          model_support = list(p = plant_default_assembly_pars(hmat = 10, max_patch_lifetime = 30),
+                                               plant_control = plant_default_assembly_control())) |>
+    community_add(trait_matrix(0.15, "lma"), birth_rate = 10) |>
+    community_demography()
+  disc <- community_discretisation(comm)
+  expect_named(disc, c("node_schedule_times", "ode_times", "ode_step_sizes", "max_patch_lifetime"))
+  expect_gt(length(disc$ode_times), 0L)
+  frozen <- stencil_community(comm, 1e-3, disc)
+  expect_identical(frozen$model_support$frozen, disc)
+  expect_equal(frozen$model_support$plant_control$offspring_production_tol, 1e-9)
+  # a frozen discretisation survives a change of residents, so a stencil point
+  # built by community_add() replays it
+  moved <- community_add(community_clear_residents(frozen), trait_matrix(0.151, "lma"), birth_rate = 80)
+  expect_identical(plant_community_parameters(moved)$ode_times, disc$ode_times)
+  # the schedule spans one patch lifetime: a community with another (a
+  # parameter Jacobian's column in it) refines its own
+  longer <- comm
+  longer$model_support$p$max_patch_lifetime <- 30 * (1 + 1e-4)
+  expect_null(stencil_community(longer, 1e-3, disc)$model_support$frozen)
+
+  jacobian <- function(d) {
+    comm$derivative_control <- derivative_control(list(d_second = d, eps_second = d))
+    community_selection_gradient_jacobian(comm)[1, 1]
+  }
+  coarse <- jacobian(1e-2)
+  fine <- jacobian(1e-3)
+  expect_lt(coarse, 0)
+  expect_lt(fine, 0)
+  expect_equal(coarse, fine, tolerance = 0.25)
+})
+
+test_that("plant's own mutant gradient agrees with the finite difference (SCM)", {
+  # plant#650 E2: the mutants' replay in the recorded canopy, differentiated
+  # by plant's reverse sweep through the hyperparameter function. The finite
+  # difference of the same replay agrees to its truncation error: 7e-5 and
+  # 9e-4 away from the resident, 5e-3 at it, where the landscape is steepest
+  # (a selection gradient of -1e4); the Richardson reference of the contract
+  # check agrees to 1e-2.
+  build <- function(source) {
+    community_start(bounds(lma = c(0.02, 0.6)),
+                    model_support = list(p = plant_default_assembly_pars(hmat = 10, max_patch_lifetime = 30),
+                                         plant_control = plant_default_assembly_control()),
+                    harness = harness_plant(fitness_gradient = source)) |>
+      community_add(trait_matrix(0.15, "lma"), birth_rate = 10) |>
+      community_demography()
+  }
+  model <- build("model")
+  expect_true(harness_provides(model$harness, "fitness_gradient"))
+  expect_equal(unname(model$fitness_derivatives$source[["fitness_gradient"]]), "model")
+  y <- c(0.1, 0.15, 0.3)
+  g <- community_fitness_gradient(model, y)
+  fd <- community_fitness_gradient(build("fd"), y)
+  expect_equal(as.numeric(g), as.numeric(fd), tolerance = 1e-2)
+  expect_equal(attr(g, "value"), as.numeric(model$fitness_function(y)), tolerance = 1e-10)
+  # the sweep's replay shares the fitness function's SCM and leaves it as found
+  expect_false(environment(model$fitness_function)$scm$record_trajectory)
+  checked <- harness_check_derivatives(model, n_points = 3, tol_rel = 1e-2)
+  expect_true(all(checked$pass))
+  expect_error(harness_plant("TF24", fitness_gradient = "model"), "FF16's fitness only")
+})

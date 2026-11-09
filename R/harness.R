@@ -15,6 +15,10 @@
 #   community_update_fitness_function()       build the invasion-fitness closure
 #   community_model_equilibrium()             the model's own resident equilibrium,
 #                                             where it can supply one (optional)
+#   community_discretisation()                a solved community's discretisation,
+#                                             as plain numbers (optional)
+#   community_freeze_discretisation()         solve a community on a given
+#                                             discretisation (optional)
 #
 # A harness is a list carrying a `$fns` table of these functions plus any
 # model state; its class is used for printing/dispatch. The demography runner
@@ -72,6 +76,21 @@ community_model_equilibrium <- function(community) {
          "in demographic_step_control()")
   }
   f(community)
+}
+## A finite difference across equilibrium solves is smooth only if every point
+## is solved on the same discretisation: an adaptive model re-chooses its
+## steps at each point, and the change of steps enters the difference over
+## the step. A harness whose model discretises adaptively (plant) reads the
+## discretisation of a solved community as plain numbers, so they can cross to
+## a worker, and solves another community on it; for any other, there is
+## nothing to freeze (NULL, and the community unchanged).
+community_discretisation <- function(community) {
+  f <- community$harness$fns$discretisation
+  if (is.function(f)) f(community) else NULL
+}
+community_freeze_discretisation <- function(community, discretisation, step) {
+  f <- community$harness$fns$freeze_discretisation
+  if (is.function(f) && !is.null(discretisation)) f(community, discretisation, step) else community
 }
 
 ##' Which derivatives a harness supplies itself.
@@ -145,18 +164,37 @@ harness_fd <- function(harness) {
 ##' metadata and a hook for model-specific dispatch (TF24 support depends on the
 ##' installed `plant`).
 ##'
+##' The fitness gradient in the mutant direction is a finite difference of
+##' the fitness function by default. With \code{fitness_gradient = "model"} it
+##' is plant's own (\code{plant::stand_gradient()} on the mutants' replay in
+##' the recorded resident canopy, through the hyperparameter function), exact
+##' on the replay's discretisation, with a finite difference wherever plant
+##' refuses a point; it needs the birth-date coordinate
+##' (\code{\link{plant_default_assembly_control}}) and FF16. On FF16 a sweep
+##' costs about 26 mutant replays (plant#677), so it is slower than the finite
+##' difference for fewer than about a dozen traits.
+##'
 ##' @title plant model harness
 ##' @param model plant physiological model: "FF16" or "TF24"
 ##' @param version plant package version (defaults to the installed version)
+##' @param fitness_gradient \code{"fd"} (the default) or \code{"model"}: where
+##' the fitness gradient comes from.
 ##' @return a `harness` object
 ##' @author Daniel Falster
 ##' @export
 harness_plant <- function(model = c("FF16", "TF24"),
-                          version = as.character(utils::packageVersion("plant"))) {
+                          version = as.character(utils::packageVersion("plant")),
+                          fitness_gradient = c("fd", "model")) {
   model <- match.arg(model)
+  fitness_gradient <- match.arg(fitness_gradient)
+  if (fitness_gradient == "model" && model != "FF16") {
+    stop("plant differentiates FF16's fitness only; use fitness_gradient = \"fd\" for ", model)
+  }
   h <- list(
     model   = model,
     version = version,
+    fitness_gradient = fitness_gradient,
+    provides = if (fitness_gradient == "model") "fitness_gradient" else character(0),
     equilibrium_solver_default = "equilibrium_iteration",
     fns = list(
       parameters                    = plant_community_parameters,
@@ -164,7 +202,9 @@ harness_plant <- function(model = c("FF16", "TF24"),
       demography_runner_cleanup     = plant_community_demography_runner_cleanup,
       viable_bounds                 = plant_community_viable_bounds,
       check_for_inviable_strategies = plant_community_check_for_inviable_strategies,
-      update_fitness_function       = plant_community_update_fitness_function
+      update_fitness_function       = plant_community_update_fitness_function,
+      discretisation                = plant_community_discretisation,
+      freeze_discretisation         = plant_community_freeze_discretisation
     )
   )
   class(h) <- c(paste0("harness_plant_", tolower(model)), "harness_plant", "harness")

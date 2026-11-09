@@ -19,6 +19,10 @@ Default plant SCM control for community assembly.
 Thin wrapper around \code{plant::control()}. Kept as a named helper so the
 plant control used for assembly lives in one place and can be tuned in
 future (e.g. schedule tolerances) without touching every call site.
+
+The size density is carried on the birth-date coordinate
+(\code{node_density_in_birth_date = TRUE}) unless overridden: plant's
+gradients (\code{plant::stand_gradient()}) are defined on it alone.
 }
 \author{
 Daniel Falster

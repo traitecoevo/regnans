@@ -6,13 +6,17 @@
 \usage{
 harness_plant(
   model = c("FF16", "TF24"),
-  version = as.character(utils::packageVersion("plant"))
+  version = as.character(utils::packageVersion("plant")),
+  fitness_gradient = c("fd", "model")
 )
 }
 \arguments{
 \item{model}{plant physiological model: "FF16" or "TF24"}
 
 \item{version}{plant package version (defaults to the installed version)}
+
+\item{fitness_gradient}{\code{"fd"} (the default) or \code{"model"}: where
+the fitness gradient comes from.}
 }
 \value{
 a `harness` object
@@ -30,6 +34,16 @@ The actual `plant` `Parameters` are still supplied via
 `community_start(model_support = ...)`; `model`/`version` here are recorded
 metadata and a hook for model-specific dispatch (TF24 support depends on the
 installed `plant`).
+
+The fitness gradient in the mutant direction is a finite difference of
+the fitness function by default. With \code{fitness_gradient = "model"} it
+is plant's own (\code{plant::stand_gradient()} on the mutants' replay in
+the recorded resident canopy, through the hyperparameter function), exact
+on the replay's discretisation, with a finite difference wherever plant
+refuses a point; it needs the birth-date coordinate
+(\code{\link{plant_default_assembly_control}}) and FF16. On FF16 a sweep
+costs about 26 mutant replays (plant#677), so it is slower than the finite
+difference for fewer than about a dozen traits.
 }
 \author{
 Daniel Falster
