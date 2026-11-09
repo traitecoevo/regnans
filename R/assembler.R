@@ -200,7 +200,10 @@ assembler_evolve <- function(obj) {
                                 length(community), ctrl$evolve))
     res <- route(community, ctrl)
     obj$evaluations <- obj$evaluations + res$evaluations
-    merged <- if (res$converged) evolve_merged(res$community) else integer(0)
+    ## a pair the canonical equation ended on may still be closing; a root
+    ## Newton solved and classified is not, however close (a pitchfork's pair)
+    eps <- if (identical(res$route, "canonical")) ctrl$eps_too_close else 0
+    merged <- if (res$converged) evolve_merged(res$community, eps) else integer(0)
     if (length(merged) == 0L) {
       break
     }
@@ -216,12 +219,32 @@ assembler_evolve <- function(obj) {
   obj
 }
 
-## The rarer resident of each pair within two finite-difference steps of
-## each other, the converse of a branching.
-evolve_merged <- function(community) {
+## The rarer resident of each pair that is one strategy, the converse of a
+## branching: within two finite-difference steps of each other, or within
+## `eps_too_close` of each other as a fraction of the bounds' width on the
+## trait scale, the distance at which a birth beside a resident is that
+## resident. The second is for the end of a canonical run, which stops on an
+## absolute gradient tolerance: a pair collapsing onto one singular strategy
+## has gradients that shrink with its separation, so it meets the tolerance
+## while still closing, and at zero the steps of the first test are relative
+## and vanish. A root Newton solved is exact and keeps the first test alone,
+## since a pitchfork's pair is genuinely that close. Bounds that are not
+## finite on the trait scale give no width, and only the first test applies.
+evolve_merged <- function(community, eps_too_close = 0) {
   m <- nrow(community$traits)
   pairs <- residents_merged(as.numeric(community$traits), m, length(community$trait_names),
                             community_derivative_control(community), reach = 2)
+  if (m >= 2L && eps_too_close > 0) {
+    tf <- community_trait_transform(community)
+    z <- tf$fwd(community$traits)
+    b <- tf$fwd(community$bounds)
+    width <- b[, 2] - b[, 1]
+    if (all(is.finite(width) & width > 0)) {
+      all_pairs <- which(upper.tri(diag(m)), arr.ind = TRUE)
+      near <- apply(all_pairs, 1, function(p) sqrt(sum(((z[p[1], ] - z[p[2], ]) / width)^2)) < eps_too_close)
+      pairs <- unique(rbind(pairs, all_pairs[near, , drop = FALSE]))
+    }
+  }
   n <- as.numeric(community$birth_rate)
   sort(unique(apply(pairs, 1, function(p) p[which.min(n[p])])))
 }
@@ -250,13 +273,13 @@ evolve_newton <- function(community, ctrl) {
     ## a pair collapsed onto one point passes as a root and cannot be
     ## classified; the caller merges it
     return(list(community = sol, converged = TRUE, classification = NA_character_,
-                reason = NULL, evaluations = evaluations))
+                reason = NULL, evaluations = evaluations, route = "newton"))
   } else {
     cl <- quietly(community_classify_singularity(sol))
     evaluations <- evaluations + cl$evaluations
     if (cl$classification %in% c("CSS", "branching point")) {
       return(list(community = sol, converged = TRUE, classification = cl$classification,
-                  reason = NULL, evaluations = evaluations))
+                  reason = NULL, evaluations = evaluations, route = "newton"))
     }
     sprintf("the singular coalition found is %s", cl$classification)
   }
@@ -276,7 +299,7 @@ evolve_canonical <- function(community, ctrl) {
   if (inherits(ce, "error")) {
     return(list(community = community, converged = FALSE, classification = NA_character_,
                 reason = paste("the canonical equation failed:", conditionMessage(ce)),
-                evaluations = 0L))
+                evaluations = 0L, route = "canonical"))
   }
   stable <- identical(ce$outcome, "stable")
   ## the community at the end of the trajectory, solved again at its
@@ -284,7 +307,7 @@ evolve_canonical <- function(community, ctrl) {
   final <- canonical_community(ce, max(ce$trajectory$time))
   list(community = final, converged = stable, classification = NA_character_,
        reason = if (stable) NULL else sprintf("the canonical equation ended with outcome %s", ce$outcome),
-       evaluations = as.integer(ce$evaluations) + 1L)
+       evaluations = as.integer(ce$evaluations) + 1L, route = "canonical")
 }
 
 

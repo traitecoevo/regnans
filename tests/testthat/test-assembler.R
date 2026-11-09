@@ -65,6 +65,28 @@ test_that("mutational_vcv_proportion uses the community's trait scale", {
   expect_equal(mutational_vcv_proportion(lin_comm, p = 0.01)[1, 1], 0.01 * 6)
 })
 
+# ---- merging residents (fast, no SCM) ---------------------------------------
+
+test_that("two residents within eps_too_close of each other are one, either side of zero", {
+  # GK98's backward boundary sweep at d = 1 ended on this pair, collapsed onto
+  # the one singular strategy at 0 (test-boundary.R). Two finite-difference
+  # steps (relative, so 4.6e-8 here) never reach across zero; the distance at
+  # which a birth beside a resident is that resident does.
+  harness <- harness_gk98(sigma = 1, mu = c(-1, 0, 1), K = c(1, 1, 1))
+  pair <- function(x, b = bounds(x = c(-4, 4))) {
+    community_start(b, trait_scale = "linear", harness = harness) |>
+      community_add(trait_matrix(x, "x"), birth_rate = c(2, 1))
+  }
+  collapsed <- pair(c(-2.32e-5, 2.32e-5))
+  expect_equal(evolve_merged(collapsed), integer(0))
+  expect_equal(evolve_merged(collapsed, eps_too_close = 1e-3), 2L)
+  # 0.2 apart is 2.5% of the width
+  expect_equal(evolve_merged(pair(c(-0.1, 0.1)), eps_too_close = 1e-3), integer(0))
+  # with no finite width only the steps decide
+  expect_equal(evolve_merged(pair(c(-2.32e-5, 2.32e-5), bounds_infinite("x")), eps_too_close = 1e-3),
+               integer(0))
+})
+
 # ---- assembler loop (integration) ------------------------------------------
 # Driven on the fast DD99 harness (issue #27) rather than the SCM, on a linear
 # trait scale (DD99's optimum sits at x0 = 0). The stochastic-births path now
