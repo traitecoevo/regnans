@@ -87,6 +87,28 @@ test_that("two residents within eps_too_close of each other are one, either side
                integer(0))
 })
 
+test_that("only a pair the canonical route ends on is merged by eps_too_close", {
+  # A root Newton solved keeps a close pair (a pitchfork's is genuinely that
+  # close); a canonical run's end may still be closing. Each route is stood in
+  # for by one that ends on the collapsed pair.
+  collapsed <- community_start(bounds(x = c(-4, 4)), trait_scale = "linear",
+                               harness = harness_gk98(sigma = 1, mu = c(-1, 0, 1), K = c(1, 1, 1))) |>
+    community_add(trait_matrix(c(-2.32e-5, 2.32e-5), "x"), birth_rate = c(2, 1))
+  ends_on <- function(route) {
+    function(community, ctrl) {
+      list(community = community, converged = TRUE, classification = NA_character_, reason = NULL,
+           evaluations = 0L, route = route)
+    }
+  }
+  obj <- list(control = assembler_control(list(evolve = "newton")), community = collapsed, evaluations = 0L)
+  local_mocked_bindings(evolve_newton = ends_on("newton"))
+  expect_equal(nrow(assembler_evolve(obj)$community$traits), 2L)
+  local_mocked_bindings(evolve_newton = ends_on("canonical"))
+  kept <- assembler_evolve(obj)$community
+  # the commoner resident stays, its density solved again alone
+  expect_equal(as.numeric(kept$traits), -2.32e-5)
+})
+
 # ---- assembler loop (integration) ------------------------------------------
 # Driven on the fast DD99 harness (issue #27) rather than the SCM, on a linear
 # trait scale (DD99's optimum sits at x0 = 0). The stochastic-births path now
