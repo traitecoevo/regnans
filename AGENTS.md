@@ -9,14 +9,9 @@ It is a thin evolutionary-assembly layer **on top of `plant`**. `plant` provides
 the demographic model (the SCM — Size- and Patch-structured Cohort Model);
 `regnans` orchestrates many `plant` runs.
 
-## Status (June 2026)
+## What is verified
 
-The package was mid-way through a refactor that **ports equilibrium/demography
-code out of `plant` and into this package**, while `plant` itself went through
-breaking interface changes. As of now:
-
-- `devtools::load_all()` **succeeds**.
-- The **core path works and is verified**: `community_start` → `community_add` →
+- The **core path**: `community_start` → `community_add` →
   `community_demography()` (default `equilibrium_iteration` solver) →
   `community_selection_gradient()`. At equilibrium resident fitness ≈ 0 and the
   selection gradient is finite — matches overstorey's
@@ -24,24 +19,23 @@ breaking interface changes. As of now:
 - **Viable-bounds path works** and is reimplemented on the community machinery: `community_viable_fitness(community)` / `community_viable_bounds()` use an empty community's `fitness_function` as the fundamental-fitness function (no dependency on plant's removed `fundamental_fitness()`/`viable_fitness()`), in any number of traits.
 - See **Known issues** below for what is *not* yet working.
 
-### Important: plant removed the whole fitness/equilibrium subsystem (#388)
+### Fitness and equilibrium code lives here, not in plant
 
-plant NEWS (#388): "All fitness/equilibrium functionality was removed from plant;
-it now lives in `regnans`." Removed from plant: `fitness_landscape()`,
-`solve_max_fitness()`, `viable_fitness()`, `fundamental_fitness()`,
-`equilibrium_birth_rate()`, `positive_1d()`, `max_growth_rate()`, etc. The port
-is *exactly* the job of bringing these into this package. The intended approach
-is to **reimplement on the community machinery** (run the SCM via the community's
-`fitness_function` / `community_demography`) rather than copy plant's old code
-verbatim. Done so far: equilibrium (→ `community_demography`), viable bounds
-(→ `community_viable_fitness`), `positive_1d`/`positive_1d_bracket` (pure
-numeric helpers, in `R/community_fitness_viable.R`), and the fitness-max
-functions `max_fitness()` / `max_growth_rate()` (`R/community_fitness_solve_max.R`,
-operating on `community$fitness_function`). The package no longer references any
-removed/undefined plant symbol (verified with `codetools::findGlobals`).
+plant has no `fitness_landscape()`, `solve_max_fitness()`, `viable_fitness()`,
+`fundamental_fitness()`, `equilibrium_birth_rate()`, `positive_1d()` or
+`max_growth_rate()`. Their counterparts here are written on the community
+machinery, which runs the SCM through the community's `fitness_function` and
+`community_demography`, rather than copied from plant's old code:
 
-`HANDOFF.md` is an ephemeral note from the previous session (not committed);
-this file supersedes it for durable guidance.
+- equilibrium is `community_demography()`;
+- viable bounds are `community_viable_fitness()`;
+- `positive_1d()`/`positive_1d_bracket()` are pure numeric helpers in
+  `R/community_fitness_viable.R`;
+- `max_fitness()`/`max_growth_rate()` are in `R/community_fitness_solve_max.R`
+  and operate on `community$fitness_function`.
+
+Port anything else the same way. `codetools::findGlobals` shows whether any
+removed plant symbol is still referenced.
 
 ## Dev commands
 
@@ -51,8 +45,8 @@ devtools::document()        # regenerate man/ + NAMESPACE from roxygen
 devtools::test()            # run testthat suite (see baseline below)
 ```
 
-The canonical end-to-end exercises are the overstorey pages (the former
-vignettes, now in `../overstorey/theory/adaptive-dynamics/`):
+The canonical end-to-end exercises are the pages under
+`theory/adaptive-dynamics/` in the overstorey repository:
 `solving_attractors.qmd`, `assembly_fitmax.qmd`, `assembly_stochastic.qmd`, plus
 `assembly.qmd` and one page per reference model. Rendered at
 <https://traitecoevo.github.io/overstorey/theory/adaptive-dynamics.html>.
@@ -86,10 +80,9 @@ community_start(bounds, model_support = list(p = ..., plant_control = ...)) |>
 ### plant bridge (`R/community_plant.R`)
 
 All direct `plant` coupling lives here, in the `plant_community_*` functions.
-These are no longer wired up by aliases at the bottom of the file; instead
 `harness_plant()` (in `R/harness.R`) points the model-agnostic connectors at
-them. See **Model harnesses** below — the plant layer is now one harness among
-several, and the connectors dispatch through `community$harness`.
+them; the plant layer is one harness among several, and the connectors dispatch
+through `community$harness` (see **Model harnesses** below).
 
 - `plant_default_assembly_pars(hmat, max_patch_lifetime, fixed_RA)` — base FF16
   `Parameters`. **Important:** it regenerates `node_schedule_times_default` to
@@ -136,7 +129,7 @@ several, and the connectors dispatch through `community$harness`.
 - `equilibrium_hybrid` — iterate then root-find, alternating solvers, rejecting
   any solution that drove a still-viable species extinct.
 
-In `util_nlsolve()`, `converged` means every residual component is within `tol` (for `dfsane`, its root-mean-square residual). A step shorter than `xtol` (default `tol * 1e-3`; relative for `nleqslv`, absolute for `newton`) ends the search but is not convergence: before #74 it was, and steep residuals (a step-length stop one iteration early) and backtracked `newton` steps (a stall far from the root) were reported converged with residuals well above `tol` (44× for a backtracked stall in the test suite, ~2000× on plant).
+In `util_nlsolve()`, `converged` means every residual component is within `tol` (for `dfsane`, its root-mean-square residual). A step shorter than `xtol` (default `tol * 1e-3`; relative for `nleqslv`, absolute for `newton`) ends the search but is not convergence: on a steep residual the step can shrink one iteration before the root, and a backtracked `newton` step can stall far from it, both with the residual well above `tol`.
 
 After solving, `plant_community_update_fitness_function()` builds the mutant
 invasion-fitness closure on the community.
@@ -194,16 +187,14 @@ invasion-fitness closure on the community.
 | `derivative_control` | `derivative_control()` | Finite-difference steps and Richardson levels for every derivative (`d_gradient`, `eps_gradient`, `d_second`, `eps_second`, `d_parameter`, `eps_parameter`, `r_*`). Lives at `community$derivative_control`. |
 | `assembler_control` | `assembler_control()` | Assembly loop: birth/death type, tolerances. |
 
-Note: plant renamed `seed_rain` → `birth_rate`/`offspring`; control field names
-here follow current plant terminology.
+Control field names follow plant's terminology (`birth_rate`/`offspring`, not
+the older `seed_rain`).
 
 ## plant dependency and interface
 
-- Built against the post-#459 `plant` (installed `2.0.0.9001`). Baseline recorded
-  in `.plant-interface-version`.
-- Source checkouts of plant live alongside this repo, e.g.
-  `../plant-dev1` (see its `NEWS.md` "Breaking changes" for old→new maps) and
-  `../plant-master`.
+- `.plant-interface-version` records which of plant's breaking changes this
+  package has absorbed. plant's `NEWS.md` "Breaking changes" section has the
+  old→new maps.
 - Key migrated calls: `scm_base_control()`→`control()`;
   `run_scm_collect(p)`→`run_scm(p, collect=TRUE)`; `build_schedule(p, ctrl)` +
   `attr(., "offspring_production")` → `run_scm(p, ctrl, refine_schedule=TRUE)`
@@ -213,37 +204,36 @@ here follow current plant terminology.
 - `run_scm(..., collect=FALSE)` returns the **SCM object** (`scm$parameters`,
   `scm$offspring_production`, `scm$net_reproduction_ratios`, `scm$run_mutant`);
   with `collect=TRUE` it returns a tidied list.
-- After future plant updates, re-run the `plant-update-interface` skill (in
-  `../plant-dev1/.claude/skills/`) — it reads plant's NEWS and updates
+- After future plant updates, run the `plant-update-interface` skill that ships
+  in plant's `.claude/skills/` — it reads plant's NEWS and updates
   `.plant-interface-version`.
 - ⚠️ **Do not pin odelia in `Remotes:`.** regnans calls odelia's R solver but does not compile against it, so it takes odelia from plant's `Remotes:`; the `Imports` floor is the only constraint it needs. A pin of its own has to equal plant's exactly (pak refuses two refs to one package, with a "dependency conflict" error that never names it), and since regnans tracks `plant@develop`, every odelia bump in plant would break regnans' install until this file caught up (traitecoevo/plant#656).
 
 ## Test baseline
 
-`devtools::test()` is **green: 1829 pass, 0 fail, 0 skip, 0 warn**. Tests run in
+`devtools::test()` is green, with nothing skipped or warning. Tests run in
 parallel (`Config/testthat/parallel: true`); the `test-plant-smoke*.R` files
 dominate the wall-clock as they are the only ones that run the real SCM. The
 `test-harness-*.R` and `test-singularity.R` files run no SCM and are fast.
 
-(The count has grown as the toy-harness tier has: 197 → 256 → 401 → 537 → 979 → 1002 → 1052 → 1072 → 1174 → 1186 → 1202 → 1228 → 1363 → 1472 → 1520 → 1612 → 1663 → 1713 → 1797 → 1829.
-What matters is that a change moves it up and moves nothing to FAIL.)
+A change should add passes and move nothing to FAIL.
 
 Note: the testthat parallel workers may fail to find `plant` on startup in some
 shells; run `TESTTHAT_PARALLEL=FALSE Rscript -e 'devtools::test()'` if so.
 
-- `test-community.R` (new) — covers the community interface: `trait_matrix`,
+- `test-community.R` — covers the community interface: `trait_matrix`,
   `bounds`, `demographic_step_control`, `community_start/add/drop`,
   `length.community`, the `max_patch_lifetime` schedule regression, and
   integration tests for `community_demography` (empty + single resident,
   reference birth rate ≈ 0.06846) and `community_selection_gradient`.
 - `test-support-fitness.R` — `positive_1d`, `bounds`/`check_bounds`/`check_point`, and `max_fitness` in one and two traits against the DD99 ESS and `community_viable_fitness` against a quadratic-bowl oracle (1-D on both scales, a tilted 2-D ellipse whose bounding box differs from its axis slices, clipping, nothing viable); the SCM case is in `test-plant-smoke.R`.
-- `test-fitness-landscape.R` (new, #27) — `community_fitness_landscape`: the grid method (resident flagged, fitness ~0 at the equilibrium resident, auto-solves demography, rejects unknown methods) and the bayesopt method (samples equal the true fitness, the surrogate interpolates them, linear and log trait scales, the `bounds` argument, reproducible from a caller's seed; skipped without `mlr3mbo`/`DiceKriging`/`nloptr`).
-- `test-assembler.R` (new, #27) — `assembler_control` defaults/validation,
+- `test-fitness-landscape.R` — `community_fitness_landscape`: the grid method (resident flagged, fitness ~0 at the equilibrium resident, auto-solves demography, rejects unknown methods) and the bayesopt method (samples equal the true fitness, the surrogate interpolates them, linear and log trait scales, the `bounds` argument, reproducible from a caller's seed; skipped without `mlr3mbo`/`DiceKriging`/`nloptr`).
+- `test-assembler.R` — `assembler_control` defaults/validation,
   `mutational_vcv_proportion` (diagonal log-scale vcv), the maximum-fitness and
   stochastic assembly loops (`assembler_start`/`assembler_run`), and
   `tidy_assembly` output shape; an assembler saved before the evolution and refusal controls restored with their defaults.
-- `helper-assembly.R` (new) — shared `assembly_model_support(max_patch_lifetime
-  = 30)` used by the integration tests (previously inlined in test-community.R).
+- `helper-assembly.R` — shared `assembly_model_support(max_patch_lifetime
+  = 30)` used by the integration tests.
 - `test-singularity.R` — `community_solve_singularity` (1-D, 2-trait, every solver, trait scales, edge/validation branches; coalitions: the DD99 pair in closed form, the DD99 triple and GK98 pair from their closed-form gradients, a two-trait DD99 pair checking the trait-by-trait stacking, the asymmetric GM99 pair on a log scale against an independent coding of the model, a pair that cannot coexist reported lost) and `community_classify_singularity` (one resident and coalitions, speed-weighted convergence stability on unequal densities, protected coexistence against closed-form invasion fitness, a priority-effects pair classified unprotected, a resident left out tested against where the others settle rather than an infeasible equilibrium, an undetermined test reported `NA`, the warnings on a non-converged solve, on a point away from a singularity and on a near-merged coalition; a starting Jacobian handed to the solver, good or poor; a start merged by clamping refused), against the analytic oracles tabulated under **Singular strategies** below and in `helper-coalition.R`.
 - `test-continuation.R` — `community_parameter_map()`, the parameter Jacobian against DD99 in closed form, `community_parameter_sensitivity()` against JJ12 (`dx*/dσ² = −a` through a caller-written map), DD99 (`dx*/dx0 = 1`, kernels `0`, the two-trait identity), the DD99 pair (`dd99_pair_root_gradient()` in `helper-coalition.R`, the closed form differentiated by hand) and the GM99 pair on a log scale; a singular Jacobian refused; continuation of JJ12 (predictor exact), DD99 through its branching-point-to-CSS change, the DD99 pair along `σ_K` and stopping where it merges, and the GM99 pair through its second branching. The SCM case (along `hmat`) is in `test-plant-smoke-singularity.R`.
 - `test-demography-solvers.R` — all five equilibrium solvers on DD99, plus the
@@ -289,13 +279,6 @@ shells; run `TESTTHAT_PARALLEL=FALSE Rscript -e 'devtools::test()'` if so.
   survives changes to the plant parameterisation; the pinned references stay in
   `test-plant-smoke.R`.
 
-The five old test files that called plant's removed API were resolved
-(drop-or-implement, not skipped): `positive_1d` was reimplemented so its test was
-kept; the fundamental/viable tests were rewritten against the community machinery;
-`test-x_equilibriumR.R` (superseded by `test-community.R`), `test-support-assembly.R`
-(`assembly_parameters`), `test-trait_fitness.R` (dead empty loop), and the
-duplicate `test-fitness-support.R` were deleted.
-
 ## Known issues / TODO
 
 What is *planned* — every method, its status, what regnans needs from plant, and
@@ -309,34 +292,6 @@ source of truth and list only live defects here.
   `equilibrium_hybrid` as well as in the inviable-strategy check. Its meaning
   depends entirely on the model's units, so it needs re-tuning when the plant
   parameterisation changes the scale of equilibrium birth rates.
-
-### Resolved (see "Singular strategies" below)
-
-- ~~`equilibrium_hybrid` solver is broken~~ — reworked for the `community`
-  object. It read `eq_solution$strategies` and called `run_scm()` on the result,
-  so the extinct-species re-check could not run at all (and would have errored
-  if it had). It now works off `community$birth_rate` and the harness
-  connectors, so it is model-agnostic, and each attempt continues from the
-  previous iteration rather than restarting.
-- ~~`equilibrium_solve_*` (nleqslv/dfsane) are unverified~~ — both verified,
-  no code changes needed. The DD99 tests only checked dispatch (the explicit
-  harness returns its equilibrium directly, so no solver ever iterates);
-  `helper-harness-map.R` adds a harness whose demography runner is a genuine
-  map with a known fixed point, and `test-demography-solvers.R` now shows both
-  solvers reaching it in the case they exist for — where `equilibrium_iteration`
-  runs out of steps first. `test-plant-smoke-singularity.R` anchors all three
-  alternative solvers against the real SCM.
-- ~~`community_plot_fitness_landscape` is not working~~ — fixed. It required a
-  `fitness_surrogate_function` (which only the bayesopt method creates) and read
-  a column literally named `x` from `fitness_points`, whose first column is
-  named after the trait. It now plots grid landscapes, computes one if absent,
-  follows the community's trait scale, and uses the surrogate only when present.
-- ~~`fitness_control` has no default~~ — `fitness_landscape_control()` supplies
-  `method = "grid"`, `n_evals`, `n_init`, and `community_start()` normalises
-  whatever it is given through it. `community_fitness_landscape()` also fills in
-  defaults for communities built by hand.
-- ~~Two malformed `@param` roxygen tags in `R/community_plots.R`~~ —
-  `devtools::document()` now runs clean.
 
 ## Singular strategies: solving and classifying (`R/singularity.R`)
 
@@ -378,7 +333,7 @@ disruptive selection acts on.
 ## Model harnesses: plant vs fast toy models (#33)
 
 Running the full `plant` SCM for every fitness/equilibrium evaluation is slow and
-has no closed-form answer to validate algorithms against. The pipeline is now
+has no closed-form answer to validate algorithms against. The pipeline is
 **model-agnostic**: a community carries a `harness` (`community$harness`) that
 wires it to a backend. The pipeline only ever calls six connectors (defined in
 `R/harness.R`), each forwarding to the harness's own implementation:
@@ -461,9 +416,6 @@ multi-dim Poisson sum).
   across a 2D trait plane. The nD path was hardened (part of #9):
   `assembler_append_history()` skips the 1D fitness-landscape grid for nD, where `find_max_fitness()` searches from each resident and the centre instead (a coarse Nelder–Mead that steps off a resident sitting at a singular point, polished by L-BFGS-B).
 
-See also `x_misc/Revolve/doc/models.md` and the per-model write-ups +
-`assembly.qmd` in `overstorey_staging/`.
-
 ## Issue & project-board conventions
 
 Development across `plant`, `regnans`, and `overstorey` is tracked on a
@@ -502,6 +454,22 @@ When opening an issue (including whenever the user asks you to create one), alwa
 Create issues with `gh issue create -R traitecoevo/regnans
 --title "[evol assembly] …" --label task` (swap in `bug`/`epic` as appropriate).
 
+
+## Writing in this guide
+
+This file is read in full at the start of every agent session, as current
+instructions, by a reader who was not in your session and cannot tell which
+parts are out of date. When you change it:
+
+- Write what is true now, in the present tense. If something here turns out to
+  be wrong, replace it; the story of how you found out belongs in the PR.
+- Give each rule its reason, in plain case. A reason persuades where capitals
+  and warning signs do not.
+- Point to where a value lives (`DESCRIPTION`, a header, a Makefile target)
+  rather than copying the value, and leave out anything a fresh clone cannot
+  resolve, such as local paths or notes from one session.
+- Write in complete sentences that say what happens and what it causes, using
+  names that already exist in the code.
 
 ## Plant family
 
