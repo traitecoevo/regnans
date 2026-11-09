@@ -160,42 +160,48 @@ harness_fd <- function(harness) {
 ##' package `version`, mirroring how the toy harnesses are named by author/year.
 ##'
 ##' The actual `plant` `Parameters` are still supplied via
-##' `community_start(model_support = ...)`; `model`/`version` here are recorded
-##' metadata and a hook for model-specific dispatch (TF24 support depends on the
-##' installed `plant`).
+##' `community_start(model_support = ...)`, built for the same model
+##' (\code{\link{plant_default_assembly_pars}(model = )}).
 ##'
-##' The fitness gradient in the mutant direction is a finite difference of
-##' the fitness function by default. With \code{fitness_gradient = "model"} it
-##' is plant's own (\code{plant::stand_gradient()} on the mutants' replay in
+##' The resident equilibrium is found by fixed-point iteration for FF16 and by
+##' Newton's method for TF24, whose one-generation map overcompensates: from a
+##' sparse stand it overshoots to a dense one, which crashes, and iteration
+##' settles on that two-cycle rather than the equilibrium.
+##'
+##' The fitness gradient in the mutant direction is either a finite difference
+##' of the fitness function (\code{fitness_gradient = "fd"}) or plant's own
+##' (\code{"model"}: \code{plant::stand_gradient()} on the mutants' replay in
 ##' the recorded resident canopy, through the hyperparameter function), exact
 ##' on the replay's discretisation, with a finite difference wherever plant
 ##' refuses a point; it needs the birth-date coordinate
-##' (\code{\link{plant_default_assembly_control}}) and FF16. On FF16 a sweep
-##' costs about 26 mutant replays (plant#677), so it is slower than the finite
-##' difference for fewer than about a dozen traits.
+##' (\code{\link{plant_default_assembly_control}}). Each model defaults to the
+##' cheaper: on FF16 a sweep costs about three times the finite difference at
+##' one or two traits, and on TF24 it costs the same at one trait and less from
+##' two.
 ##'
 ##' @title plant model harness
 ##' @param model plant physiological model: "FF16" or "TF24"
 ##' @param version plant package version (defaults to the installed version)
-##' @param fitness_gradient \code{"fd"} (the default) or \code{"model"}: where
-##' the fitness gradient comes from.
+##' @param fitness_gradient \code{"fd"} or \code{"model"}: where the fitness
+##' gradient comes from. By default \code{"fd"} for FF16 and \code{"model"}
+##' for TF24.
 ##' @return a `harness` object
 ##' @author Daniel Falster
 ##' @export
 harness_plant <- function(model = c("FF16", "TF24"),
                           version = as.character(utils::packageVersion("plant")),
-                          fitness_gradient = c("fd", "model")) {
+                          fitness_gradient = NULL) {
   model <- match.arg(model)
-  fitness_gradient <- match.arg(fitness_gradient)
-  if (fitness_gradient == "model" && model != "FF16") {
-    stop("plant differentiates FF16's fitness only; use fitness_gradient = \"fd\" for ", model)
+  if (is.null(fitness_gradient)) {
+    fitness_gradient <- if (model == "TF24") "model" else "fd"
   }
+  fitness_gradient <- match.arg(fitness_gradient, c("fd", "model"))
   h <- list(
     model   = model,
     version = version,
     fitness_gradient = fitness_gradient,
     provides = if (fitness_gradient == "model") "fitness_gradient" else character(0),
-    equilibrium_solver_default = "equilibrium_iteration",
+    equilibrium_solver_default = if (model == "TF24") "equilibrium_solve_newton" else "equilibrium_iteration",
     fns = list(
       parameters                    = plant_community_parameters,
       make_demography_runner        = plant_community_make_demography_runner,

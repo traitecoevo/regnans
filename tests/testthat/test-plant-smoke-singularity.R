@@ -204,5 +204,4 @@ test_that("plant's own mutant gradient agrees with the finite difference (SCM)",
   expect_false(environment(model$fitness_function)$scm$keep_states)
   checked <- harness_check_derivatives(model, n_points = 3, tol_rel = 1e-2)
   expect_true(all(checked$pass))
-  expect_error(harness_plant("TF24", fitness_gradient = "model"), "FF16's fitness only")
 })

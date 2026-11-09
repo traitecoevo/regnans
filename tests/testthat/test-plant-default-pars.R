@@ -28,6 +28,18 @@ test_that("plant_default_assembly_pars() actually sets the strategy parameters",
   expect_equal(plant_default_assembly_pars(max_patch_lifetime = 30)$max_patch_lifetime, 30)
 })
 
+test_that("plant_default_assembly_pars(model = \"TF24\") builds TF24 and keeps its allometry", {
+  defaults <- plant::scm_base_parameters("TF24")$strategy_default$pars
+  p <- plant_default_assembly_pars(hmat = 6, max_patch_lifetime = 6, model = "TF24")
+  expect_s3_class(p, "Parameters<TF24,TF24_Env>")
+  expect_equal(p$strategy_default$pars$hmat, 6)
+  expect_equal(p$max_patch_lifetime, 6)
+  expect_equal(max(p$node_schedule_times_default), max(plant::node_schedule_times_default(6)))
+  # FF16's assembly allometry is not TF24's
+  expect_equal(p$strategy_default$pars$a_l1, defaults$a_l1)
+  expect_equal(p$strategy_default$pars$a_l2, defaults$a_l2)
+})
+
 test_that("plant_default_assembly_pars(fixed_RA = TRUE) sets the allocation pars", {
   p <- plant_default_assembly_pars(fixed_RA = TRUE)
   expect_equal(p$strategy_default$pars$a_f1, 0.5)
