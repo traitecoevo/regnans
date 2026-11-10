@@ -50,3 +50,50 @@ test_that("scouting hmat labels each point on a separate process, as sequentiall
   parallel <- with_two_workers("multisession", boundary_scout(by_hmat, design, smoke_control))
   expect_identical(as.data.frame(parallel), as.data.frame(sequential))
 })
+
+# The same community through plant's own mutant gradient, so the residual's
+# ds/dy(y) row comes from the sweep, and a coarser parameter step, as the
+# singularity's continuation takes (test-plant-smoke-singularity.R).
+by_hmat_model <- function(hmat) {
+  community_start(bounds(lma = c(0.02, 0.6)),
+                  model_support = list(
+                    p = plant_default_assembly_pars(hmat = hmat, max_patch_lifetime = 30),
+                    plant_control = plant_default_assembly_control()),
+                  harness = harness_plant(fitness_gradient = "model"),
+                  derivative_control = list(d_second = 1e-2, eps_second = 1e-2,
+                                            d_parameter = 1e-2, eps_parameter = 1e-2))
+}
+
+test_that("Newton on the augmented system lands on the lma boundary along hmat from a bracketed seed (SCM)", {
+  # Along hmat the lma community goes from two species to one: bisection
+  # (bisect_tol 0.05, 98 equilibrium solves) bracketed the change between
+  # 15.5 and 15.875 on 2026-11-10, with the midpoint's label unresolved (the
+  # rounds cycled: at the boundary the newcomer's establishment is at
+  # fitness_tol). The bisection is not re-run; its ends seed the solve, the
+  # one-species side's resident and the newcomer from the two-species side.
+  # Reference-free: the answer is held inside the bracket, with the labels
+  # either side of it, not to a value.
+  bracket <- c(15.5, 15.875)
+  seed <- by_hmat_model(mean(bracket)) |>
+    community_add(trait_matrix(0.0775, "lma"), birth_rate = 1.14)
+  at <- community_solve_boundary(seed, by_hmat_model, y = 0.23, p = c(hmat = mean(bracket)), tol = 1e-3)
+  b <- attr(at, "boundary")
+  expect_true(b$converged)
+  expect_equal(b$type, "invasion")
+  expect_gt(b$p[["hmat"]], bracket[1])
+  expect_lt(b$p[["hmat"]], bracket[2])
+  # every residual to its tolerance; plant's noise stops Newton near 1e-4
+  expect_lt(max(abs(b$residual)), 1e-3)
+  expect_equal(names(b$residual), c("g:lma", "ds/dlma(y)", "s(y)"))
+  # the marginal mutant is a strict peak away from the resident
+  expect_lt(community_fitness_hessian(at, matrix(b$y, nrow = 1L))[1, 1], 0)
+  expect_gt(b$y / as.numeric(at$traits), 2)
+  # a few Newton steps: each costs one solve and a Jacobian 2mk + 2 = 4
+  expect_lte(b$iterations, 6L)
+  expect_lte(b$evaluations, 30L)
+  # 2% either side the labels are two species and one, both the model's
+  label <- function(hmat) attr(community_label(by_hmat_model(hmat), boundary_control(list(
+    max_residents = 2, evolve_tol = 0.3, fitness_tol = 1e-3))), "label")[c("n", "status")]
+  expect_equal(label(b$p[["hmat"]] * 0.98), list(n = 2L, status = "stable"))
+  expect_equal(label(b$p[["hmat"]] * 1.02), list(n = 1L, status = "stable"))
+})
