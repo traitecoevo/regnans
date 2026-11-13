@@ -188,7 +188,7 @@ invasion-fitness closure on the community.
 | Object | Built by | Purpose |
 |---|---|---|
 | `demography_control` | `demographic_step_control()` | Equilibrium solving: `equilibrium_solver_name`, `equilibrium_eps`, `equilibrium_nsteps`, `equilibrium_large_birth_rate_change`, `equilibrium_extinct_birth_rate`, etc. Lives at `community$demography_control`. |
-| `plant_control` | `plant_default_assembly_control()` / `plant::control()` | Passed straight to `run_scm()`. A plant `Control` S4 object — **cannot** hold extra fields, so all equilibrium params go in `demography_control`. Lives at `community$model_support$plant_control`. |
+| `plant_control` | `plant_default_assembly_control()` / `plant::control()` | Passed straight to `run()`. A plant `Control` S4 object — **cannot** hold extra fields, so all equilibrium params go in `demography_control`. Lives at `community$model_support$plant_control`. |
 | `fitness_control` | `fitness_landscape_control()` | How fitness landscapes are sampled (`method`, `n_evals`, …). |
 | `derivative_control` | `derivative_control()` | Finite-difference steps and Richardson levels for every derivative (`d_gradient`, `eps_gradient`, `d_second`, `eps_second`, `d_parameter`, `eps_parameter`, `r_*`). Lives at `community$derivative_control`. |
 | `assembler_control` | `assembler_control()` | Assembly loop: birth/death type, tolerances. |
@@ -203,15 +203,9 @@ the older `seed_rain`).
   old→new maps. The installed version stays
   `2.0.0.9002` across develop commits, so compare
   `packageDescription("plant")$RemoteSha` to tell two builds apart.
-- Key migrated calls: `scm_base_control()`→`control()`;
-  `run_scm_collect(p)`→`run_scm(p, collect=TRUE)`; `build_schedule(p, ctrl)` +
-  `attr(., "offspring_production")` → `run_scm(p, ctrl, refine_schedule=TRUE)`
-  then `scm$parameters` / `scm$offspring_production`;
-  `p$node_schedule_ode_times` (Parameters field) → `p$ode_times`.
-- ⚠️ **`run_scm()` replays any ODE schedule `p` carries** (plant#648; `use_ode_times` is gone). `p$ode_times` with `p$ode_step_sizes` and the soil's substep records (`p$ode_soil_input_slopes`, `p$ode_soil_substep_ends`) replays a recorded run exactly. Times alone let the controller sub-step, so they do not reproduce the run; sizes without the two records are refused by plant's `SCM` constructor, empty as the records are for FF16. To integrate freely, carry none of the four (`plant_clear_ode_schedule()`). The equilibrium runner clears the four before each `refine_schedule` run, and `model_support` carries the four for the resident-fitness replay. Keep them together, or resident fitness at equilibrium stops being 0.
-- `run_scm(..., collect=FALSE)` returns the **SCM object** (`scm$parameters`,
-  `scm$offspring_production`, `scm$net_reproduction_ratios`, `scm$run_mutant`);
-  with `collect=TRUE` it returns a tidied list.
+- Key migrated calls: `scm_base_control()`→`control()`; `build_schedule(p, ctrl)` + `attr(., "offspring_production")` → `run(p, control = ctrl, refine_schedule = TRUE)` then `res$scenario$p` / `res$offspring_production`; `run_scm(p, ctrl = ctrl)` → `run(p, control = ctrl)$solver`; `p$node_schedule_ode_times` (Parameters field) → `p$ode_times`.
+- ⚠️ **`run()` replays any ODE schedule `p` carries** (plant#648; `use_ode_times` is gone). `p$ode_times` with `p$ode_step_sizes` and the soil's substep records (`p$ode_soil_input_slopes`, `p$ode_soil_substep_ends`) replays a recorded run exactly. Times alone let the controller sub-step, so they do not reproduce the run; sizes without the two records are refused by plant's `SCM` constructor, empty as the records are for FF16. To integrate freely, carry none of the four (`plant_clear_ode_schedule()`). The equilibrium runner clears the four before each `refine_schedule` run, and `model_support` carries the four for the resident-fitness replay. Keep them together, or resident fitness at equilibrium stops being 0.
+- `run()` returns a `plant_run` (`res$scenario$p`, `res$offspring_production`, `res$net_reproduction_ratios`), with the live **SCM** at `res$solver` (`scm$run_mutant()`, `scm$keep_states`, `plant::stand_gradient(scm)`). ⚠️ On the SCM the fitness values are read off its patch, `scm$patch$net_reproduction_ratios`: `scm$net_reproduction_ratios` is gone and reads as `NULL`, which `log()` turns into `numeric(0)` without an error.
 - After future plant updates, run the `plant-update-interface` skill that ships
   in plant's `.claude/skills/` — it reads plant's NEWS and updates
   `.plant-interface-version`.

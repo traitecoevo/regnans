@@ -53,9 +53,6 @@ library(regnans)
 devtools::load_all()
 # devtools::load_all("../plant-dev")
 
-# logging of output
-plant_log_console()
-
 # set controls on plant package
 plant_control <- function() {
   ctrl <- control()
@@ -102,17 +99,17 @@ Make a function optimise using mutant method
 
 ```{r}
 
-scm <- run_scm(p, ctrl = ctrl)
+scm <- run(p, control = ctrl)$solver
 
 make_f <- function(scm) {
   function(x) {
     traits <- trait_matrix(exp(x), "lma")
-    p_mutants <- expand_parameters(traits, p, keep_existing_strategies = FALSE)
+    p_mutants <- add_strategies(p, traits, keep_existing = FALSE)
 
     count <<- count + 1
 
     scm$run_mutant(p_mutants)
-    log(scm$net_reproduction_ratios)
+    log(scm$patch$net_reproduction_ratios)
   }
 }
 
