@@ -95,7 +95,7 @@ notes: >-
   community_plant.R needed nothing else. The pin is the squash commit on
   develop (218501e1), set once plant#731 merged.
 
-  2026-11-14: 46 plant commits, 218501e1..83a973ff; the run-interface
+  2026-11-14: 43 plant commits, 218501e1..83a973ff; the run-interface
   redesign (plant#428: #777, #778, #779, #781). run_scm() is gone. The
   equilibrium runner kept its SCM only for the refined parameters and the
   offspring production, so it takes the plant_run (res$scenario$p,
