@@ -1,7 +1,15 @@
-migrated_on: 2026-11-10
+migrated_on: 2026-11-14
 plant_version: 2.0.0.9002
-plant_ref: develop@218501e1 (2026-11-10, plant#731; odelia 0.11.0 @v0.11.0 and phylloptim 0.35.0 @58d8360)
+plant_ref: develop@83a973ff (2026-11-14, plant#781; odelia 0.11.1 @v0.11.1 and phylloptim 0.36.0 @e2c9460)
 applied_breaking_changes:
+  - run-verb                 # run_scm() -> run(p, env =, control =): the plant_run where only its p and fitness are read, $solver where the SCM is kept; scm_base_parameters() -> base_parameters() (plant#428, #779) [2026-11-14]
+  - fitness-on-patch         # scm$net_reproduction_ratios -> scm$patch$net_reproduction_ratios on a live SCM; the plant_run keeps its own (plant#460, #781) [2026-11-14]
+  - fitness-weighting        # p$patch_type -> p$fitness_weighting ("meta-population"/"fixed"/"fitness_window" -> "patch_age"/"none"/"window"); not used here (plant#781) [2026-11-14]
+  - plant-log-console        # plant_log_console() deprecated, no effect: the call in scripts/gps/optim.Rmd is deleted (plant#535) [2026-11-14]
+  - trait-interface-rename   # expand_parameters(traits, p, keep_existing_strategies =) -> add_strategies(p, traits, keep_existing =), in scripts/gps/optim.Rmd (plant#410) [2026-11-14]
+  - schedule-rename          # NodeSchedule -> Schedule, scm$node_schedule -> scm$schedule; not used here (plant#752) [2026-11-14]
+  - model-classes-rename     # *_Strategy -> *_Model; not used here (plant#641, #760) [2026-11-14]
+  - tf24-removals            # TF24's nine unused parameters, TF24f's finite-difference gradient, the TF24 stand reports, opt_psi_stem -> opt_psi_leaf, the scenario gateway; none used here (plant#611, #745, #535, #746, #775) [2026-11-14]
   - parameters-hyperpar      # scm_base_parameters() attaches no trade-offs; plant_default_assembly_pars() builds on default_parameters(model, quiet = TRUE); FF16_hyperpar/make_*_hyperpar/make_hyperpar()/hyperpar() removed (plant#731) [2026-11-10]
   - scm-consolidation        # build_schedule -> run_scm(refine_schedule=TRUE); run_scm_collect -> run_scm(collect=TRUE)
   - control-defaults         # scm_base_control() -> control(); fast settings now the Control() default
@@ -86,3 +94,16 @@ notes: >-
   plant::param_hyperpar(p), which now reads the carried function, so
   community_plant.R needed nothing else. The pin is the squash commit on
   develop (218501e1), set once plant#731 merged.
+
+  2026-11-14: 46 plant commits, 218501e1..83a973ff; the run-interface
+  redesign (plant#428: #777, #778, #779, #781). run_scm() is gone. The
+  equilibrium runner kept its SCM only for the refined parameters and the
+  offspring production, so it takes the plant_run (res$scenario$p,
+  res$offspring_production), as does the empty community's mutant run. The
+  resident's fitness function keeps the live SCM (run(...)$solver), since its
+  invaders run on it and plant_mutant_gradient() sweeps it, and reads fitness
+  off its patch: scm$net_reproduction_ratios reads as NULL now, not an error.
+  Every remaining read was checked with the removed SCM fields trapped to
+  error. The runner's outputs, the schedule and ODE steps it records, resident
+  and mutant fitness and the model gradient on an FF16 community were
+  bit-identical to master on plant 467c09c5, the commit before #779.
