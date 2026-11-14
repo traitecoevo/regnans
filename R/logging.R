@@ -2,12 +2,12 @@
 ## "{1.66, 1.41}") are text, not a glue expression.
 plant_log_info <- function(message, routine=NULL, ...) {
   if (!is.null(routine)) message <- paste0(crayon::yellow(routine), "> ", message)
-  logger::log_info(logger::skip_formatter(message), namespace="plant", .topenv=parent.frame())
+  logger::log_info(logger::skip_formatter(as.character(message)), namespace="plant", .topenv=parent.frame())
 }
 
 plant_log_debug <- function(message, routine=NULL, ...) {
   if (!is.null(routine)) message <- paste0(crayon::yellow(routine), "> ", message)
-  logger::log_debug(logger::skip_formatter(message), namespace="plant", .topenv=parent.frame())
+  logger::log_debug(logger::skip_formatter(as.character(message)), namespace="plant", .topenv=parent.frame())
 }
 
 plant_log_max_fitness <- function(...) {
