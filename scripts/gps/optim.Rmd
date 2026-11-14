@@ -53,17 +53,6 @@ library(regnans)
 devtools::load_all()
 # devtools::load_all("../plant-dev")
 
-# logging of output
-plant_log_console()
-
-# set controls on plant package
-plant_control <- function() {
-  ctrl <- control()
-  ctrl$equilibrium_nsteps <- 20
-  ctrl$equilibrium_solver_name <- "hybrid"
-  ctrl
-}
-
 # set baseline parameters
 p0 <- default_parameters("FF16", quiet = TRUE)  # plant's testing trade-offs attached (plant#731)
 p0$strategy_default$pars$a_l1 <- 2.17  # under $pars since plant#410; the flat write was a silent no-op
@@ -102,17 +91,17 @@ Make a function optimise using mutant method
 
 ```{r}
 
-scm <- run_scm(p, ctrl = ctrl)
+scm <- run(p, control = ctrl)$solver
 
 make_f <- function(scm) {
   function(x) {
     traits <- trait_matrix(exp(x), "lma")
-    p_mutants <- expand_parameters(traits, p, keep_existing_strategies = FALSE)
+    p_mutants <- add_mutant(p, traits)
 
     count <<- count + 1
 
     scm$run_mutant(p_mutants)
-    log(scm$net_reproduction_ratios)
+    log(scm$patch$net_reproduction_ratios)
   }
 }
 
