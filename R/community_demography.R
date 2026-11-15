@@ -35,7 +35,7 @@ demographic_step_control <- function(control=NULL) {
 
   ## Demography / equilibrium parameters. These live on the community in
   ## community$demography_control. (The plant SCM control() lives separately in
-  ## community$model_support$plant_control and is passed to run_scm().)
+  ## community$model_support$plant_control and is passed to run().)
   ##
   ## Note: plant renamed "seed_rain" -> "birth_rate"/"offspring"; the names here
   ## follow the current plant terminology.
@@ -454,7 +454,7 @@ demography_solve_equilibrium_hybrid <- function(community) {
       ##
       ## NOTE: `eq_solution` is a `community`, not a plant `Parameters` object:
       ## the equilibrium state lives in `community$birth_rate`, and the model is
-      ## reached through the harness connectors, never through run_scm()
+      ## reached through the harness connectors, never through plant's run()
       ## directly. (Previously this block read `eq_solution$strategies` and
       ## called run_scm(), which made the whole solver plant-only and broken
       ## even there.)

@@ -6,7 +6,7 @@
 # regression, which is otherwise invisible.
 
 test_that("plant_default_assembly_pars() actually sets the strategy parameters", {
-  defaults <- plant::scm_base_parameters("FF16")$strategy_default$pars
+  defaults <- plant::base_parameters("FF16")$strategy_default$pars
 
   p <- plant_default_assembly_pars()
 
@@ -29,7 +29,7 @@ test_that("plant_default_assembly_pars() actually sets the strategy parameters",
 })
 
 test_that("plant_default_assembly_pars(model = \"TF24\") builds TF24 and keeps its allometry", {
-  defaults <- plant::scm_base_parameters("TF24")$strategy_default$pars
+  defaults <- plant::base_parameters("TF24")$strategy_default$pars
   p <- plant_default_assembly_pars(hmat = 6, max_patch_lifetime = 6, model = "TF24")
   expect_s3_class(p, "Parameters<TF24,TF24_Env>")
   expect_equal(p$strategy_default$pars$hmat, 6)
@@ -66,7 +66,7 @@ test_that("plant_default_assembly_pars(fixed_RA = TRUE) sets the allocation pars
   # Off by default.
   q <- plant_default_assembly_pars()
   expect_equal(q$strategy_default$pars$a_f1,
-               plant::scm_base_parameters("FF16")$strategy_default$pars$a_f1)
+               plant::base_parameters("FF16")$strategy_default$pars$a_f1)
 })
 
 test_that("the parameters reach a generated strategy, not just the defaults", {

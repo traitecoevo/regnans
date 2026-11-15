@@ -15,7 +15,7 @@ plant_default_assembly_pars <- function(hmat = 10, max_patch_lifetime = 60, fixe
                                         model = c("FF16", "TF24")) {
   model <- match.arg(model)
   ## plant's testing set: today's defaults with the frozen trade-off functions
-  ## attached as p$hyperpar (plant#731). The bare scm_base_parameters() carries
+  ## attached as p$hyperpar (plant#731). The bare base_parameters() carries
   ## none, so a trait written through it would reach pars without its trade-offs
   ## (lma without k_l, say) and the assembly would run a different model.
   p <- default_parameters(model, quiet = TRUE)
@@ -29,7 +29,7 @@ plant_default_assembly_pars <- function(hmat = 10, max_patch_lifetime = 60, fixe
   p$strategy_default$pars$hmat <- hmat
   p$max_patch_lifetime <- max_patch_lifetime
   ## Regenerate the default node introduction times to match the (possibly
-  ## lowered) patch lifetime. scm_base_parameters() builds these for its own
+  ## lowered) patch lifetime. base_parameters() builds these for its own
   ## default max_patch_lifetime (~105), so without this the default schedule
   ## spans times beyond max_patch_lifetime and the SCM errors with
   ## "time_max must be greater than (or equal to) current time" whenever the
@@ -259,7 +259,7 @@ plant_community_make_demography_runner <- function(community) {
   }
 
   p <- plant_community_parameters(community)
-  ctrl <- community$model_support$plant_control  # plant SCM control() for run_scm()
+  ctrl <- community$model_support$plant_control  # plant SCM control() for run()
 
   # default is about 10 ind.m-2
   large_offspring_arriving_change <-
@@ -296,10 +296,7 @@ plant_community_make_demography_runner <- function(community) {
     }
 
     # update schedule - starts from prev. schedule so should be fast for fine scale resolution
-    # plant migration: build_schedule() removed; run_scm(refine_schedule = TRUE)
-    # returns the SCM object carrying both the refined parameters and
-    # offspring_production (previously a build_schedule() attribute).
-    # run_scm() replays any ODE schedule p carries, and the one recorded at
+    # run() replays any ODE schedule p carries, and the one recorded at
     # the previous birth rates is stale, so integrate freely.
     if (frozen) {
       # a node schedule frozen without its steps: each run integrates freely,
@@ -307,13 +304,13 @@ plant_community_make_demography_runner <- function(community) {
       if (length(community$model_support$frozen$ode_times) == 0L) {
         p <- plant_clear_ode_schedule(p)
       }
-      scm <- run_scm(p, env = plant_community_environment(community), ctrl = ctrl)
+      res <- run(p, env = plant_community_environment(community), control = ctrl)
     } else {
       p <- plant_clear_ode_schedule(p)
-      scm <- run_scm(p, env = plant_community_environment(community), ctrl = ctrl, refine_schedule = TRUE)
+      res <- run(p, env = plant_community_environment(community), control = ctrl, refine_schedule = TRUE)
     }
-    p_new <- scm$parameters
-    offspring_production <- scm$offspring_production
+    p_new <- res$scenario$p
+    offspring_production <- res$offspring_production
 
 
     # (ANDREW) Double arrow modifies counter in parent environment..
@@ -396,9 +393,9 @@ plant_community_update_fitness_function <- function(community) {
 
   if (length(p$strategies) > 0L) {
     # if there's a resident, use the saved environment to calculate mutant
-    # fitness; run_scm() replays the resident's schedule when p carries one
-    scm <- run_scm(p, env = plant_community_environment(community), ctrl = ctrl)
-    community$resident_fitness <- log(scm$net_reproduction_ratios)
+    # fitness; run() replays the resident's schedule when p carries one
+    scm <- run(p, env = plant_community_environment(community), control = ctrl)$solver
+    community$resident_fitness <- log(scm$patch$net_reproduction_ratios)
     } else {
     community$resident_fitness <- numeric()
   }
@@ -412,13 +409,13 @@ plant_community_update_fitness_function <- function(community) {
       
       if (length(p$strategies) > 0L) {
         scm$run_mutant(p_mutants)
-        ret <- log(scm$net_reproduction_ratios)
+        ret <- log(scm$patch$net_reproduction_ratios)
       } else {
         # otherwise just run mutants with zero birth rate, integrating freely
-        # (run_scm() would otherwise take any schedule p carries)
+        # (run() would otherwise take any schedule p carries)
         p_mutants <- plant_clear_ode_schedule(p_mutants)
-        scm <- run_scm(p_mutants, env = plant_community_environment(community), ctrl = ctrl)
-        ret <- log(scm$net_reproduction_ratios)
+        res <- run(p_mutants, env = plant_community_environment(community), control = ctrl)
+        ret <- log(res$net_reproduction_ratios)
       }
       
     ret
