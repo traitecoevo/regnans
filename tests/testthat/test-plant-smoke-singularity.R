@@ -47,9 +47,11 @@ test_that("community_solve_singularity and the classifier run on the SCM", {
   # A bracket wide enough to hold the lma attractor under any current FF16
   # parameterisation; the assertions below are on the solution's own
   # properties, not on where it lands.
+  #
   # The residual tolerance relies on plant's seed-height root-find being tight
-  # (its default, 1e-12): at 1e-8 the selection gradient steps by ~0.2 every
-  # ~1e-5 in relative lma, and a search can stop on a step with no root there.
+  # (offspring_height_tol, by default 1e-12): at 1e-8 the selection gradient
+  # steps by ~0.2 every ~1e-5 in relative lma, and a search can stop on a step
+  # with no root there.
   out <- community_start(bounds(lma = c(0.02, 0.6)),
                          model_support = assembly_model_support()) |>
     community_solve_singularity(x0 = 0.08, tol = 1e-3)
@@ -74,7 +76,7 @@ test_that("community_solve_singularity and the classifier run on the SCM", {
   # reparameterisation -- the curvature here spans several orders of magnitude
   # between FF16 parameterisations.)
   newton_step <- abs(as.numeric(cl$selection_gradient) / as.numeric(cl$jacobian))
-  expect_lt(newton_step, 0.01 * root)
+  expect_lt(newton_step, 1e-4 * root)
 
   # The plant lma singularity is an evolutionary *attractor*: the selection
   # gradient is positive below it and negative above (test-plant-smoke.R makes
