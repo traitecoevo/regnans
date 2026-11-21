@@ -446,8 +446,11 @@ plant_community_update_fitness_function <- function(community) {
 ## derivative by the trait as the fitness function sets it (without it, lma's
 ## column is a partial, 5x off on FF16). A row plant refuses (a mutant with
 ## fewer than two cohorts, say) or answers non-finitely is a finite
-## difference of the fitness function instead. plant refuses the height
-## coordinate itself, by name.
+## difference of the fitness function instead. A trait plant has no gradient
+## for (FF16's eta, which it refuses by name) is differenced on its own, the
+## other columns still plant's: plant is asked for every column it has, which
+## costs the sweep nothing more, since a sweep yields them all. plant refuses
+## the height coordinate itself, by name.
 plant_mutant_gradient <- function(scm, p, hyperpar, y, trait_names, f, control) {
   n <- nrow(y)
   k <- length(trait_names)
@@ -459,22 +462,42 @@ plant_mutant_gradient <- function(scm, p, hyperpar, y, trait_names, f, control) 
   scm$keep_states <- TRUE
   scm$run_mutant(p_mutants)
   metrics <- paste0(seq_len(n), ".net_reproduction_ratio")
-  columns <- paste0(rep(seq_len(n), each = k), ".", rep(trait_names, n))
-  sg <- plant::stand_gradient(scm, metrics = metrics, traits = columns, hyperpar = hyperpar)
+  sg <- plant::stand_gradient(scm, metrics = metrics, hyperpar = hyperpar)
+  have <- colnames(sg$gradient)
   r0 <- as.numeric(sg$value[metrics])
   out <- matrix(NA_real_, n, k)
   for (i in seq_len(n)) {
-    out[i, ] <- sg$gradient[metrics[i], paste0(i, ".", trait_names)] / r0[i]
+    wanted <- paste0(i, ".", trait_names)
+    ok <- wanted %in% have
+    out[i, ok] <- sg$gradient[metrics[i], wanted[ok]] / r0[i]
   }
   value <- log(r0)
-  bad <- plant::stand_gradient_refused(sg)[metrics] | !is.finite(rowSums(out)) | !is.finite(value)
+  missing <- !paste0(1L, ".", trait_names) %in% have
+  bad <- plant::stand_gradient_refused(sg)[metrics] | !is.finite(value) |
+    !is.finite(rowSums(out[, !missing, drop = FALSE]))
   if (any(bad)) {
     fd <- fd_fitness_gradient(f, y[bad, , drop = FALSE], control)
     out[bad, ] <- fd
     value[bad] <- as.numeric(f(y[bad, , drop = FALSE]))
   }
+  if (any(missing)) {
+    for (i in which(!bad)) {
+      out[i, missing] <- fd_fitness_gradient_columns(f, y[i, ], which(missing), control)
+    }
+  }
   attr(out, "value") <- value
   out
+}
+
+## The finite-difference gradient of f at the point yi in the columns cols
+## alone, the others held at yi.
+fd_fitness_gradient_columns <- function(f, yi, cols, control) {
+  along <- function(z) {
+    full <- matrix(yi, nrow(z), length(yi), byrow = TRUE)
+    full[, cols] <- z
+    f(full)
+  }
+  as.numeric(fd_fitness_gradient(along, matrix(yi[cols], 1L), control))
 }
 
 ##' Check low-abundance strategies for viability.

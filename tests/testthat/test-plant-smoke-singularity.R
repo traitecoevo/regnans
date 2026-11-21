@@ -240,3 +240,31 @@ test_that("plant's own mutant gradient agrees with the finite difference (SCM)",
   checked <- harness_check_derivatives(model, n_points = 3, tol_rel = 1e-2)
   expect_true(all(checked$pass))
 })
+
+test_that("a trait plant has no gradient for is differenced, the rest still plant's (SCM)", {
+  # FF16 refuses eta's gradient by name. Asked for lma and eta, the harness
+  # takes lma's column from plant's sweep, bit for bit what it gives with lma
+  # alone, and differences eta on its own, as the finite-difference harness
+  # does.
+  build <- function(source, traits) {
+    b <- list(lma = c(0.02, 0.6), eta = c(2, 30))[traits]
+    x <- c(lma = 0.15, eta = plant::FF16_Model()$pars$eta)[traits]
+    community_start(do.call(bounds, b),
+                    model_support = list(p = plant_default_assembly_pars(hmat = 10, max_patch_lifetime = 30),
+                                         plant_control = plant_default_assembly_control()),
+                    harness = harness_plant(fitness_gradient = source)) |>
+      community_add(trait_matrix(x, traits), birth_rate = 10) |>
+      community_demography()
+  }
+  both <- build("model", c("lma", "eta"))
+  eta <- plant::FF16_Model()$pars$eta
+  # the first two mutants carry the default eta, as the lma-only harness's do
+  y <- rbind(c(0.1, eta), c(0.15, eta), c(0.15, 10))
+  g <- community_fitness_gradient(both, y)
+  expect_true(all(is.finite(g)))
+  alone <- community_fitness_gradient(build("model", "lma"), y[1:2, 1])
+  expect_equal(g[1:2, 1], as.numeric(alone), tolerance = 1e-12)
+  fd <- community_fitness_gradient(build("fd", c("lma", "eta")), y)
+  expect_equal(g[, 2], fd[, 2], tolerance = 1e-8)
+  expect_equal(attr(g, "value"), as.numeric(both$fitness_function(y)), tolerance = 1e-10)
+})
