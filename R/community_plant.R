@@ -480,24 +480,12 @@ plant_mutant_gradient <- function(scm, p, hyperpar, y, trait_names, f, control) 
     out[bad, ] <- fd
     value[bad] <- as.numeric(f(y[bad, , drop = FALSE]))
   }
-  if (any(missing)) {
-    for (i in which(!bad)) {
-      out[i, missing] <- fd_fitness_gradient_columns(f, y[i, ], which(missing), control)
-    }
+  if (any(missing) && any(!bad)) {
+    out[!bad, missing] <- fd_fitness_gradient(f, y[!bad, , drop = FALSE], control,
+                                              cols = which(missing))
   }
   attr(out, "value") <- value
   out
-}
-
-## The finite-difference gradient of f at the point yi in the columns cols
-## alone, the others held at yi.
-fd_fitness_gradient_columns <- function(f, yi, cols, control) {
-  along <- function(z) {
-    full <- matrix(yi, nrow(z), length(yi), byrow = TRUE)
-    full[, cols] <- z
-    f(full)
-  }
-  as.numeric(fd_fitness_gradient(along, matrix(yi[cols], 1L), control))
 }
 
 ##' Check low-abundance strategies for viability.

@@ -233,14 +233,22 @@ community_fitness_gradient <- function(community, y = community$traits) {
   g
 }
 
-fd_fitness_gradient <- function(f, y, ctrl) {
+## The finite-difference gradient of f at each row of y, in the columns cols
+## (all of them by default), the other columns held at the row's values. All
+## rows' stencils go to f in one call.
+fd_fitness_gradient <- function(f, y, ctrl, cols = seq_len(ncol(y))) {
   n <- nrow(y)
-  k <- ncol(y)
+  k <- length(cols)
   stencils <- lapply(seq_len(n), function(i) {
-    gradient_points(y[i, ], eps = ctrl$eps_gradient, d = ctrl$d_gradient,
+    gradient_points(y[i, cols], eps = ctrl$eps_gradient, d = ctrl$d_gradient,
                     r = ctrl$r_gradient)
   })
-  pts <- rbind(y, do.call(rbind, stencils))
+  embedded <- lapply(seq_len(n), function(i) {
+    full <- matrix(y[i, ], nrow(stencils[[i]]), ncol(y), byrow = TRUE)
+    full[, cols] <- stencils[[i]]
+    full
+  })
+  pts <- rbind(y, do.call(rbind, embedded))
   ff <- as.numeric(f(pts))
   if (length(ff) != nrow(pts)) {
     stop("fitness_function must return one value per row of its argument")
