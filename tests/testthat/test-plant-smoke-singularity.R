@@ -47,19 +47,14 @@ test_that("community_solve_singularity and the classifier run on the SCM", {
   # A bracket wide enough to hold the lma attractor under any current FF16
   # parameterisation; the assertions below are on the solution's own
   # properties, not on where it lands.
-  # Coarser second-derivative steps than the default: the SCM's fitness is only
-  # as smooth as its cohort schedule, so a 1e-3 relative step sits in the noise.
-  # The selection gradient itself jumps: on the log scale it falls at about
-  # -740 per unit log(lma) near the root, but steps up by ~0.23 every ~2e-5 in
-  # relative lma (reproduced from cold solves, so the model's, not the warm
-  # starts'; plant#653). A residual tolerance below the jumps can leave the search on one
-  # of them, which #74 rightly reports as not converged; 0.3 sits above them
-  # and still places the root to ~4e-4 of log(lma).
+  #
+  # The residual tolerance relies on plant's seed-height root-find being tight
+  # (offspring_height_tol, by default 1e-12): at 1e-8 the selection gradient
+  # steps by ~0.2 every ~1e-5 in relative lma, and a search can stop on a step
+  # with no root there.
   out <- community_start(bounds(lma = c(0.02, 0.6)),
-                         model_support = assembly_model_support(),
-                         derivative_control = list(d_second = 1e-2,
-                                                   eps_second = 1e-2)) |>
-    community_solve_singularity(x0 = 0.08, tol = 0.3)
+                         model_support = assembly_model_support()) |>
+    community_solve_singularity(x0 = 0.08, tol = 1e-3)
 
   expect_true(attr(out, "converged"))
   root <- as.numeric(attr(out, "singularity"))
@@ -81,7 +76,7 @@ test_that("community_solve_singularity and the classifier run on the SCM", {
   # reparameterisation -- the curvature here spans several orders of magnitude
   # between FF16 parameterisations.)
   newton_step <- abs(as.numeric(cl$selection_gradient) / as.numeric(cl$jacobian))
-  expect_lt(newton_step, 0.01 * root)
+  expect_lt(newton_step, 1e-4 * root)
 
   # The plant lma singularity is an evolutionary *attractor*: the selection
   # gradient is positive below it and negative above (test-plant-smoke.R makes
@@ -113,20 +108,16 @@ test_that("community_solve_singularity and the classifier run on the SCM", {
 test_that("a singularity is followed along a plant parameter, its sensitivity matching the roots (SCM)", {
   # hmat, the height at maturation, through a caller-written p -> community.
   # Reference-free: the sensitivity at the middle point must agree with the
-  # central difference of the roots the corrector found either side. The
-  # parameter step is coarse for the reason the second-derivative steps are
-  # (plant#653); the sensitivity moves by 0.3% between 1e-2 and 5e-2, and the
-  # roots' difference agrees with it to ~1%.
+  # central difference of the roots the corrector found either side; over a
+  # unit step in hmat that difference carries ~2% truncation error of its own.
   by_hmat <- function(hmat) {
     community_start(bounds(lma = c(0.02, 0.6)),
                     model_support = list(
                       p = plant_default_assembly_pars(hmat = hmat, max_patch_lifetime = 30),
-                      plant_control = plant_default_assembly_control()),
-                    derivative_control = list(d_second = 1e-2, eps_second = 1e-2,
-                                              d_parameter = 1e-2, eps_parameter = 1e-2))
+                      plant_control = plant_default_assembly_control()))
   }
-  start <- community_solve_singularity(by_hmat(9), x0 = 0.08, tol = 0.3)
-  path <- community_continue_singularity(start, by_hmat, c(9, 10, 11), tol = 0.3)
+  start <- community_solve_singularity(by_hmat(9), x0 = 0.08, tol = 1e-3)
+  path <- community_continue_singularity(start, by_hmat, c(9, 10, 11), tol = 1e-3)
 
   expect_null(path$stopped)
   x <- as.numeric(path$traits)

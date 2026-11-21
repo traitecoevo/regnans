@@ -10,22 +10,16 @@
 # At file level, not inside the test: a map defined beside a solved plant
 # community would carry it, and its SCM pointer, to the workers in its frame.
 # The mutant gradient is the finite difference unless asked for plant's
-# sweep, which on FF16 costs about three times as much (plant#729). The
-# parameter step is coarse, as the singularity's continuation takes it
-# (test-plant-smoke-singularity.R); the label and the scout never use it.
+# sweep, which on FF16 costs about three times as much (plant#729).
 by_hmat <- function(hmat, fitness_gradient = "fd") {
   community_start(bounds(lma = c(0.02, 0.6)),
                   model_support = list(
                     p = plant_default_assembly_pars(hmat = hmat, max_patch_lifetime = 30),
                     plant_control = plant_default_assembly_control()),
-                  harness = harness_plant(fitness_gradient = fitness_gradient),
-                  derivative_control = list(d_second = 1e-2, eps_second = 1e-2,
-                                            d_parameter = 1e-2, eps_parameter = 1e-2))
+                  harness = harness_plant(fitness_gradient = fitness_gradient))
 }
-# residual tolerances on plant sit above the steps in its gradient
-# (plant#653), as in test-plant-smoke-singularity.R; fitness_tol above the
-# mutant-fitness noise
-smoke_control <- boundary_control(list(max_residents = 1, evolve_tol = 0.3, fitness_tol = 1e-3))
+# fitness_tol above the mutant-fitness noise
+smoke_control <- boundary_control(list(max_residents = 1, evolve_tol = 1e-3, fitness_tol = 1e-3))
 
 test_that("the label assembles the SCM's lma community (SCM)", {
   one <- community_label(by_hmat(10), smoke_control)

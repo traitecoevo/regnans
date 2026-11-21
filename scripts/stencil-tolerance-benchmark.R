@@ -75,8 +75,7 @@ for (solver in solvers) {
 }
 
 ## ---- plant, cost only ----------------------------------------------------------
-## the steps of test-plant-smoke-singularity.R (a 1e-3 relative step sits in
-## the noise of the SCM's cohort schedule), and the default for one resident.
+## a coarse step (1e-2) and the default (1e-3) for one resident.
 ## The pair is not a coalition: its second resident is being excluded, at a
 ## density of ~1e-5 that halves every generation.
 plant_start <- function(d = 1e-2) {
