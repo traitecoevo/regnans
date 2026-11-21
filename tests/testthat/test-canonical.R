@@ -70,6 +70,7 @@ test_that("JJ12 converges to its CSS and stops, with no branching", {
   expect_lt(abs(final(ce)$gradient_x), canonical_control()$gradient_tol)
   expect_match(paste(utils::capture.output(print(ce)), collapse = ""), "stable after")
   # the community returned is the one solved at the end, polish included
+  expect_true(any(ce$events$event == "polish"))
   expect_s3_class(ce$community, "community")
   expect_equal(as.numeric(ce$community$traits), final(ce)$x, tolerance = 1e-12)
   expect_equal(as.numeric(ce$community$birth_rate), final(ce)$density, tolerance = 1e-12)
