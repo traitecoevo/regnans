@@ -155,11 +155,18 @@ test_that("the resident Jacobian's stencil is solved on its centre's discretisat
   expect_gt(length(disc$ode_times), 0L)
   frozen <- stencil_community(comm, 1e-3, disc)
   expect_identical(frozen$model_support$frozen, disc)
-  # the root-find tolerance goes to the cube of the step, under the name plant
-  # reads: a Control field set under any other name is ignored without a word
+  # the root-find tolerance goes to the cube of the step, no lower than four
+  # machine epsilons, under the name plant reads: a Control field set under any
+  # other name is ignored without a word. expect_identical, because
+  # expect_equal's tolerance is absolute near zero and cannot tell 1e-12 from
+  # 1e-15.
+  root_tol <- function(step) {
+    stencil_community(comm, step, disc)$model_support$plant_control$offspring_height_tol
+  }
   tol <- comm$model_support$plant_control$offspring_height_tol
-  expect_equal(frozen$model_support$plant_control$offspring_height_tol, min(tol, 1e-9))
-  expect_equal(stencil_community(comm, 1e-5, disc)$model_support$plant_control$offspring_height_tol, 1e-15)
+  expect_identical(frozen$model_support$plant_control$offspring_height_tol, min(tol, (1e-3)^3))
+  expect_identical(root_tol(1e-5), (1e-5)^3)
+  expect_identical(root_tol(1e-6), 4 * .Machine$double.eps)
   expect_null(frozen$model_support$plant_control$offspring_production_tol)
   # a frozen discretisation survives a change of residents, so a stencil point
   # built by community_add() replays it

@@ -225,7 +225,9 @@ plant_community_discretisation <- function(community) {
 ## (the tolerance of its root-finds for a newborn's height and the light
 ## compensation point) is held to the cube of the step, as the stencil's
 ## equilibrium is (stencil_community()); a looser root-find puts steps into
-## fitness as a trait moves, which a difference reads as scatter.
+## fitness as a trait moves, which a difference reads as scatter. It goes no
+## lower than four machine epsilons: odelia's TOMS748 refuses a bracket it
+## cannot narrow to the tolerance, and below double precision it cannot.
 ##
 ## A discretisation spans one patch lifetime. A community with another (a
 ## parameter Jacobian's column in max_patch_lifetime) cannot replay it and
@@ -245,7 +247,8 @@ plant_community_freeze_discretisation <- function(community, discretisation, ste
   community$model_support$frozen <- discretisation
   if (!is.null(step)) {
     ctrl <- community$model_support$plant_control
-    ctrl$offspring_height_tol <- min(ctrl$offspring_height_tol, step^3)
+    ctrl$offspring_height_tol <- min(ctrl$offspring_height_tol,
+                                     max(step^3, 4 * .Machine$double.eps))
     community$model_support$plant_control <- ctrl
   }
   community
