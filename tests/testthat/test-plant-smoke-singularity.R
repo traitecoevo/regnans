@@ -155,7 +155,12 @@ test_that("the resident Jacobian's stencil is solved on its centre's discretisat
   expect_gt(length(disc$ode_times), 0L)
   frozen <- stencil_community(comm, 1e-3, disc)
   expect_identical(frozen$model_support$frozen, disc)
-  expect_equal(frozen$model_support$plant_control$offspring_production_tol, 1e-9)
+  # the root-find tolerance goes to the cube of the step, under the name plant
+  # reads: a Control field set under any other name is ignored without a word
+  tol <- comm$model_support$plant_control$offspring_height_tol
+  expect_equal(frozen$model_support$plant_control$offspring_height_tol, min(tol, 1e-9))
+  expect_equal(stencil_community(comm, 1e-5, disc)$model_support$plant_control$offspring_height_tol, 1e-15)
+  expect_null(frozen$model_support$plant_control$offspring_production_tol)
   # a frozen discretisation survives a change of residents, so a stencil point
   # built by community_add() replays it
   moved <- community_add(community_clear_residents(frozen), trait_matrix(0.151, "lma"), birth_rate = 80)

@@ -221,11 +221,11 @@ plant_community_discretisation <- function(community) {
 
 ## Solve `community` on a recorded discretisation: every run replays its node
 ## schedule and ODE steps, with no refinement, so a finite difference between
-## two such solves differs only in the model. plant's offspring_production_tol
+## two such solves differs only in the model. plant's offspring_height_tol
 ## (the tolerance of its root-finds for a newborn's height and the light
 ## compensation point) is held to the cube of the step, as the stencil's
-## equilibrium is (stencil_community()); at plant's default (1e-8) the
-## replayed differences still scatter at the 1e-3 level.
+## equilibrium is (stencil_community()); a looser root-find puts steps into
+## fitness as a trait moves, which a difference reads as scatter.
 ##
 ## A discretisation spans one patch lifetime. A community with another (a
 ## parameter Jacobian's column in max_patch_lifetime) cannot replay it and
@@ -245,7 +245,7 @@ plant_community_freeze_discretisation <- function(community, discretisation, ste
   community$model_support$frozen <- discretisation
   if (!is.null(step)) {
     ctrl <- community$model_support$plant_control
-    ctrl$offspring_production_tol <- min(ctrl$offspring_production_tol, step^3)
+    ctrl$offspring_height_tol <- min(ctrl$offspring_height_tol, step^3)
     community$model_support$plant_control <- ctrl
   }
   community
