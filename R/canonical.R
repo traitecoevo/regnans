@@ -695,7 +695,7 @@ canonical_integrate <- function(community, x0, control, tf, range_z, mutation_sd
   structure(list(
     trajectory = tibble::as_tibble(do.call(rbind, rows)),
     events = tibble::as_tibble(do.call(rbind, events)),
-    community = rhs$last(),
+    community = rhs$last()$community,
     base = base,
     evaluations = rhs$evaluations() + polish_evaluations + branch_evaluations,
     environments = rhs$environments() + polish_environments,

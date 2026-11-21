@@ -23,6 +23,10 @@
 * `community_selection_gradient_jacobian()` returns the Jacobian of the residents' equilibrium birth rates, from the same solves, in `attr(., "birth_rate_jacobian")`.
 * `derivative_control(resident_jacobian = "implicit")` differentiates the resident Jacobian through the equilibrium condition rather than across equilibrium solves: `2m(k + 1)` model runs at given traits and densities and no solves, reported in `attr(., "environments")` and in the canonical equation's `environments` (#88). The default is unchanged. Those runs replay the centre's discretisation, as the stencil's solves do; before, each refined its own schedule, which on plant gave a wrong Jacobian (on TF24 of the wrong sign) and now agrees with the stencil to the steps' truncation error.
 
+## Bug fixes
+
+* `community_canonical_equation()$community` is the community solved where the run ended, as documented. It was the last right-hand-side evaluation's whole list (`z`, `f`, `g_z`, `n` and `community`), so `community_classify_singularity(ce$community)` failed. No number moves.
+
 ## Dependency changes
 
 * Built against plant `develop@300006b5` (plant#866), which moves plant's odelia pin from 0.11.3 to 0.12.4 (plant had moved from 0.11.1 to 0.11.3 since `83a973ff`); phylloptim stays at plant's pin, 0.40.2. regnans takes odelia from plant's `Remotes:` and changes no code: the canonical equation's `OdeSolver` takes the same steps under 0.12.4 as under 0.11.3. odelia 0.12's forward-mode sensitivities apply to compiled Systems; the canonical equation's R right-hand side gets none, and RODAS's Jacobian still comes from `canonical_jacobian()`.
