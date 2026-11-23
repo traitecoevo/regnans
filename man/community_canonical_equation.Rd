@@ -33,7 +33,8 @@ extinct), \code{"polish"}, \code{"stable"}, \code{"t_max"},
 many equilibrium solves it cost), \code{environments} (how many runs of
 the model at given traits and densities its Jacobians cost, under
 \code{resident_jacobian = "implicit"} in
-\code{\link{derivative_control}}), \code{steps} and \code{rejections}
+\code{\link{derivative_control}}), \code{jacobians} (how many Jacobians
+the implicit stepper formed), \code{steps} and \code{rejections}
 (accepted steps and attempts the step-size control rejected),
 \code{immigration_attempts},
 \code{outcome} and the control. \code{\link{canonical_community}} rebuilds

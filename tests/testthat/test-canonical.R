@@ -29,10 +29,16 @@ events_of <- function(ce, what) ce$events[ce$events$event == what, ]
 test_that("canonical_control validates its settings", {
   ctrl <- canonical_control()
   expect_equal(ctrl$stepper, "rodas")
+  expect_equal(c(ctrl$rtol, ctrl$atol), c(1e-2, 1e-4))
+  w <- canonical_control(list(stepper = "ros34pw2"))
+  expect_equal(w$stepper, "ros34pw2")
+  expect_equal(c(w$rtol, w$atol), c(1e-3, 1e-5))
+  expect_equal(canonical_control(list(rtol = 1e-4))$rtol, 1e-4)
   expect_equal(ctrl$branch, "expected")
   expect_equal(ctrl$t_max, Inf)
   expect_equal(ctrl$establishment_factor, 2)
   expect_equal(canonical_control(list(stepper = "rkck"))$stepper, "rkck")
+  expect_equal(canonical_control(list(stepper = "ros34pw2"))$stepper, "ros34pw2")
   expect_equal(canonical_control(list(branch = FALSE))$branch, "none")      # the old logical still works
   expect_equal(canonical_control(list(branch = TRUE))$branch, "immediate")
   expect_error(canonical_control(list(stepper = "euler")), "should be one of")
@@ -76,7 +82,7 @@ test_that("JJ12 converges to its CSS and stops, with no branching", {
   expect_equal(as.numeric(ce$community$birth_rate), final(ce)$density, tolerance = 1e-12)
 })
 
-test_that("the rate scales evolutionary time and Cash-Karp agrees with RODAS", {
+test_that("the rate scales evolutionary time, and Cash-Karp and ROS34PW2 agree with RODAS", {
   slow <- community_canonical_equation(jj12(), x0 = -1.5, control = canonical_control(list(rate = 1)))
   fast <- community_canonical_equation(jj12(), x0 = -1.5, control = canonical_control(list(rate = 2)))
   cross <- function(ce) { tr <- ce$trajectory; tr$time[which(tr$x > 0)[1]] }
@@ -84,9 +90,15 @@ test_that("the rate scales evolutionary time and Cash-Karp agrees with RODAS", {
   ros <- community_canonical_equation(jj12(), x0 = -1.5, control = canonical_control(list(stepper = "rkck")))
   expect_equal(ros$outcome, "stable")
   expect_equal(final(ros)$x, final(slow)$x, tolerance = 1e-3)
+  w <- community_canonical_equation(jj12(), x0 = -1.5, control = canonical_control(list(stepper = "ros34pw2")))
+  expect_equal(w$outcome, "stable")
+  expect_equal(final(w)$x, final(slow)$x, tolerance = 1e-3)
+  # ROS34PW2 keeps its Jacobian across steps, which RODAS forms at every one
+  expect_lt(w$jacobians, slow$jacobians)
+  expect_equal(slow$jacobians, slow$steps)
 })
 
-test_that("RODAS takes the right-hand side's Jacobian from the derivative layer", {
+test_that("the implicit steppers take the right-hand side's Jacobian from the derivative layer", {
   # the speed (rate / 2) (n_i / n_total0) V g_i in closed form
   # (helper-coalition.R), differentiated on the trait scale; with the model's
   # own equilibrium what is left is the stencil's truncation error, ~5e-7 on
@@ -131,14 +143,40 @@ test_that("RODAS takes the right-hand side's Jacobian from the derivative layer"
   community_canonical_equation(jj12(), x0 = -1.5)
   expect_gt(calls, 0L)
   calls <- 0L
+  community_canonical_equation(jj12(), x0 = -1.5, control = canonical_control(list(stepper = "ros34pw2")))
+  expect_gt(calls, 0L)
+  calls <- 0L
   community_canonical_equation(jj12(), x0 = -1.5, control = canonical_control(list(stepper = "rkck")))
   expect_identical(calls, 0L)
 })
 
+test_that("a right-hand side the model fails at is a rejected step, not the end of the run", {
+  # a long step's stage can ask for traits where the model's solve stops with
+  # an error of its own; fail once, at a stage of the first step
+  n <- 0L
+  thrown <- FALSE
+  gradient <- community_fitness_gradient
+  local_mocked_bindings(community_fitness_gradient = function(community, ...) {
+    in_jacobian <- any(vapply(sys.calls(), function(cl) identical(cl[[1]], quote(canonical_jacobian)), logical(1)))
+    if (!in_jacobian) n <<- n + 1L
+    if (!thrown && !in_jacobian && n == 3L) {
+      thrown <<- TRUE
+      stop("the solve failed at this point")
+    }
+    gradient(community, ...)
+  })
+  ce <- community_canonical_equation(jj12(), x0 = -1.5)
+  expect_true(thrown)
+  expect_equal(ce$outcome, "stable")
+  local_mocked_bindings(community_fitness_gradient = gradient)
+  plain <- community_canonical_equation(jj12(), x0 = -1.5)
+  expect_gt(ce$rejections, plain$rejections)
+})
+
 test_that("two residents too close to tell apart merge, the rarer going extinct", {
   # 4e-4 apart at x ~ 0.5, inside two finite-difference steps (1e-3 |x| each),
-  # where the resident Jacobian RODAS needs is undefined
-  for (stepper in c("rodas", "rkck")) {
+  # where the resident Jacobian the implicit steppers need is undefined
+  for (stepper in c("rodas", "ros34pw2", "rkck")) {
     ce <- community_canonical_equation(dd99(sigma_C = 1.5, x0 = 0.3), x0 = matrix(c(0.5, 0.5004), ncol = 1),
                                        control = canonical_control(list(stepper = stepper)))
     merges <- events_of(ce, "merge")
@@ -187,10 +225,10 @@ test_that("without polishing the explicit stepper jitters at its stability limit
   polished <- community_canonical_equation(dd99(sigma_C = 0.4, x0 = 0), x0 = 0.8,
     control = canonical_control(list(stepper = "rkck", branch = "immediate", max_residents = 2)))
   expect_gt(unpolished$evaluations, 5L * polished$evaluations)
-  rodas <- community_canonical_equation(dd99(sigma_C = 0.4, x0 = 0), x0 = 0.8,
+  implicit <- community_canonical_equation(dd99(sigma_C = 0.4, x0 = 0), x0 = 0.8,
     control = canonical_control(list(branch = "immediate", max_residents = 2, polish = FALSE, max_steps = 400)))
-  expect_equal(rodas$outcome, "max_residents")
-  expect_lt(rodas$evaluations, 300L)
+  expect_equal(implicit$outcome, "max_residents")
+  expect_lt(implicit$evaluations, 300L)
 })
 
 test_that("polishing finishes locally and refuses a root far from the residents", {
@@ -430,7 +468,7 @@ test_that("the trajectory plot builds, with a line per lineage and a mark per br
   expect_s3_class(ggplot2::autoplot(ce), "ggplot")
 })
 
-test_that("RODAS takes the implicit resident Jacobian at no equilibrium solves", {
+test_that("the implicit stepper takes the implicit resident Jacobian at no equilibrium solves", {
   implicit <- function(comm) {
     comm$derivative_control <- derivative_control(list(resident_jacobian = "implicit"))
     comm
