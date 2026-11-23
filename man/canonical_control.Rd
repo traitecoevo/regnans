@@ -24,7 +24,13 @@ canonical_control(control = NULL)
     an L-stable step is not held at a stability limit; its Jacobian comes
     from \code{\link{community_selection_gradient_jacobian}}, central
     differences across the residents of their gradients and densities,
-    two equilibrium solves per unknown), \code{"rkck"} (explicit
+    two equilibrium solves per unknown, formed at every step),
+    \code{"ros34pw2"} (the linearly implicit Rosenbrock-W ROS34PW2, of
+    order 3, which keeps that Jacobian across steps and forms a new one
+    only when a step from a later point is rejected or it has served the
+    odelia control's \code{jacobian_max_age} steps, 20 by default: on
+    FF16's lma, hmat, rho and omega to t = 300 it formed 4 Jacobians where
+    RODAS formed 42, at a third of the equilibrium solves), \code{"rkck"} (explicit
     Cash--Karp 4(5), the cheapest on smooth stretches) or \code{"dopri"}
     (explicit Dormand--Prince 5(4)). See \code{\link[odelia]{OdeSolver}}.}
   \item{\code{t_max}, \code{max_steps}}{limits on evolutionary time
@@ -32,11 +38,17 @@ canonical_control(control = NULL)
     limit is reached) and accepted steps.}
   \item{\code{rtol}, \code{atol}}{tolerances of the step-size control, on
     the trait scale: a step is accepted when its error estimate is within
-    \code{atol + rtol * abs(z)}. The defaults follow the trajectory to
-    about 1\% a step: the end point is found by Newton (\code{polish}), so
-    a tighter trajectory costs equilibrium solves without moving it, and a
-    looser one, which RODAS would take, holds the explicit pairs at their
-    stability limit.}
+    \code{atol + rtol * abs(z)}. \code{NULL}, the default, sets them by
+    stepper so that each follows the trajectory to about 1\% a step:
+    \code{1e-3} and \code{1e-5} under \code{"ros34pw2"}, \code{1e-2} and
+    \code{1e-4} under the others. The end point of a run that reaches a
+    coalition is found by Newton (\code{polish}), so a tighter trajectory
+    costs equilibrium solves without moving it; a looser one, which RODAS
+    would take, holds the explicit pairs at their stability limit. ROS34PW2
+    is of order 3 against RODAS's 4, and on a run that does not settle
+    (FF16's lma, hmat, rho and omega to t = 300) its end state at
+    \code{1e-2} was 34\% off where RODAS's was 0.05\%, and at \code{1e-3}
+    within 2\%, still with a third of RODAS's solves.}
   \item{\code{dt0}, \code{dt_max}}{initial and largest step; \code{NULL}
     chooses \code{dt0} from the initial speed.}
   \item{\code{gradient_tol}}{selection has stopped when every resident's

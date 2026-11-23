@@ -215,7 +215,11 @@ canonical_control <- function(control = NULL) {
 ## is refused with odelia::domain_error(), which rejects the step and retries
 ## it smaller. A stage of a long step can ask for traits far from the
 ## residents', where plant's solve can stop with an error of its own: that
-## point is outside the model's domain, not a reason to end the run.
+## point is outside the model's domain, not a reason to end the run. The cost
+## is that a model that fails everywhere is retried until the step reaches
+## odelia's floor (about fifteen evaluations) before the run ends, with the
+## original message in the error. An evaluation at a re-seed, outside any step,
+## still ends the run.
 ## `jac` is its Jacobian for the implicit stepper, which asks for it at the
 ## state of the last evaluation; its solves are counted with the rest.
 canonical_rhs <- function(base, tf, control, k, n_total0, V) {
@@ -233,9 +237,11 @@ canonical_rhs <- function(base, tf, control, k, n_total0, V) {
     comm <- community_demography(comm)
     evaluations <<- evaluations + 1L
     n <- as.numeric(comm$birth_rate)
+    g <- community_fitness_gradient(comm)                       # m x k, raw units
+    ## the next solve warm-starts here only once this point's gradient is in
+    ## hand: a stage the model fails at leaves the warm start where it was
     if (all(is.finite(n)) && all(n > 0)) birth_rate <<- n
     state <<- comm$demography_state
-    g <- community_fitness_gradient(comm)                       # m x k, raw units
     g_z <- if (identical(tf$scale, "log")) g * x else g           # w.r.t. the trait scale
     weight <- if (control$density) n / n_total0 else rep(1, m)
     speed <- 0.5 * control$rate * weight * (g_z %*% V)

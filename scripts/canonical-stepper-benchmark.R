@@ -1,6 +1,8 @@
 ## Cost of the canonical equation under each odelia stepper, on the reference
 ## models, with the model's own equilibrium and with one iterated on the
-## one-generation map (as plant's is). RODAS and ROS34PW2 are run with their Jacobian both ways
+## one-generation map (as plant's is), each stepper at its own default
+## tolerance (ROS34PW2 a decade tighter than the others; canonical_control()).
+## RODAS and ROS34PW2 are run with their Jacobian both ways
 ## (derivative_control(resident_jacobian = )): differenced across equilibrium
 ## solves, and by implicit differentiation at a fixed environment. `runs`
 ## counts what a model run costs on plant -- one call of the one-generation map

@@ -168,7 +168,9 @@ test_that("a right-hand side the model fails at is a rejected step, not the end 
   ce <- community_canonical_equation(jj12(), x0 = -1.5)
   expect_true(thrown)
   expect_equal(ce$outcome, "stable")
-  expect_gt(ce$rejections, 0L)
+  local_mocked_bindings(community_fitness_gradient = gradient)
+  plain <- community_canonical_equation(jj12(), x0 = -1.5)
+  expect_gt(ce$rejections, plain$rejections)
 })
 
 test_that("two residents too close to tell apart merge, the rarer going extinct", {
