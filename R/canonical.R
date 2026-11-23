@@ -17,9 +17,10 @@
 # The stepping is odelia's: its OdeSolver takes the right-hand side as an R
 # closure, steps once at a time up to a bound (so branching and immigration
 # clocks are landed on exactly), re-seeds the state at a new length when the
-# community changes, and offers explicit embedded pairs or RODAS for the stiff
-# case of many traits or species (#43). RODAS's Jacobian of the right-hand side
-# comes from the derivative layer (canonical_jacobian()): the residents'
+# community changes, and offers explicit embedded pairs or the linearly
+# implicit RODAS and ROS34PW2 for the stiff case of many traits or species
+# (#43). Their Jacobian of the right-hand side comes from the derivative
+# layer (canonical_jacobian()): the residents'
 # gradients and densities differenced across the residents, each point solved
 # finely enough for the difference (odelia's own forward difference of a
 # right-hand side that is itself a solve is too noisy for its step-size
@@ -29,7 +30,10 @@
 # a coalition an explicit pair is held at its stability limit -- while on
 # smooth stretches it costs about twice the explicit pairs in equilibrium
 # solves (scripts/canonical-stepper-benchmark.R), a price an exact Jacobian
-# removes.
+# removes. ROS34PW2, a W-method, keeps its order with an out-of-date Jacobian,
+# so it forms one every few steps where RODAS forms one at every step; the
+# saving grows with the number of traits, since the Jacobian costs two
+# equilibrium solves per unknown.
 
 ##' Control the canonical equation.
 ##'
@@ -51,7 +55,13 @@
 ##'     an L-stable step is not held at a stability limit; its Jacobian comes
 ##'     from \code{\link{community_selection_gradient_jacobian}}, central
 ##'     differences across the residents of their gradients and densities,
-##'     two equilibrium solves per unknown), \code{"rkck"} (explicit
+##'     two equilibrium solves per unknown, formed at every step),
+##'     \code{"ros34pw2"} (the linearly implicit Rosenbrock-W ROS34PW2, of
+##'     order 3, which keeps that Jacobian across steps and forms a new one
+##'     only when a step from a later point is rejected or it has served the
+##'     odelia control's \code{jacobian_max_age} steps, 20 by default: on
+##'     FF16's lma, hmat, rho and omega to t = 300 it formed 4 Jacobians where
+##'     RODAS formed 42, at a third of the equilibrium solves), \code{"rkck"} (explicit
 ##'     Cash--Karp 4(5), the cheapest on smooth stretches) or \code{"dopri"}
 ##'     (explicit Dormand--Prince 5(4)). See \code{\link[odelia]{OdeSolver}}.}
 ##'   \item{\code{t_max}, \code{max_steps}}{limits on evolutionary time
@@ -59,11 +69,17 @@
 ##'     limit is reached) and accepted steps.}
 ##'   \item{\code{rtol}, \code{atol}}{tolerances of the step-size control, on
 ##'     the trait scale: a step is accepted when its error estimate is within
-##'     \code{atol + rtol * abs(z)}. The defaults follow the trajectory to
-##'     about 1\% a step: the end point is found by Newton (\code{polish}), so
-##'     a tighter trajectory costs equilibrium solves without moving it, and a
-##'     looser one, which RODAS would take, holds the explicit pairs at their
-##'     stability limit.}
+##'     \code{atol + rtol * abs(z)}. \code{NULL}, the default, sets them by
+##'     stepper so that each follows the trajectory to about 1\% a step:
+##'     \code{1e-3} and \code{1e-5} under \code{"ros34pw2"}, \code{1e-2} and
+##'     \code{1e-4} under the others. The end point of a run that reaches a
+##'     coalition is found by Newton (\code{polish}), so a tighter trajectory
+##'     costs equilibrium solves without moving it; a looser one, which RODAS
+##'     would take, holds the explicit pairs at their stability limit. ROS34PW2
+##'     is of order 3 against RODAS's 4, and on a run that does not settle
+##'     (FF16's lma, hmat, rho and omega to t = 300) its end state at
+##'     \code{1e-2} was 34\% off where RODAS's was 0.05\%, and at \code{1e-3}
+##'     within 2\%, still with a third of RODAS's solves.}
 ##'   \item{\code{dt0}, \code{dt_max}}{initial and largest step; \code{NULL}
 ##'     chooses \code{dt0} from the initial speed.}
 ##'   \item{\code{gradient_tol}}{selection has stopped when every resident's
@@ -132,7 +148,7 @@ canonical_control <- function(control = NULL) {
     rate = 1, vcv = NULL, density = TRUE,
     stepper = "rodas",
     t_max = Inf, max_steps = 2000L,
-    rtol = 1e-2, atol = 1e-4, dt0 = NULL, dt_max = Inf,
+    rtol = NULL, atol = NULL, dt0 = NULL, dt_max = Inf,
     gradient_tol = 1e-4,
     polish = TRUE, polish_tol = 1e-2,
     branch = "expected", mutation_sd = NULL, branch_nodes = 12L, branch_distance = 0.02,
@@ -147,7 +163,12 @@ canonical_control <- function(control = NULL) {
     stop("Unknown control parameters ", paste(extra, collapse = ", "))
   }
   ret <- modifyList(defaults, control, keep.null = TRUE)
-  ret$stepper <- match.arg(ret$stepper, c("rodas", "rkck", "dopri"))
+  ret$stepper <- match.arg(ret$stepper, c("rodas", "ros34pw2", "rkck", "dopri"))
+  # A third-order stepper's error estimate leaves less margin than a
+  # fourth-order one's, so it is held a decade tighter for the same accuracy.
+  tight <- ret$stepper == "ros34pw2"
+  if (is.null(ret$rtol)) ret$rtol <- if (tight) 1e-3 else 1e-2
+  if (is.null(ret$atol)) ret$atol <- if (tight) 1e-5 else 1e-4
   for (nm in c("rate", "rtol", "atol", "gradient_tol", "polish_tol", "branch_distance",
                "extinct_fraction", "classify_tol", "establishment_factor")) {
     v <- ret[[nm]]
@@ -189,9 +210,12 @@ canonical_control <- function(control = NULL) {
 ## starts and the whole last evaluation (speeds, gradients, densities,
 ## community) kept for the caller: odelia guarantees that after an accepted
 ## step or a re-seed the last evaluation was at the solver's state. `ode` is
-## the same map in the (t, y) form the solver calls; an evaluation whose
-## equilibrium did not converge or whose speed is not finite is refused with
-## odelia::domain_error(), which rejects the step and retries it smaller.
+## the same map in the (t, y) form the solver calls; an evaluation the model
+## fails at, whose equilibrium did not converge or whose speed is not finite
+## is refused with odelia::domain_error(), which rejects the step and retries
+## it smaller. A stage of a long step can ask for traits far from the
+## residents', where plant's solve can stop with an error of its own: that
+## point is outside the model's domain, not a reason to end the run.
 ## `jac` is its Jacobian for the implicit stepper, which asks for it at the
 ## state of the last evaluation; its solves are counted with the rest.
 canonical_rhs <- function(base, tf, control, k, n_total0, V) {
@@ -218,7 +242,10 @@ canonical_rhs <- function(base, tf, control, k, n_total0, V) {
     last <<- list(z = as.numeric(z), f = as.numeric(speed), g_z = g_z, n = n, community = comm)
   }
   ode <- function(t, y) {
-    out <- f(y)
+    out <- tryCatch(f(y), error = function(e) e)
+    if (inherits(out, "error")) {
+      odelia::domain_error(paste("the model could not be evaluated:", conditionMessage(out)))
+    }
     if (!isTRUE(attr(out$community, "converged")) || !all(is.finite(out$f))) {
       odelia::domain_error("the demographic equilibrium did not converge")
     }
@@ -430,7 +457,8 @@ canonical_ode_control <- function(control) {
 ##' many equilibrium solves it cost), \code{environments} (how many runs of
 ##' the model at given traits and densities its Jacobians cost, under
 ##' \code{resident_jacobian = "implicit"} in
-##' \code{\link{derivative_control}}), \code{steps} and \code{rejections}
+##' \code{\link{derivative_control}}), \code{jacobians} (how many Jacobians
+##' the implicit stepper formed), \code{steps} and \code{rejections}
 ##' (accepted steps and attempts the step-size control rejected),
 ##' \code{immigration_attempts},
 ##' \code{outcome} and the control. \code{\link{canonical_community}} rebuilds
@@ -700,6 +728,7 @@ canonical_integrate <- function(community, x0, control, tf, range_z, mutation_sd
     evaluations = rhs$evaluations() + polish_evaluations + branch_evaluations,
     environments = rhs$environments() + polish_environments,
     steps = steps,
+    jacobians = unname(solver$counts()[["n_jac"]]),
     rejections = unname(solver$counts()[["n_rejections"]]),
     immigration_attempts = immigration_attempts,
     outcome = outcome,
